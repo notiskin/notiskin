@@ -1,0 +1,365 @@
+import { execSync, spawn } from 'child_process';
+import {
+  existsSync,
+  copyFileSync,
+  statSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+  unlinkSync,
+  chmodSync,
+  rmSync,
+} from 'fs';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
+import http from 'http';
+import { sleep } from '../utils/sleep';
+
+const NOTION_BINARY_CANDIDATES = [
+  '/Applications/Notion.app/Contents/MacOS/Notion',
+  `${process.env.HOME}/Applications/Notion.app/Contents/MacOS/Notion`,
+];
+
+const STARTUP_TIMEOUT_MS = 30_000;
+
+// size check first, real binary is many MB, don't read it into memory
+export function isWrapperPresent(notionPath: string): boolean {
+  try {
+    if (statSync(notionPath).size > 1024) return false;
+    return readFileSync(notionPath, 'utf-8').includes('notiskin-wrapper');
+  } catch {
+    return false;
+  }
+}
+
+// watcher.ts uses this to avoid duplicating NOTION_BINARY_CANDIDATES
+export function findNotionBinary(): string {
+  for (const candidate of NOTION_BINARY_CANDIDATES) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    'Could not find Notion.app. ' +
+      'Make sure Notion is installed in /Applications or ~/Applications.'
+  );
+}
+
+// /Applications/Notion.app/Contents/MacOS/Notion -> /Applications/Notion.app
+function appBundlePath(notionPath: string): string {
+  return dirname(dirname(dirname(notionPath)));
+}
+
+function resignBundle(notionPath: string): void {
+  try {
+    execSync(`codesign --force --deep --sign - "${appBundlePath(notionPath)}"`, {
+      stdio: 'ignore',
+    });
+    console.log('[patcher] App bundle re-signed (ad-hoc).');
+  } catch {
+    console.warn(
+      '[patcher] Warning: could not re-sign the app bundle.\n' +
+        '         If Notion shows "damaged application" on first launch, go to\n' +
+        '         System Settings > Privacy & Security and click "Open Anyway".'
+    );
+  }
+}
+
+// runs as background job so it can poll for CDP while Notion.real starts
+// exec replaces the shell, macOS sees the correct PID
+export function makeWrapperScript(nodePath: string, cliScriptPath: string): string {
+  return [
+    '#!/bin/sh',
+    '# notiskin-wrapper',
+    'mkdir -p "$HOME/.notiskin/logs"',
+    `"${nodePath}" "${cliScriptPath}" inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &`,
+    'exec "$(dirname "$0")/Notion.real" --remote-debugging-port=9222 "$@"',
+    '',
+  ].join('\n');
+}
+
+const SUDOERS_FILE = '/etc/sudoers.d/notiskin';
+
+// under sudo, $HOME = /root, use SUDO_USER to find the actual user's home dir
+export function signingHelperPath(): string {
+  const sudoUser = process.env.SUDO_USER;
+  const base = sudoUser ? `/Users/${sudoUser}` : homedir();
+  return join(base, '.notiskin', 'Notiskin.app');
+}
+
+// .app so the password dialog says "Notiskin" not "osascript"
+export function compileSigningHelper(): void {
+  const helperApp = signingHelperPath();
+  const helperDir = join(helperApp, '..'); // ~/.notiskin/
+  const tmpScript = join(helperDir, 'notiskin_sign_tmp.applescript');
+
+  mkdirSync(helperDir, { recursive: true });
+  // osacompile fails if the bundle dir already exists
+  try { execSync(`rm -rf "${helperApp}"`, { stdio: 'ignore' }); } catch {}
+
+  writeFileSync(
+    tmpScript,
+    [
+      'on run argv',
+      '  do shell script "codesign --force --deep --sign - " & quoted form of (item 1 of argv) with administrator privileges',
+      'end run',
+    ].join('\n'),
+    'utf-8'
+  );
+
+  try {
+    execSync(`osacompile -o "${helperApp}" "${tmpScript}"`, { stdio: 'pipe' });
+    // sudo creates files owned by root, chown back to the actual user
+    const sudoUser = process.env.SUDO_USER;
+    if (sudoUser) {
+      execSync(`chown -R "${sudoUser}" "${helperDir}"`, { stdio: 'ignore' });
+    }
+    console.log(`[patcher] Signing helper compiled at ${helperApp}`);
+  } catch (err: unknown) {
+    throw new Error(`Failed to compile signing helper: ${(err as Error).message}`);
+  } finally {
+    try { unlinkSync(tmpScript); } catch {}
+  }
+}
+
+// visudo -c validates before writing, failed check leaves sudoers.d untouched
+function installSudoersRule(username: string, notionPath: string): void {
+  const bundle = appBundlePath(notionPath);
+  const rule = [
+    '# Notiskin: passwordless codesign for automatic Notion bundle re-signing.',
+    '# This grants NO other elevated access, only this exact command is covered.',
+    `${username} ALL = (root) NOPASSWD: /usr/bin/codesign --force --deep --sign - ${bundle}`,
+    '',
+  ].join('\n');
+
+  const tmpFile = '/tmp/notiskin_sudoers_tmp';
+
+  // validate before touching sudoers.d, reject means nothing was written
+  writeFileSync(tmpFile, rule, { encoding: 'utf-8', mode: 0o440 });
+  try {
+    execSync(`visudo -c -f "${tmpFile}"`, { stdio: 'pipe' });
+  } catch (err: unknown) {
+    try { unlinkSync(tmpFile); } catch {}
+    throw new Error(
+      `Sudoers rule failed visudo validation, aborting, nothing written to /etc/sudoers.d/. ` +
+      `${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`
+    );
+  }
+
+  try {
+    writeFileSync(SUDOERS_FILE, rule, { encoding: 'utf-8', mode: 0o440 });
+    chmodSync(SUDOERS_FILE, 0o440);
+  } finally {
+    try { unlinkSync(tmpFile); } catch {}
+  }
+
+  console.log(`[patcher] Sudoers rule installed at ${SUDOERS_FILE}`);
+  console.log('[patcher] The watcher will now re-sign automatically without prompting.');
+  console.log('[patcher] Safety check: run "sudo ls /" and confirm it still asks for your password.');
+  console.log('[patcher] (The rule only covers the exact codesign command, nothing else gains passwordless access.)');
+}
+
+export function patchNotion(nodePath: string, cliScriptPath: string): void {
+  const notionPath = findNotionBinary();
+  const realPath = `${notionPath}.real`;
+  const backupDir = join(homedir(), '.notiskin', 'backup');
+  const backupPath = join(backupDir, 'Notion.original');
+
+  if (isWrapperPresent(notionPath)) {
+    console.log('[patcher] Already patched, wrapper is in place.');
+    return;
+  }
+
+  // never continue without a backup, no restore path means no patch
+  console.log('[patcher] Backing up original binary...');
+  try {
+    mkdirSync(backupDir, { recursive: true });
+    copyFileSync(notionPath, backupPath);
+    console.log(`[patcher] Backup saved to ${backupPath}`);
+  } catch (err: unknown) {
+    throw new Error(`Backup failed, aborting patch. ${(err as Error).message}`);
+  }
+
+  console.log('[patcher] Renaming Notion -> Notion.real...');
+  try {
+    renameSync(notionPath, realPath);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      throw new Error('Permission denied.\nRun: sudo npm run patch');
+    }
+    throw err;
+  }
+
+  // restore on failure, can't leave Notion without a working binary
+  console.log('[patcher] Writing wrapper script...');
+  try {
+    writeFileSync(notionPath, makeWrapperScript(nodePath, cliScriptPath), { encoding: 'utf-8', mode: 0o755 });
+  } catch (err: unknown) {
+    try {
+      renameSync(realPath, notionPath);
+    } catch {}
+    throw new Error(`Failed to write wrapper, original restored. ${(err as Error).message}`);
+  }
+
+  resignBundle(notionPath);
+
+  // watcher uses this to show "Notiskin" instead of "osascript" in elevation prompts
+  console.log('[patcher] Compiling signing helper...');
+  try {
+    compileSigningHelper();
+  } catch (err: unknown) {
+    console.warn(`[patcher] Warning: ${(err as Error).message}`);
+    console.warn('[patcher] Falling back to the "osascript" dialog name if signing prompts are needed.');
+  }
+
+  // only runs as root, no extra prompt needed beyond what the user typed for sudo
+  const sudoUser = process.env.SUDO_USER || process.env.USER;
+  const isRoot = process.getuid?.() === 0;
+  if (isRoot && sudoUser) {
+    console.log('[patcher] Installing passwordless sudoers rule for codesign...');
+    try {
+      installSudoersRule(sudoUser, notionPath);
+    } catch (err: unknown) {
+      console.warn(`[patcher] Warning: ${(err as Error).message}`);
+      console.warn('[patcher] Auto-signing will use the password popup as a fallback instead.');
+    }
+  } else {
+    console.log('[patcher] Not running as root, skipping passwordless sudoers setup.');
+    console.log('[patcher] The watcher will show a password popup when re-signing. To set up silent re-signing, run: sudo npm run patch');
+  }
+
+  console.log('');
+  console.log('[patcher] Done. Quit Notion and reopen it normally, themes and plugins will load automatically.');
+}
+
+export function unpatchNotion(): void {
+  const notionPath = findNotionBinary();
+  const realPath = `${notionPath}.real`;
+
+  if (!existsSync(realPath)) {
+    throw new Error(
+      `Notion.real not found at ${realPath}.\n` +
+        'Notion does not appear to be patched.'
+    );
+  }
+
+  if (!isWrapperPresent(notionPath)) {
+    console.warn(
+      '[patcher] Warning: Notion file is not the Notiskin wrapper, ' +
+        'it may have been replaced by a Notion update. Restoring Notion.real anyway.'
+    );
+  }
+
+  console.log('[patcher] Removing wrapper...');
+  try {
+    unlinkSync(notionPath);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      throw new Error('Permission denied.\nRun: sudo npm run unpatch');
+    }
+    throw err;
+  }
+
+  console.log('[patcher] Restoring original binary...');
+  renameSync(realPath, notionPath);
+
+  resignBundle(notionPath);
+
+  if (existsSync(SUDOERS_FILE)) {
+    try {
+      unlinkSync(SUDOERS_FILE);
+      console.log(`[patcher] Sudoers rule removed (${SUDOERS_FILE}).`);
+    } catch {
+      console.warn(`[patcher] Could not remove ${SUDOERS_FILE}, remove it manually: sudo rm ${SUDOERS_FILE}`);
+    }
+  }
+
+  const PLIST_PATH = join(homedir(), 'Library', 'LaunchAgents', 'com.notiskin.watcher.plist');
+  if (existsSync(PLIST_PATH)) {
+    try {
+      execSync(`launchctl unload "${PLIST_PATH}"`, { stdio: 'ignore' });
+    } catch {
+      // agent may already be unloaded, still remove the file
+    }
+    try {
+      unlinkSync(PLIST_PATH);
+      console.log('[patcher] LaunchAgent removed.');
+    } catch {
+      console.warn(`[patcher] Could not remove LaunchAgent, remove it manually: rm "${PLIST_PATH}"`);
+    }
+  }
+
+  const helperApp = signingHelperPath();
+  if (existsSync(helperApp)) {
+    try {
+      rmSync(helperApp, { recursive: true, force: true });
+      console.log('[patcher] Signing helper removed.');
+    } catch {
+      console.warn(`[patcher] Could not remove signing helper at ${helperApp}`);
+    }
+  }
+
+  console.log('[patcher] Unpatch complete. Notion is fully restored.');
+}
+
+export function killNotion(): void {
+  try {
+    execSync('pkill -x "Notion"', { stdio: 'ignore' });
+    console.log('[patcher] Notion was running, closed it.');
+  } catch {
+    // pkill exits with code 1 when no matching process is found, that is fine
+  }
+}
+
+export function launchNotion(port: number): void {
+  const binary = findNotionBinary();
+  // --remote-debugging-port turns on the Chrome DevTools Protocol server
+  const child = spawn(binary, [`--remote-debugging-port=${port}`], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref(); // let this script exit independently of Notion
+}
+
+function probeDebugServer(port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = http.get(`http://127.0.0.1:${port}/json/version`, res => {
+      res.resume();
+      if (res.statusCode === 200) {
+        resolve();
+      } else {
+        reject(new Error(`unexpected status ${res.statusCode}`));
+      }
+    });
+    req.on('error', reject);
+    req.setTimeout(1000, () => {
+      req.destroy();
+      reject(new Error('probe timed out'));
+    });
+  });
+}
+
+export async function waitForCDP(port: number): Promise<void> {
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      await probeDebugServer(port);
+      console.log('[patcher] Notion debug server is ready.');
+      return;
+    } catch {
+      await sleep(500);
+    }
+  }
+  throw new Error(
+    `Timed out after ${STARTUP_TIMEOUT_MS / 1000}s waiting for Notion's debug server on port ${port}. ` +
+      'Check that Notion launched correctly.'
+  );
+}
+
+export async function isCDPAvailable(port: number): Promise<boolean> {
+  try {
+    await probeDebugServer(port);
+    return true;
+  } catch {
+    return false;
+  }
+}

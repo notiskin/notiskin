@@ -1,0 +1,85 @@
+{
+  "name": "notiskin",
+  "version": "0.1.0",
+  "description": "Open source modding tool for the Notion desktop app. Apply CSS themes and JavaScript plugins to Notion's Electron client",
+  "main": "dist/electron/main.js",
+  "bin": {
+    "notiskin": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "npm run build && electron .",
+    "apply": "npm run build && node dist/cli/index.js",
+    "themes": "npm run build && node dist/cli/index.js themes",
+    "theme": "npm run build && node dist/cli/index.js theme",
+    "plugins": "npm run build && node dist/cli/index.js plugins",
+    "plugin": "npm run build && node dist/cli/index.js plugin",
+    "patch": "npm run build && node dist/cli/index.js patch",
+    "unpatch": "npm run build && node dist/cli/index.js unpatch",
+    "watch": "npm run build && node dist/patcher/watcher.js",
+    "watch:install": "npm run build && node dist/cli/index.js watch:install",
+    "watch:uninstall": "npm run build && node dist/cli/index.js watch:uninstall",
+    "gui": "npm run build && node dist/gui/run.js",
+    "test": "node --test",
+    "clean": "rm -rf dist",
+    "build:mac": "tsc && electron-builder --mac",
+    "publish": "electron-builder --mac --publish always"
+  },
+  "keywords": [
+    "notion",
+    "modding",
+    "themes",
+    "plugins",
+    "electron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "chrome-remote-interface": "^0.34.0",
+    "dotenv": "^17.4.2",
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.0.0",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
+    "typescript": "^6.0.3"
+  },
+  "build": {
+    "appId": "com.notiskin.app",
+    "productName": "notiskin",
+    "publish": {
+      "provider": "github",
+      "owner": "notiskin",
+      "repo": "notiskin"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "zip",
+          "arch": ["arm64"]
+        }
+      ]
+    },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "src/gui/**/*",
+      "marketplace/**/*",
+      "package.json",
+      ".env"
+    ]
+  }
+}

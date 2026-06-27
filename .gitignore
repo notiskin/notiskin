@@ -1,0 +1,10 @@
+.env
+node_modules/
+dist/
+docs/
+release/
+*.tsbuildinfo
+.DS_Store
+notiskin.config.json
+.claude/
+CLAUDE.md

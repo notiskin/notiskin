@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notiskin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #111;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    .app-layout { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 180px;
+      min-height: 100vh;
+      background: #0d0d0d;
+      border-right: 1px solid #1e1e1e;
+      padding: 32px 0;
+      position: fixed;
+      top: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .sidebar-logo {
+      font-size: 15px;
+      font-weight: 700;
+      color: #e0e0e0;
+      padding: 0 20px;
+      letter-spacing: -0.2px;
+    }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+    .sidebar-link {
+      font-size: 13px;
+      color: #555;
+      text-decoration: none;
+      padding: 7px 20px;
+      border-left: 2px solid transparent;
+      transition: color 0.15s;
+    }
+    .sidebar-link:hover { color: #aaa; }
+    .sidebar-link.active { color: #e0e0e0; border-left-color: #6366f1; }
+
+    .main-content {
+      margin-left: 180px;
+      padding: 40px 32px;
+      max-width: 760px;
+      width: 100%;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 28px;
+      border-bottom: 1px solid #1e1e1e;
+    }
+    .tab-btn {
+      padding: 7px 16px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #555;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-bottom: -1px;
+      transition: color 0.15s;
+    }
+    .tab-btn:hover { color: #aaa; opacity: 1; }
+    .tab-btn.active { color: #e0e0e0; border-bottom-color: #6366f1; }
+
+    section { margin-bottom: 36px; }
+    h2 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #555;
+      margin-bottom: 10px;
+    }
+
+    .card {
+      background: #1c1c1c;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 11px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: border-color 0.15s;
+    }
+    .card + .card { margin-top: 6px; }
+    .card:hover { border-color: #3a3a3a; }
+    .card.active { border-color: #6366f1; }
+
+    .card-info { flex: 1; min-width: 0; }
+    .card-name { font-size: 14px; font-weight: 500; color: #e0e0e0; }
+    .card-desc { font-size: 12px; color: #666; margin-top: 2px; }
+    .card-meta { font-size: 11px; color: #444; margin-top: 2px; }
+
+    input[type="radio"] {
+      appearance: none;
+      width: 16px; height: 16px;
+      border: 2px solid #444;
+      border-radius: 50%;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+    input[type="radio"]:checked {
+      border-color: #6366f1;
+      background: #6366f1;
+    }
+    input[type="radio"]:checked::after {
+      content: '';
+      position: absolute;
+      width: 6px; height: 6px;
+      background: white;
+      border-radius: 50%;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .toggle { position: relative; width: 38px; height: 21px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 21px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-thumb {
+      position: absolute;
+      width: 15px; height: 15px;
+      background: #888;
+      border-radius: 50%;
+      top: 3px; left: 3px;
+      transition: transform 0.2s, background 0.2s;
+      pointer-events: none;
+    }
+    .toggle input:checked ~ .toggle-track { background: #6366f1; }
+    .toggle input:checked ~ .toggle-thumb { transform: translateX(17px); background: white; }
+    .toggle input:disabled ~ .toggle-track { opacity: 0.4; cursor: not-allowed; }
+
+    button {
+      padding: 6px 13px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      line-height: 1.4;
+      transition: opacity 0.1s;
+      white-space: nowrap;
+    }
+    button:hover:not(:disabled) { opacity: 0.85; }
+    button:active:not(:disabled) { opacity: 0.7; }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-primary { background: #6366f1; color: white; }
+    .btn-ghost { background: #252525; color: #bbb; border: 1px solid #333; }
+    .btn-danger { background: transparent; color: #f87171; border: 1px solid #3a2a2a; }
+
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #252525;
+      color: #555;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge.theme { color: #60a5fa; border: 1px solid #1e3a5f; background: #0d1f33; }
+    .badge.plugin { color: #a78bfa; border: 1px solid #2e1f5e; background: #150f33; }
+
+    .empty { font-size: 13px; color: #444; padding: 10px 2px; }
+    .loading { font-size: 13px; color: #333; padding: 10px 2px; }
+    .error  { font-size: 13px; color: #f87171; padding: 10px 2px; }
+
+    .btn-delete {
+      background: transparent;
+      color: #444;
+      border: none;
+      font-size: 16px;
+      line-height: 1;
+      padding: 4px 8px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+    .btn-delete:hover { color: #f87171; background: #2a1515; }
+
+    #busy-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 50;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+    }
+    #busy-overlay.visible { display: flex; }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #333;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #busy-msg { font-size: 14px; color: #aaa; }
+
+    #warning-dialog {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    #warning-dialog.visible { display: flex; }
+    .dialog {
+      background: #1c1c1c;
+      border: 1px solid #3a2a2a;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 460px;
+      width: 90%;
+    }
+    .dialog-icon { font-size: 28px; margin-bottom: 12px; }
+    .dialog h3 { font-size: 15px; font-weight: 600; color: #fbbf24; margin-bottom: 10px; }
+    .dialog p { font-size: 13px; color: #aaa; line-height: 1.65; margin-bottom: 20px; }
+    .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* override base card flex so Browse cards stack vertically */
+    #tab-browse .card {
+      display: block;
+      padding: 14px 16px;
+    }
+
+    .card-row { display: flex; align-items: flex-start; gap: 16px; }
+
+    #tab-browse .card-meta { font-size: 11px; color: #444; margin-top: 6px; }
+    #tab-browse .card-meta a { color: #6366f1; text-decoration: none; }
+    #tab-browse .card-meta a:hover { text-decoration: underline; }
+    #tab-browse .card-desc { font-size: 13px; color: #777; margin-top: 4px; line-height: 1.5; }
+
+    .btn-install {
+      padding: 6px 13px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      background: #6366f1;
+      color: white;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: opacity 0.1s;
+    }
+    .btn-install:hover:not(:disabled) { opacity: 0.85; }
+    .btn-install:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .install-error { font-size: 12px; color: #f87171; margin-top: 6px; }
+
+    .notice {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+    .notice strong { color: #a78bfa; }
+
+    .theme-preview {
+      width: 100%;
+      height: 220px;
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      font-size: 11px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--ns-bg, #ffffff);
+      color: var(--ns-text, #1a1a1a);
+      margin-bottom: 10px;
+    }
+    .ns-mockup { display: flex; height: 100%; }
+    .ns-sidebar {
+      width: 28%;
+      background: var(--ns-sidebar-bg, #f7f7f5);
+      padding: 8px 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+      border-right: 1px solid var(--ns-divider-color, #e0e0e0);
+    }
+    .ns-sidebar-item {
+      padding: 3px 6px;
+      border-radius: 4px;
+      color: var(--ns-text, #555);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 10px;
+    }
+    .ns-sidebar-item--active { background: var(--ns-hover-bg, #ebebea); }
+    .ns-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--ns-bg, #ffffff);
+    }
+    .ns-topbar {
+      background: var(--ns-topbar-bg, #ffffff);
+      padding: 5px 10px;
+      border-bottom: 1px solid var(--ns-divider-color, #e0e0e0);
+      font-size: 10px;
+      color: var(--ns-text, #999);
+    }
+    .ns-breadcrumb { opacity: 0.6; }
+    .ns-body {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      overflow: hidden;
+    }
+    .ns-title { font-size: 15px; font-weight: 700; color: var(--ns-title-text, #1a1a1a); line-height: 1.2; }
+    .ns-divider { height: 1px; background: var(--ns-divider-color, #e0e0e0); margin: 2px 0; }
+    .ns-paragraph { color: var(--ns-text, #37352f); line-height: 1.4; font-size: 10px; }
+    .ns-callout {
+      background: var(--ns-callout-bg, #f1f1ef);
+      border-radius: 4px;
+      padding: 4px 7px;
+      font-size: 10px;
+      color: var(--ns-text, #37352f);
+    }
+    .ns-code {
+      background: var(--ns-code-block-bg, #f7f6f3);
+      border-radius: 4px;
+      padding: 4px 7px;
+      font-family: monospace;
+      font-size: 9px;
+      color: var(--ns-inline-code-color, #e03e3e);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ns-quote {
+      border-left: 3px solid var(--ns-quote-border-color, #9a9a9a);
+      padding-left: 7px;
+      font-size: 10px;
+      color: var(--ns-text, #37352f);
+      opacity: 0.8;
+    }
+
+    .notice-warn {
+      background: #1a1613;
+      border: 1px solid #3a2a1a;
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 13px;
+      color: #aaa;
+      margin-bottom: 28px;
+      line-height: 1.65;
+    }
+    .notice-warn strong { color: #fbbf24; }
+
+    #publish-login-section { text-align: center; padding: 40px 0; }
+    #publish-login-section p { font-size: 14px; color: #666; margin-bottom: 20px; }
+
+    .btn-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      background: #e0e0e0;
+      color: #111;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn-github:hover { opacity: 0.85; }
+    .btn-github svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+    .user-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: #666;
+    }
+    .user-bar strong { color: #e0e0e0; }
+
+    .btn-signout {
+      margin-left: auto;
+      font-size: 12px;
+      color: #555;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+    .btn-signout:hover { color: #aaa; opacity: 1; }
+
+    #tab-publish label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #555;
+      margin-bottom: 6px;
+    }
+
+    .field { margin-bottom: 20px; }
+    .field-hint { font-size: 11px; color: #444; margin-top: 5px; }
+
+    input[type="text"], select, textarea {
+      width: 100%;
+      background: #1c1c1c;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-family: inherit;
+      font-size: 14px;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type="text"]:focus, select:focus, textarea:focus { border-color: #6366f1; }
+    select { appearance: none; cursor: pointer; }
+    textarea {
+      font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+      font-size: 12px;
+      resize: vertical;
+      min-height: 220px;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 11px;
+      background: #6366f1;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn-submit:hover:not(:disabled) { opacity: 0.85; }
+    .btn-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .publish-msg {
+      margin-top: 16px;
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      display: none;
+    }
+    .publish-msg.success { background: #0d2b1a; border: 1px solid #1a5c35; color: #4ade80; display: block; }
+    .publish-msg.error   { background: #2b0d0d; border: 1px solid #5c1a1a; color: #f87171; display: block; }
+
+    #tab-submissions .card { display: block; padding: 12px 14px; }
+    .sub-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .sub-card-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .status-badge {
+      display: inline-block;
+      font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 2px 7px; border-radius: 4px; vertical-align: middle;
+    }
+    .status-badge.pending  { color: #fbbf24; background: #1a1500; border: 1px solid #4a3500; }
+    .status-badge.approved { color: #4ade80; background: #0d2b1a; border: 1px solid #1a5c35; }
+    .status-badge.rejected { color: #f87171; background: #2b0d0d; border: 1px solid #5c1a1a; }
+    .submission-reason {
+      margin-top: 6px; font-size: 11px; color: #f87171;
+      padding: 5px 8px; background: #1a0a0a; border-radius: 4px; border: 1px solid #3a1a1a;
+    }
+
+    #notif-stack {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .notif {
+      background: #1c1c1c;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: #e0e0e0;
+      white-space: nowrap;
+      transform: translateX(calc(100% + 24px));
+      opacity: 0;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    .notif.show { transform: translateX(0); opacity: 1; }
+
+    .rate-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #888;
+      font-size: 14px;
+      padding: 2px 4px;
+      transition: color 0.15s;
+      line-height: 1;
+    }
+    .rate-btn:hover { color: #f0b429; }
+    .rate-btn.rated { color: #f0b429; }
+
+    .rating-popover {
+      position: absolute;
+      background: #1c1c1c;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      z-index: 100;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+    .rating-popover .popover-stars { display: flex; gap: 4px; }
+    .rating-popover .popover-star {
+      font-size: 22px;
+      color: #444;
+      cursor: pointer;
+      transition: color 0.1s;
+      user-select: none;
+    }
+    .rating-popover .popover-star.filled { color: #f0b429; }
+    .rating-popover .popover-label { font-size: 11px; color: #666; }
+    .popover-wrapper { position: relative; display: inline-block; }
+    .remove-rating-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #666;
+      font-size: 11px;
+      padding: 0;
+      transition: color 0.15s;
+    }
+    .remove-rating-btn:hover {
+      color: #e05555;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+
+    <aside class="sidebar">
+      <div class="sidebar-logo">Notiskin</div>
+      <div id="update-banner" style="
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 12px;
+        margin: -16px 12px 0;
+        background: #1a2030;
+        border: 1px solid #2a3a50;
+        border-radius: 6px;
+        font-size: 11px;
+        color: #64b5f6;
+      ">
+        <span id="banner-text"></span>
+        <a href="/settings.html" style="color: #64b5f6; text-decoration: underline; white-space: nowrap;">Install</a>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="/" class="sidebar-link active">Themes</a>
+        <a href="/plugins.html" class="sidebar-link">Plugins</a>
+        <a href="/review.html" class="sidebar-link">Review</a>
+        <a href="/settings.html" class="sidebar-link" id="nav-settings">Settings</a>
+      </nav>
+    </aside>
+
+    <div class="main-content">
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="installed" onclick="switchTab('installed')">Installed</button>
+        <button class="tab-btn" data-tab="browse" onclick="switchTab('browse')">Browse</button>
+        <button class="tab-btn" data-tab="publish" onclick="switchTab('publish')">Publish</button>
+        <button class="tab-btn" data-tab="submissions" onclick="switchTab('submissions')">Submissions</button>
+      </div>
+
+      <div id="tab-installed">
+        <section>
+          <h2>Your themes</h2>
+          <input type="text" id="installed-search-themes" placeholder="Search" style="margin-bottom:12px">
+          <div id="themes-list"><span class="loading">Loading</span></div>
+        </section>
+
+      </div>
+
+      <div id="tab-browse" hidden>
+        <section>
+          <h2>Themes</h2>
+          <input type="text" id="browse-search-themes" placeholder="Search" style="margin-bottom:12px">
+          <div id="browse-themes-list"><span class="loading">Loading</span></div>
+        </section>
+      </div>
+
+      <div id="tab-publish" hidden>
+        <!-- Step 1: not logged in -->
+        <div id="publish-login-section">
+          <p>Sign in with GitHub to publish a theme.</p>
+          <button class="btn-github" onclick="publishSignIn()">
+            <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+                -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+                .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+                -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
+                .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+                .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+                0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            Continue with GitHub
+          </button>
+        </div>
+
+        <!-- Step 2: logged in -->
+        <div id="publish-form-section" style="display:none">
+          <div class="user-bar">
+            Signed in as <strong id="publish-username-display"></strong>
+            <button class="btn-signout" onclick="publishSignOut()">Sign out</button>
+          </div>
+
+          <form id="publish-form" onsubmit="handlePublishSubmit(event)">
+            <div class="field">
+              <label for="f-name">Name</label>
+              <input type="text" id="f-name" placeholder="my theme" required autocomplete="off" maxlength="50">
+              <div class="field-hint">
+                <span id="name-hint">Letters, numbers, and spaces only.</span>
+                <span id="name-count" style="float:right">0/50</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="f-description">Description</label>
+              <input type="text" id="f-description" placeholder="What does this theme do?" maxlength="300">
+              <div class="field-hint">
+                <span id="desc-hint"></span>
+                <span id="desc-count" style="float:right">0/300</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="f-code">CSS</label>
+              <textarea id="f-code" placeholder="Paste your CSS here" required></textarea>
+              <div class="field-hint">
+                <span id="code-hint">Paste the full contents. External links won't work.</span>
+                <span id="code-count" style="float:right">0/50000</span>
+              </div>
+            </div>
+
+            <button class="btn-submit" type="submit" id="publish-submit-btn">Submit</button>
+          </form>
+
+          <div id="publish-msg" class="publish-msg"></div>
+        </div>
+      </div>
+
+      <div id="tab-submissions" hidden>
+        <div id="submissions-list"><span class="loading">Loading</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="busy-overlay">
+    <div class="spinner"></div>
+    <div id="busy-msg">Applying. Notion will restart.</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script>
+    const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
+
+    // Browse and Publish both need this
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    async function api(method, path, body) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body !== undefined) opts.body = JSON.stringify(body);
+      const res = await fetch('/api' + path, opts);
+      return res.json();
+    }
+
+    function setBusy(active, msg) {
+      const overlay = document.getElementById('busy-overlay');
+      document.getElementById('busy-msg').textContent = msg || 'Applying. Notion will restart.';
+      overlay.classList.toggle('visible', active);
+    }
+
+    function esc(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function filenameToDisplayName(stem) {
+      return stem.replace(/[-_]/g, ' ').toLowerCase();
+    }
+
+    function showNotif(message) {
+      const stack = document.getElementById('notif-stack');
+      const el = document.createElement('div');
+      el.className = 'notif';
+      el.textContent = message;
+      stack.appendChild(el);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+      setTimeout(() => {
+        el.classList.remove('show');
+        el.addEventListener('transitionend', () => el.remove(), { once: true });
+      }, 2000);
+    }
+
+    const userRatings = {};
+
+    function buildRateBtn(itemId, itemType) {
+      const rated = !!userRatings[itemId];
+      return `
+        <div class="popover-wrapper" id="popover-wrapper-${itemId}" onclick="event.stopPropagation(); event.preventDefault()">
+          <button class="rate-btn ${rated ? 'rated' : ''}" title="Rate" onclick="toggleRatingPopover(event, '${itemId}', '${itemType}')">★</button>
+        </div>
+      `;
+    }
+
+    function toggleRatingPopover(e, itemId, itemType) {
+      e.stopPropagation();
+      closeAllPopovers();
+      const wrapper = document.getElementById(`popover-wrapper-${itemId}`);
+      if (!wrapper) return;
+      const currentRating = userRatings[itemId] || 0;
+      const stars = [1,2,3,4,5].map(n => `
+        <span
+          class="popover-star ${n <= currentRating ? 'filled' : ''}"
+          data-value="${n}"
+          onmouseenter="hoverPopoverStars('${itemId}', ${n})"
+          onmouseleave="resetPopoverStars('${itemId}', ${currentRating})"
+          onclick="event.stopPropagation(); event.preventDefault(); submitRating(event, '${itemId}', '${itemType}', ${n})"
+        >★</span>
+      `).join('');
+      const popover = document.createElement('div');
+      popover.className = 'rating-popover';
+      popover.id = `popover-${itemId}`;
+      popover.innerHTML = `
+        <div class="popover-stars" id="popover-stars-${itemId}">${stars}</div>
+        ${currentRating > 0
+          ? `<button class="remove-rating-btn" onclick="event.stopPropagation(); event.preventDefault(); removeRating('${itemId}', '${itemType}')">× Remove rating</button>`
+          : `<div class="popover-label">Rate this</div>`
+        }
+      `;
+      wrapper.appendChild(popover);
+    }
+
+    function hoverPopoverStars(itemId, value) {
+      document.querySelectorAll(`#popover-stars-${itemId} .popover-star`).forEach(s => {
+        s.classList.toggle('filled', parseInt(s.dataset.value) <= value);
+      });
+    }
+
+    function resetPopoverStars(itemId, currentRating) {
+      document.querySelectorAll(`#popover-stars-${itemId} .popover-star`).forEach(s => {
+        s.classList.toggle('filled', parseInt(s.dataset.value) <= currentRating);
+      });
+    }
+
+    function closeAllPopovers() {
+      document.querySelectorAll('.rating-popover').forEach(p => p.remove());
+    }
+
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.popover-wrapper')) closeAllPopovers();
+    });
+
+    async function submitRating(e, itemId, itemType, rating) {
+      e.stopPropagation();
+      const previousRating = userRatings[itemId] || 0;
+      userRatings[itemId] = rating;
+      const btn = document.querySelector(`#popover-wrapper-${itemId} .rate-btn`);
+      if (btn) btn.classList.add('rated');
+      closeAllPopovers();
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        if (!session) {
+          showNotif('Sign in to rate');
+          userRatings[itemId] = previousRating;
+          if (btn) btn.classList.toggle('rated', !!previousRating);
+          return;
+        }
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/rate-item`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ item_id: itemId, item_type: itemType, rating })
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          showNotif(data.error || 'Couldn\'t submit rating');
+          userRatings[itemId] = previousRating;
+          if (btn) btn.classList.toggle('rated', !!previousRating);
+        }
+      } catch {
+        showNotif('Couldn\'t submit rating');
+        userRatings[itemId] = previousRating;
+        if (btn) btn.classList.toggle('rated', !!previousRating);
+      }
+    }
+
+    async function removeRating(itemId, itemType) {
+      const previousRating = userRatings[itemId] || 0;
+      delete userRatings[itemId];
+      const btn = document.querySelector(`#popover-wrapper-${itemId} .rate-btn`);
+      if (btn) btn.classList.remove('rated');
+      closeAllPopovers();
+      try {
+        const session = (await db.auth.getSession()).data.session;
+        if (!session) {
+          showNotif('Sign in to manage ratings');
+          userRatings[itemId] = previousRating;
+          if (btn) btn.classList.add('rated');
+          return;
+        }
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/rate-item`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({ item_id: itemId, item_type: itemType, rating: 0 })
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          showNotif(data.error || 'Couldn\'t remove rating');
+          userRatings[itemId] = previousRating;
+          if (btn) btn.classList.add('rated');
+        }
+      } catch {
+        showNotif('Couldn\'t remove rating');
+        userRatings[itemId] = previousRating;
+        if (btn) btn.classList.add('rated');
+      }
+    }
+
+    async function loadUserRatings(session, itemIds, itemType) {
+      if (!session || itemIds.length === 0) return;
+      const { data } = await db
+        .from('ratings')
+        .select('item_id, rating')
+        .eq('user_id', session.user.id)
+        .eq('item_type', itemType)
+        .in('item_id', itemIds);
+      if (data) data.forEach(r => { userRatings[r.item_id] = r.rating; });
+    }
+
+    let currentInstalledThemes = [];
+
+    async function switchTab(name) {
+      document.getElementById('tab-installed').hidden    = name !== 'installed';
+      document.getElementById('tab-browse').hidden       = name !== 'browse';
+      document.getElementById('tab-publish').hidden      = name !== 'publish';
+      document.getElementById('tab-submissions').hidden  = name !== 'submissions';
+      document.querySelectorAll('.tab-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.tab === name)
+      );
+      if (name === 'publish') { initCharacterCounters(); return; }
+      if (name === 'submissions') { await loadSubmissions('theme'); return; }
+
+      let themesData;
+      try {
+        const state = await fetch('/api/state').then(r => r.json());
+        themesData = {
+          themes: state.themes.map(t => t.name),
+          activeTheme: state.activeTheme,
+        };
+      } catch (e) {
+        console.error('Failed to fetch state:', e);
+      }
+
+      if (name === 'installed') {
+        await loadThemes(themesData);
+      } else if (name === 'browse') {
+        currentInstalledThemes = themesData?.themes || [];
+        await loadBrowse(currentInstalledThemes);
+      }
+    }
+
+    async function loadThemes(preloaded) {
+      const { themes, activeTheme } = preloaded || await api('GET', '/themes');
+      const el = document.getElementById('themes-list');
+      const noThemeActive = !activeTheme;
+
+      const defaultCard = `
+        <label class="card${noThemeActive ? ' active' : ''}">
+          <input type="radio" name="theme" value="" ${noThemeActive ? 'checked' : ''} onchange="clearTheme()">
+          <div class="card-info">
+            <div class="card-name">No theme</div>
+          </div>
+        </label>
+      `;
+
+      if (!themes || !themes.length) {
+        el.innerHTML = defaultCard;
+        return;
+      }
+
+      let nameToId = {};
+      const { data: rows } = await db.from('themes').select('id, name').eq('status', 'approved');
+      if (rows) {
+        rows.forEach(r => {
+          const normalizedDbName = normalizeName(r.name);
+          themes.forEach(localName => {
+            if (normalizeName(localName) === normalizedDbName) {
+              nameToId[localName] = r.id;
+            }
+          });
+        });
+      }
+
+      el.innerHTML = defaultCard + themes.map(t => {
+        const sid = nameToId[t];
+        return `
+          <label class="card${t === activeTheme ? ' active' : ''}" data-name="${esc(filenameToDisplayName(t))}">
+            <input type="radio" name="theme" value="${esc(t)}" ${t === activeTheme ? 'checked' : ''} onchange="switchTheme('${esc(t)}')">
+            <div class="card-info">
+              <div class="card-name">${esc(filenameToDisplayName(t))}</div>
+            </div>
+            ${sid ? buildRateBtn(sid, 'theme') : ''}
+            <button class="btn-delete" title="Delete theme" onclick="deleteTheme(event, '${esc(t)}')">×</button>
+          </label>
+        `;
+      }).join('');
+
+      const session = (await db.auth.getSession()).data.session;
+      const itemIds = Object.values(nameToId);
+      await loadUserRatings(session, itemIds, 'theme');
+      itemIds.forEach(id => {
+        if (userRatings[id]) {
+          const btn = document.querySelector(`#popover-wrapper-${id} .rate-btn`);
+          if (btn) btn.classList.add('rated');
+        }
+      });
+    }
+
+    async function clearTheme() {
+      setBusy(true, 'Removing theme');
+      try {
+        await api('POST', '/theme/clear');
+      } catch (e) {
+        // ignore
+      } finally {
+        setBusy(false);
+        await loadThemes();
+      }
+    }
+
+    async function switchTheme(name) {
+      setBusy(true, `Switching to ${name}. Notion will restart.`);
+      try {
+        await api('POST', `/theme/${encodeURIComponent(name)}`);
+      } catch (e) {
+        // ignore
+      } finally {
+        setBusy(false);
+        await loadThemes();
+      }
+    }
+
+    async function deleteTheme(event, name) {
+      event.preventDefault();
+      event.stopPropagation();
+      const card = event.currentTarget.closest('.card');
+      if (card) card.style.display = 'none';
+      try {
+        const res = await api('DELETE', `/themes/${encodeURIComponent(name)}`);
+        if (!res.success) {
+          if (card) card.style.display = '';
+          showNotif(res.error || 'Couldn\'t delete that theme');
+          return;
+        }
+      } catch (e) {
+        if (card) card.style.display = '';
+        showNotif('Couldn\'t delete that theme');
+        return;
+      }
+      showNotif(`${name} removed`);
+      await loadThemes();
+    }
+
+    const browseItems = {}; // keyed by "type:name"
+
+    function applyThemePreview(containerId, css) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const varRegex = /(--[\w-]+)\s*:\s*([^;]+);/g;
+      let match;
+      while ((match = varRegex.exec(css)) !== null) {
+        container.style.setProperty(match[1].trim(), match[2].trim());
+      }
+    }
+
+    function normalizeName(n) { return n.toLowerCase().replace(/[\s\-_]/g, ''); }
+
+    function renderBrowseThemeCard(item) {
+      const key = `theme:${item.name}`;
+      browseItems[key] = { ...item, type: 'theme' };
+      const previewId = `preview-${esc(item.name)}`;
+      return `
+        <div class="card">
+          <div class="theme-preview" id="${previewId}">
+            <div class="ns-mockup">
+              <div class="ns-sidebar">
+                <div class="ns-sidebar-item ns-sidebar-item--active">📄 My Page</div>
+                <div class="ns-sidebar-item">📁 Projects</div>
+                <div class="ns-sidebar-item">📝 Notes</div>
+                <div class="ns-sidebar-item">🗂 Archive</div>
+              </div>
+              <div class="ns-main">
+                <div class="ns-topbar">
+                  <span class="ns-breadcrumb">Workspace / My Page</span>
+                </div>
+                <div class="ns-body">
+                  <div class="ns-title">My Notion Page</div>
+                  <div class="ns-divider"></div>
+                  <div class="ns-paragraph">This is a paragraph of body text. It shows how readable content looks with this theme applied.</div>
+                  <div class="ns-callout">💡 This is a callout block with a background color.</div>
+                  <div class="ns-code">const hello = "world"; // inline code block</div>
+                  <div class="ns-quote">A quote block with a colored left border.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card-row">
+            <div class="card-info">
+              <div class="card-name">${esc(item.name)}</div>
+              ${item.description ? `<div class="card-desc">${esc(item.description)}</div>` : ''}
+              <div class="card-meta">by <a href="https://github.com/${esc(item.author_github)}" target="_blank" rel="noopener noreferrer">${esc(item.author_github)}</a></div>
+            </div>
+            <button class="btn-install" data-key="${esc(key)}" onclick="installFromBrowse(this)">Install</button>
+          </div>
+          <div class="install-error"></div>
+        </div>
+      `;
+    }
+
+    async function installFromBrowse(btn) {
+      const item = browseItems[btn.dataset.key];
+      if (!item) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Installing';
+      btn.closest('.card').querySelector('.install-error').textContent = '';
+
+      const code = item.type === 'theme' ? item.css : item.js;
+      try {
+        const res = await fetch('/api/marketplace/install', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: item.name, type: item.type, code }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showNotif(`${item.name} installed`);
+          const card = btn.closest('.card');
+          const list = card.parentElement;
+          card.style.transition = 'opacity 0.3s';
+          card.style.opacity = '0';
+          setTimeout(() => {
+            card.remove();
+            if (!list.querySelector('.card')) {
+              list.innerHTML = '<span class="empty">Nothing installed yet</span>';
+            }
+          }, 300);
+        } else {
+          btn.closest('.card').querySelector('.install-error').textContent = data.error || 'Installation failed';
+          btn.disabled = false;
+          btn.textContent = 'Install';
+        }
+      } catch {
+        btn.closest('.card').querySelector('.install-error').textContent = "Can't reach Notiskin. Is the app open?";
+        btn.disabled = false;
+        btn.textContent = 'Install';
+      }
+    }
+
+    function debounce(fn, ms) {
+      let timer;
+      return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+    }
+
+    async function loadBrowse(installedThemes) {
+      const themesEl = document.getElementById('browse-themes-list');
+      themesEl.innerHTML = '<span class="loading">Loading</span>';
+      try {
+        const res = await api('GET', '/themes/search?q=');
+        const list = (res.themes || [])
+          .filter(t => !installedThemes.some(n => normalizeName(n) === normalizeName(t.name)));
+        themesEl.innerHTML = list.map(t => renderBrowseThemeCard(t)).join('') || '<span class="empty">No themes here yet</span>';
+        list.forEach(t => applyThemePreview(`preview-${t.name}`, t.css));
+      } catch (e) {
+        themesEl.innerHTML = `<span class="error">Couldn't load the catalog. Try again later.</span>`;
+      }
+    }
+
+    const debouncedBrowseSearch = debounce(async (q) => {
+      const themesEl = document.getElementById('browse-themes-list');
+      themesEl.innerHTML = '<span class="loading">Searching…</span>';
+      try {
+        const res = await api('GET', `/themes/search?q=${encodeURIComponent(q)}`);
+        const list = (res.themes || [])
+          .filter(t => !currentInstalledThemes.some(n => normalizeName(n) === normalizeName(t.name)));
+        themesEl.innerHTML = list.map(t => renderBrowseThemeCard(t)).join('') || '<span class="empty">No themes found</span>';
+        list.forEach(t => applyThemePreview(`preview-${t.name}`, t.css));
+      } catch (e) {
+        themesEl.innerHTML = '<span class="error">Couldn\'t load results</span>';
+      }
+    }, 300);
+
+    document.getElementById('installed-search-themes').addEventListener('input', function () {
+      const q = this.value.toLowerCase();
+      document.querySelectorAll('#themes-list .card').forEach(card => {
+        const name = card.dataset.name || card.querySelector('.card-name')?.textContent || '';
+        card.style.display = name.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+
+    document.getElementById('browse-search-themes').addEventListener('input', function () {
+      debouncedBrowseSearch(this.value.trim());
+    });
+
+    let publishCurrentUser = null;
+
+    function showPublishLogin() {
+      document.getElementById('publish-login-section').style.display = 'block';
+      document.getElementById('publish-form-section').style.display  = 'none';
+    }
+
+    function showPublishForm(user) {
+      document.getElementById('publish-login-section').style.display = 'none';
+      document.getElementById('publish-form-section').style.display  = 'block';
+      const username = user.user_metadata?.user_name || user.email || 'you';
+      document.getElementById('publish-username-display').textContent = username;
+    }
+
+    function showPublishMsg(type, text) {
+      const el = document.getElementById('publish-msg');
+      el.className = `publish-msg ${type}`;
+      el.textContent = text;
+    }
+
+    async function publishSignIn() {
+      const btn = document.querySelector('.btn-github');
+      btn.disabled = true;
+      btn.textContent = 'Signing in';
+      const { error } = await db.auth.signInWithOAuth({
+        provider: 'github',
+        options: { redirectTo: window.location.origin + window.location.pathname },
+      });
+      if (error) {
+        console.error('Sign in error:', error);
+        btn.disabled = false;
+        btn.textContent = 'Continue with GitHub';
+      }
+    }
+
+    async function publishSignOut() {
+      await db.auth.signOut();
+      publishCurrentUser = null;
+      showPublishLogin();
+    }
+
+    function initCharacterCounters() {
+      const nameInput = document.getElementById('f-name');
+      const nameCount = document.getElementById('name-count');
+      const descInput = document.getElementById('f-description');
+      const descCount = document.getElementById('desc-count');
+      const codeInput = document.getElementById('f-code');
+      const codeCount = document.getElementById('code-count');
+
+      function updateCount(input, countEl, max) {
+        const len = input.value.length;
+        countEl.textContent = `${len}/${max}`;
+        countEl.style.color = len >= max ? '#e57373' : '';
+      }
+
+      nameInput.addEventListener('input', function () {
+        this.value = this.value.replace(/[^a-z0-9 ]/gi, '');
+        updateCount(this, nameCount, 50);
+      });
+      descInput.addEventListener('input', () => updateCount(descInput, descCount, 300));
+      codeInput.addEventListener('input', () => {
+        if (codeInput.value.length > 50000) codeInput.value = codeInput.value.slice(0, 50000);
+        updateCount(codeInput, codeCount, 50000);
+      });
+    }
+
+    async function handlePublishSubmit(e) {
+      e.preventDefault();
+      if (!publishCurrentUser) return;
+
+      const btn = document.getElementById('publish-submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'Submitting';
+      document.getElementById('publish-msg').className = 'publish-msg';
+
+      const rawName = document.getElementById('f-name').value;
+      const name = rawName.trim().replace(/  +/g, ' ').toLowerCase();
+      if (!name) {
+        document.getElementById('publish-msg').textContent = 'Name is required.';
+        btn.disabled = false;
+        btn.textContent = 'Submit';
+        return;
+      }
+      document.getElementById('f-name').value = name;
+      const description   = document.getElementById('f-description').value.trim();
+      const code          = document.getElementById('f-code').value;
+      const author_github = publishCurrentUser.user_metadata?.user_name || publishCurrentUser.email || '';
+
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        console.log('token:', session.access_token);
+        const res = await fetch('/api/submit/theme', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ name, description, css: code, author_github }),
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error ?? 'Submission failed');
+
+        btn.disabled = false;
+        btn.textContent = 'Submit';
+        showPublishMsg('success', result.autoApproved
+          ? 'Theme approved and published'
+          : "Theme submitted. We'll review it shortly." + (result.reason ? ` Note: ${result.reason}` : ''));
+        document.getElementById('publish-form').reset();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Submit';
+        showPublishMsg('error', err.message);
+      }
+    }
+
+    // OAuth redirects land here regardless of active tab
+    function initPublishAuth() {
+      db.auth.onAuthStateChange((_event, session) => {
+        publishCurrentUser = session?.user ?? null;
+        if (publishCurrentUser) showPublishForm(publishCurrentUser);
+        else showPublishLogin();
+      });
+
+      (async () => {
+        const { data: { session } } = await db.auth.getSession();
+        publishCurrentUser = session?.user ?? null;
+        if (publishCurrentUser) showPublishForm(publishCurrentUser);
+        else showPublishLogin();
+        if (window.location.hash) {
+          history.replaceState(null, '', window.location.pathname);
+        }
+      })();
+    }
+
+    async function loadSubmissions(type) {
+      const el = document.getElementById('submissions-list');
+      el.innerHTML = '<span class="loading">Loading</span>';
+
+      const { data: { session } } = await db.auth.getSession();
+      if (!session) {
+        el.innerHTML = '<span class="empty">Sign in to see your submissions.</span>';
+        return;
+      }
+
+      let submissions;
+      try {
+        const res = await fetch(`/api/submissions?type=${type}`, {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) {
+          const d = await res.json();
+          el.innerHTML = `<span class="error">${esc(d.error || "Couldn't load your submissions")}</span>`;
+          return;
+        }
+        ({ submissions } = await res.json());
+      } catch {
+        el.innerHTML = "<span class=\"error\">Can't reach the server</span>";
+        return;
+      }
+
+      if (!submissions.length) {
+        el.innerHTML = '<span class="empty">Nothing submitted yet</span>';
+        return;
+      }
+
+      el.innerHTML = submissions.map(s => `
+        <div class="card" id="submission-${esc(String(s.id))}">
+          <div class="sub-card-header">
+            <div class="sub-card-left">
+              <span class="card-name">${esc(s.name)}</span>
+              <span class="status-badge ${esc(s.status)}">${esc(s.status)}</span>
+            </div>
+            ${s.status !== 'approved' ? `<button class="btn-danger" onclick="deleteSubmission('${esc(String(s.id))}', '${esc(s.name)}', '${type}')">Delete</button>` : ''}
+          </div>
+          ${s.rejection_reason ? `<div class="submission-reason">${esc(s.rejection_reason)}</div>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function dbg(msg) {
+      fetch('/api/debug-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg }),
+      }).catch(() => {});
+    }
+
+    async function deleteSubmission(id, name, type) {
+      if (!confirm(`Delete ${name}? This can't be undone.`)) return;
+      const { data: { session } } = await db.auth.getSession();
+      if (!session) { alert("You're not signed in"); return; }
+      const url = `/api/submissions/${encodeURIComponent(id)}?type=${type}`;
+      const token = session.access_token;
+      dbg(`DELETE ${url}, token prefix: ${token?.slice(0, 20)} length: ${token?.length}`);
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      dbg(`response status: ${res.status}`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "This submission can't be deleted");
+        return;
+      }
+      document.getElementById('submission-' + id)?.remove();
+      showNotif(`${name} deleted`);
+      const el = document.getElementById('submissions-list');
+      if (el && !el.querySelector('.card')) {
+        el.innerHTML = '<span class="empty">Nothing submitted yet</span>';
+      }
+    }
+
+    async function init() {
+      await switchTab('installed');
+      initPublishAuth();
+    }
+
+    async function checkUpdateBanner() {
+      try {
+        const res = await fetch('/api/update-status');
+        const status = await res.json();
+        const banner = document.getElementById('update-banner');
+        const bannerText = document.getElementById('banner-text');
+        if (status.state === 'ready' && banner && bannerText) {
+          bannerText.textContent = `Notiskin ${status.version} ready`;
+          banner.style.display = 'flex';
+        }
+      } catch {}
+    }
+
+    init();
+    checkUpdateBanner();
+    setInterval(checkUpdateBanner, 30000);
+  </script>
+
+  <div id="notif-stack"></div>
+</body>
+</html>

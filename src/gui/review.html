@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Review - Notiskin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #111;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    .app-layout { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 180px;
+      min-height: 100vh;
+      background: #0d0d0d;
+      border-right: 1px solid #1e1e1e;
+      padding: 32px 0;
+      position: fixed;
+      top: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .sidebar-logo { font-size: 15px; font-weight: 700; color: #e0e0e0; padding: 0 20px; letter-spacing: -0.2px; }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+    .sidebar-link {
+      font-size: 13px; color: #555; text-decoration: none;
+      padding: 7px 20px; border-left: 2px solid transparent; transition: color 0.15s;
+    }
+    .sidebar-link:hover { color: #aaa; }
+    .sidebar-link.active { color: #e0e0e0; border-left-color: #6366f1; }
+
+    .main-content { margin-left: 180px; padding: 40px 32px; max-width: 820px; width: 100%; }
+
+    section { margin-bottom: 40px; }
+    h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 12px; }
+
+    .card {
+      background: #1c1c1c;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 10px;
+    }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .card-name { font-size: 14px; font-weight: 600; color: #e0e0e0; }
+    .card-meta { font-size: 11px; color: #555; margin-top: 2px; }
+    .card-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+    pre {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 11px;
+      font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+      color: #aaa;
+      overflow: auto;
+      max-height: 220px;
+      margin-top: 10px;
+    }
+
+    button {
+      padding: 5px 12px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 600; cursor: pointer; transition: opacity 0.1s;
+    }
+    button:hover:not(:disabled) { opacity: 0.82; }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-approve { background: #166534; color: #4ade80; }
+    .btn-reject  { background: #7f1d1d; color: #f87171; }
+    .btn-github {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 10px 20px; background: #e0e0e0; color: #111;
+      border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn-github:hover { opacity: 0.85; }
+    .btn-github svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+    .empty { font-size: 13px; color: #444; padding: 10px 2px; }
+    .loading { font-size: 13px; color: #333; padding: 10px 2px; }
+    .spinner { width: 20px; height: 20px; border: 2px solid #333; border-top-color: #888; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-state { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 8px 0; }
+    .loading-state span { font-size: 13px; color: #888; }
+    .unauthorized { font-size: 14px; color: #f87171; padding: 20px 0; }
+
+    #login-section { text-align: center; padding: 60px 0; }
+    #login-section p { font-size: 14px; color: #666; margin-bottom: 20px; }
+
+    .user-bar {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 28px; font-size: 13px; color: #666;
+    }
+    .user-bar strong { color: #e0e0e0; }
+    .btn-signout {
+      margin-left: auto; font-size: 12px; color: #555;
+      background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline;
+    }
+    .btn-signout:hover { color: #aaa; }
+
+    .rejection-form {
+      margin-top: 10px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .rejection-form textarea {
+      background: #111; border: 1px solid #3a1a1a; border-radius: 6px;
+      color: #f87171; font-size: 12px; padding: 8px; resize: vertical;
+      min-height: 56px; font-family: inherit; width: 100%;
+    }
+    .rejection-form textarea::placeholder { color: #5a3a3a; }
+    .rejection-form .btn-row { display: flex; gap: 8px; }
+    .rejection-reason-badge {
+      margin-top: 8px; padding: 8px 10px; background: #1a0a0a;
+      border: 1px solid #3a1a1a; border-radius: 6px;
+      font-size: 11px; color: #f87171;
+    }
+    .rejection-reason-badge strong { color: #f87171; opacity: 0.7; display: block; margin-bottom: 3px; }
+
+    /* Theme preview */
+    .theme-preview {
+      display: flex; width: 100%; height: 80px; border-radius: 6px;
+      overflow: hidden; border: 1px solid var(--ns-border, #333);
+      margin-bottom: 10px; background: var(--ns-bg, #1a1a1a);
+    }
+    .ns-preview-sidebar {
+      width: 28%; background: var(--ns-sidebar-bg, #111);
+      padding: 6px 4px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .ns-preview-nav-item { height: 8px; border-radius: 3px; background: var(--ns-text, #999); opacity: 0.25; }
+    .ns-preview-nav-item.active { opacity: 0.6; background: var(--ns-accent, var(--ns-text, #6366f1)); }
+    .ns-preview-content {
+      flex: 1; padding: 8px; display: flex; flex-direction: column;
+      gap: 5px; background: var(--ns-bg, #1a1a1a);
+    }
+    .ns-preview-title { height: 10px; width: 60%; border-radius: 3px; background: var(--ns-text, #e0e0e0); opacity: 0.7; }
+    .ns-preview-block { height: 7px; border-radius: 3px; background: var(--ns-text, #aaa); opacity: 0.3; }
+    .ns-preview-block.short { width: 45%; }
+    .auto-flag { font-size: 11px; color: #f59e0b; margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+
+    <aside class="sidebar">
+      <div class="sidebar-logo">Notiskin</div>
+      <div id="update-banner" style="
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 12px;
+        margin: -16px 12px 0;
+        background: #1a2030;
+        border: 1px solid #2a3a50;
+        border-radius: 6px;
+        font-size: 11px;
+        color: #64b5f6;
+      ">
+        <span id="banner-text"></span>
+        <a href="/settings.html" style="color: #64b5f6; text-decoration: underline; white-space: nowrap;">Install</a>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="/" class="sidebar-link">Themes</a>
+        <a href="/plugins.html" class="sidebar-link">Plugins</a>
+        <a href="/review.html" class="sidebar-link active">Review</a>
+        <a href="/settings.html" class="sidebar-link" id="nav-settings">Settings</a>
+      </nav>
+    </aside>
+
+    <div class="main-content">
+
+      <div id="login-section">
+        <p>Sign in with GitHub to continue.</p>
+        <button class="btn-github" onclick="signIn()">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+              0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+              -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+              .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+              -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
+              .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+              .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+              0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          Sign in with GitHub
+        </button>
+      </div>
+
+      <div id="review-section" style="display:none">
+        <div class="user-bar">
+          Signed in as <strong id="username-display"></strong>
+          <button class="btn-signout" onclick="signOut()">Sign out</button>
+        </div>
+
+        <div id="unauthorized" class="unauthorized" style="display:none">
+          Your account doesn't have reviewer access.
+        </div>
+
+        <div id="queue" style="display:none">
+          <section>
+            <h2>Themes</h2>
+            <div id="themes-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
+          </section>
+          <section>
+            <h2>Plugins</h2>
+            <div id="plugins-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
+          </section>
+          <section id="rejected-section" style="display:none">
+            <h2>Rejected</h2>
+            <div id="rejected-themes-list"></div>
+            <div id="rejected-plugins-list"></div>
+          </section>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script>
+    const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
+
+    const { createClient } = window.supabase;
+    const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let currentUser = null;
+    let queueLoaded = false;
+
+    function dbg(msg) {
+      fetch('/api/debug-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg: '[review] ' + msg }),
+      }).catch(() => {});
+    }
+
+    function esc(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function signIn() {
+      const btn = document.querySelector('.btn-github');
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      const { error } = await db.auth.signInWithOAuth({
+        provider: 'github',
+        options: { redirectTo: window.location.origin + '/review.html' },
+      });
+      if (error) {
+        btn.disabled = false;
+        btn.textContent = 'Sign in with GitHub';
+      }
+    }
+
+    async function signOut() {
+      await db.auth.signOut();
+      currentUser = null;
+      showLogin();
+    }
+
+    function showLogin() {
+      document.getElementById('login-section').style.display = 'block';
+      document.getElementById('review-section').style.display = 'none';
+    }
+
+    async function showReview(user) {
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('review-section').style.display = 'block';
+      document.getElementById('username-display').textContent =
+        user.user_metadata?.user_name || user.email || 'you';
+      dbg('showReview → calling loadQueue()');
+      await loadQueue();
+    }
+
+    function applyThemePreview(containerId, css) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const varRegex = /(--[\w-]+)\s*:\s*([^;]+);/g;
+      let match;
+      while ((match = varRegex.exec(css)) !== null) {
+        container.style.setProperty(match[1].trim(), match[2].trim());
+      }
+    }
+
+    function themeCard(item) {
+      const previewId = `preview-${item.id}`;
+      return `
+        <div class="card" id="submission-${esc(item.id)}">
+          <div class="theme-preview" id="${previewId}">
+            <div class="ns-preview-sidebar">
+              <div class="ns-preview-nav-item"></div>
+              <div class="ns-preview-nav-item"></div>
+              <div class="ns-preview-nav-item active"></div>
+            </div>
+            <div class="ns-preview-content">
+              <div class="ns-preview-title"></div>
+              <div class="ns-preview-block"></div>
+              <div class="ns-preview-block short"></div>
+            </div>
+          </div>
+          <div class="card-header">
+            <div>
+              <div class="card-name">${esc(item.name)}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+              ${item.rejection_reason ? `<p class="auto-flag">⚠ ${esc(item.rejection_reason)}</p>` : ''}
+            </div>
+            <div class="card-actions" id="actions-${esc(item.id)}">
+              <button class="btn-approve" data-id="${esc(item.id)}" data-type="theme">Approve</button>
+              <button class="btn-reject"  data-id="${esc(item.id)}" data-type="theme">Reject</button>
+            </div>
+          </div>
+          <pre>${esc(item.css)}</pre>
+        </div>
+      `;
+    }
+
+    function pluginCard(item) {
+      return `
+        <div class="card" id="submission-${esc(item.id)}">
+          <div class="card-header">
+            <div>
+              <div class="card-name">${esc(item.name)}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+            </div>
+            <div class="card-actions" id="actions-${esc(item.id)}">
+              <button class="btn-approve" data-id="${esc(item.id)}" data-type="plugin">Approve</button>
+              <button class="btn-reject"  data-id="${esc(item.id)}" data-type="plugin">Reject</button>
+            </div>
+          </div>
+          <pre>${esc(item.js)}</pre>
+        </div>
+      `;
+    }
+
+    function rejectedThemeCard(item) {
+      const previewId = `preview-rej-${item.id}`;
+      return `
+        <div class="card" style="opacity:0.6">
+          <div class="theme-preview" id="${previewId}">
+            <div class="ns-preview-sidebar">
+              <div class="ns-preview-nav-item"></div>
+              <div class="ns-preview-nav-item"></div>
+              <div class="ns-preview-nav-item active"></div>
+            </div>
+            <div class="ns-preview-content">
+              <div class="ns-preview-title"></div>
+              <div class="ns-preview-block"></div>
+              <div class="ns-preview-block short"></div>
+            </div>
+          </div>
+          <div class="card-header">
+            <div>
+              <div class="card-name">${esc(item.name)}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+            </div>
+          </div>
+          ${item.rejection_reason ? `<div class="rejection-reason-badge"><strong>Rejection reason</strong>${esc(item.rejection_reason)}</div>` : ''}
+          <pre>${esc(item.css)}</pre>
+        </div>
+      `;
+    }
+
+    function rejectedPluginCard(item) {
+      return `
+        <div class="card" style="opacity:0.6">
+          <div class="card-header">
+            <div>
+              <div class="card-name">${esc(item.name)}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+            </div>
+          </div>
+          ${item.rejection_reason ? `<div class="rejection-reason-badge"><strong>Rejection reason</strong>${esc(item.rejection_reason)}</div>` : ''}
+          <pre>${esc(item.js)}</pre>
+        </div>
+      `;
+    }
+
+    async function loadQueue() {
+      dbg('loadQueue() entered, stack: ' + (new Error().stack ?? '').split('\n').slice(1, 5).join(' | '));
+      if (queueLoaded) {
+        if (document.querySelector('.rejection-form textarea')) { dbg('loadQueue() skipped, rejection form open'); return; }
+        dbg('loadQueue() skipped, already loaded');
+        return;
+      }
+      queueLoaded = true;
+      const queueEl   = document.getElementById('queue');
+      queueEl.style.display = 'block';
+      const themesEl  = document.getElementById('themes-list');
+      const pluginsEl = document.getElementById('plugins-list');
+
+      let themes = [], plugins = [], rejectedThemes = [], rejectedPlugins = [];
+      try {
+        const session = await db.auth.getSession();
+        const token = session.data.session?.access_token;
+        const res = await fetch('http://localhost:3845/api/review/pending', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (res.status === 403) {
+          document.getElementById('unauthorized').style.display = 'block';
+          queueEl.style.display = 'block';
+          themesEl.innerHTML = pluginsEl.innerHTML = '';
+          return;
+        }
+        if (!res.ok) {
+          themesEl.innerHTML = `<span class="empty">Server error (${res.status}), check the terminal for details.</span>`;
+          pluginsEl.innerHTML = '';
+          queueEl.style.display = 'block';
+          return;
+        }
+        ({ themes, plugins, rejectedThemes, rejectedPlugins } = await res.json());
+      } catch {
+        themesEl.innerHTML = '<span class="empty">Could not reach the server.</span>';
+        pluginsEl.innerHTML = '';
+        queueEl.style.display = 'block';
+        return;
+      }
+
+      dbg('loadQueue() about to overwrite themes-list innerHTML');
+      themesEl.innerHTML = themes.length
+        ? themes.map(themeCard).join('')
+        : '<span class="empty">Nothing to review</span>';
+      if (themes.length) {
+        themes.forEach(t => applyThemePreview(`preview-${t.id}`, t.css));
+        themesEl.querySelectorAll('.btn-approve').forEach(btn => btn.addEventListener('click', () => approve(btn.dataset.id, btn.dataset.type)));
+        themesEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
+        themes.forEach(t => {
+          if (t.rejection_reason && t.rejection_reason.startsWith('Auto-check failed:')) {
+            startReject(t.id, 'theme');
+            const ta = document.getElementById('reason-' + t.id);
+            if (ta) {
+              ta.value = t.rejection_reason;
+              ta.dispatchEvent(new Event('input'));
+            }
+          }
+        });
+      }
+
+      dbg('loadQueue() about to overwrite plugins-list innerHTML');
+      pluginsEl.innerHTML = plugins.length
+        ? plugins.map(pluginCard).join('')
+        : '<span class="empty">Nothing to review</span>';
+      if (plugins.length) {
+        pluginsEl.querySelectorAll('.btn-approve').forEach(btn => btn.addEventListener('click', () => approve(btn.dataset.id, btn.dataset.type)));
+        pluginsEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
+      }
+
+      const rejectedSection = document.getElementById('rejected-section');
+      const rejectedThemesEl = document.getElementById('rejected-themes-list');
+      const rejectedPluginsEl = document.getElementById('rejected-plugins-list');
+      if (rejectedThemes.length || rejectedPlugins.length) {
+        rejectedSection.style.display = 'block';
+        rejectedThemesEl.innerHTML = rejectedThemes.map(rejectedThemeCard).join('');
+        rejectedPluginsEl.innerHTML = rejectedPlugins.map(rejectedPluginCard).join('');
+        rejectedThemes.forEach(t => applyThemePreview(`preview-rej-${t.id}`, t.css));
+      } else {
+        rejectedSection.style.display = 'none';
+      }
+    }
+
+    async function sendDecision(id, type, status, reason) {
+      async function attempt() {
+        const { data: { session } } = await db.auth.refreshSession();
+        const token = session?.access_token;
+        if (!token) return null;
+        const res = await fetch('http://localhost:3845/api/review/decide', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ type, id, status, reason }),
+        });
+        const data = await res.json();
+        return { ok: res.ok, data };
+      }
+
+      let result = await attempt();
+      if (result === null) {
+        alert('Session expired. Please reload and sign in.');
+        return false;
+      }
+      if (!result.ok) {
+        await new Promise(r => setTimeout(r, 500));
+        result = await attempt();
+        if (result === null || !result.ok) {
+          alert(result?.data?.error ?? 'Something went wrong');
+          return false;
+        }
+      }
+      return true;
+    }
+
+    async function approve(id, type) {
+      const actionsEl = document.getElementById('actions-' + id);
+      actionsEl.querySelectorAll('button').forEach(b => b.disabled = true);
+      const ok = await sendDecision(id, type, 'approved', null);
+      if (ok) {
+        queueLoaded = false;
+        await loadQueue();
+      } else {
+        actionsEl.querySelectorAll('button').forEach(b => b.disabled = false);
+      }
+    }
+
+    function startReject(id, type) {
+      const actionsEl = document.getElementById('actions-' + id);
+      actionsEl.innerHTML = `
+        <div class="rejection-form">
+          <textarea id="reason-${id}" placeholder="Reason for rejecting this" oninput="document.getElementById('confirm-reject-${id}').disabled = !this.value.trim()"></textarea>
+          <div class="btn-row">
+            <button class="btn-reject" id="confirm-reject-${id}" disabled onclick="submitReject('${id}', '${type}')">Reject submission</button>
+            <button onclick="cancelReject('${id}', '${type}')">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function cancelReject(id, type) {
+      const actionsEl = document.getElementById('actions-' + id);
+      actionsEl.innerHTML = `
+        <button class="btn-approve" onclick="approve('${id}', '${type}')">Approve</button>
+        <button class="btn-reject" onclick="startReject('${id}', '${type}')">Reject</button>
+      `;
+    }
+
+    async function submitReject(id, type) {
+      const reason = document.getElementById('reason-' + id)?.value.trim();
+      if (!reason) return;
+      const actionsEl = document.getElementById('actions-' + id);
+      actionsEl.querySelectorAll('button').forEach(b => b.disabled = true);
+      const ok = await sendDecision(id, type, 'rejected', reason);
+      if (ok) {
+        queueLoaded = false;
+        await loadQueue();
+      } else {
+        actionsEl.querySelectorAll('button').forEach(b => b.disabled = false);
+      }
+    }
+
+    db.auth.onAuthStateChange((event, session) => {
+      dbg(`onAuthStateChange event=${event} hasUser=${!!session?.user} currentUser=${!!currentUser}`);
+      const prevUser = currentUser;
+      currentUser = session?.user ?? null;
+      if (event === 'SIGNED_OUT') {
+        queueLoaded = false;
+        showLogin();
+      } else if (currentUser && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && prevUser === null) {
+        dbg(`onAuthStateChange → calling showReview for event=${event}`);
+        showReview(currentUser);
+      }
+      // TOKEN_REFRESHED: update currentUser silently, don't re-render the queue
+    });
+
+    if (window.location.hash) {
+      history.replaceState(null, '', window.location.pathname);
+    }
+
+    async function checkUpdateBanner() {
+      try {
+        const res = await fetch('/api/update-status');
+        const status = await res.json();
+        const banner = document.getElementById('update-banner');
+        const bannerText = document.getElementById('banner-text');
+        if (status.state === 'ready' && banner && bannerText) {
+          bannerText.textContent = `Notiskin ${status.version} ready`;
+          banner.style.display = 'flex';
+        }
+      } catch {}
+    }
+
+    checkUpdateBanner();
+    setInterval(checkUpdateBanner, 30000);
+  </script>
+</body>
+</html>

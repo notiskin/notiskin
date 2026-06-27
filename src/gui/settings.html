@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notiskin – Settings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #111;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    .app-layout { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 180px;
+      min-height: 100vh;
+      background: #0d0d0d;
+      border-right: 1px solid #1e1e1e;
+      padding: 32px 0;
+      position: fixed;
+      top: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .sidebar-logo {
+      font-size: 15px;
+      font-weight: 700;
+      color: #e0e0e0;
+      padding: 0 20px;
+      letter-spacing: -0.2px;
+    }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+    .sidebar-link {
+      font-size: 13px;
+      color: #555;
+      text-decoration: none;
+      padding: 7px 20px;
+      border-left: 2px solid transparent;
+      transition: color 0.15s;
+    }
+    .sidebar-link:hover { color: #aaa; }
+    .sidebar-link.active { color: #e0e0e0; border-left-color: #6366f1; }
+
+    .main-content {
+      margin-left: 180px;
+      padding: 40px 32px;
+      max-width: 760px;
+      width: 100%;
+    }
+
+    button {
+      padding: 6px 13px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      line-height: 1.4;
+      transition: opacity 0.1s;
+      white-space: nowrap;
+    }
+    button:hover:not(:disabled) { opacity: 0.85; }
+    button:active:not(:disabled) { opacity: 0.7; }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    #notif-stack {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .notif {
+      background: #1c1c1c;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: #e0e0e0;
+      white-space: nowrap;
+      transform: translateX(calc(100% + 24px));
+      opacity: 0;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    .notif.show { transform: translateX(0); opacity: 1; }
+
+    .settings-section {
+      margin-bottom: 36px;
+    }
+
+    .settings-section h2 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #888;
+      margin-bottom: 16px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #1e1e1e;
+    }
+
+    .settings-row:last-child {
+      border-bottom: none;
+    }
+
+    .settings-row-label {
+      font-size: 13px;
+      color: #e0e0e0;
+    }
+
+    .settings-row-sub {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    .update-badge {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 500;
+    }
+
+    .update-badge.up-to-date  { background: #1a2e1a; color: #4caf50; }
+    .update-badge.available   { background: #2a2510; color: #f5c518; }
+    .update-badge.downloading { background: #1a2030; color: #64b5f6; }
+    .update-badge.ready       { background: #1a2030; color: #64b5f6; }
+    .update-badge.error       { background: #2e1a1a; color: #e57373; }
+
+    .btn-install {
+      font-size: 12px;
+      padding: 5px 14px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1c1c1c;
+      color: #e0e0e0;
+      cursor: pointer;
+    }
+
+    .btn-install:hover { background: #252525; }
+
+    .btn-cache {
+      font-size: 12px;
+      padding: 5px 14px;
+      border-radius: 6px;
+      border: 1px solid #2a2a2a;
+      background: transparent;
+      color: #888;
+      cursor: pointer;
+    }
+
+    .btn-cache:hover { color: #e0e0e0; border-color: #444; }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+
+    <aside class="sidebar">
+      <div class="sidebar-logo">Notiskin</div>
+      <div id="update-banner" style="
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 12px;
+        margin: -16px 12px 0;
+        background: #1a2030;
+        border: 1px solid #2a3a50;
+        border-radius: 6px;
+        font-size: 11px;
+        color: #64b5f6;
+      ">
+        <span id="banner-text"></span>
+        <a href="/settings.html" style="color: #64b5f6; text-decoration: underline; white-space: nowrap;">Install</a>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="/" class="sidebar-link">Themes</a>
+        <a href="/plugins.html" class="sidebar-link">Plugins</a>
+        <a href="/review.html" class="sidebar-link">Review</a>
+        <a href="/settings.html" class="sidebar-link active" id="nav-settings">Settings</a>
+      </nav>
+    </aside>
+
+    <div class="main-content">
+
+      <div class="settings-section">
+        <h2>Updates</h2>
+
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Current version</div>
+            <div class="settings-row-sub">Notiskin 0.1.0</div>
+          </div>
+          <span id="update-badge" class="update-badge up-to-date">Checking...</span>
+        </div>
+
+        <div class="settings-row" id="install-row" style="display:none">
+          <div>
+            <div class="settings-row-label">Update ready</div>
+            <div class="settings-row-sub" id="install-version-label"></div>
+          </div>
+          <button class="btn-install" onclick="installUpdate()">Restart &amp; Install</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h2>Data</h2>
+
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Clear themes cache</div>
+            <div class="settings-row-sub">Removes downloaded theme files from ~/.notiskin/themes</div>
+          </div>
+          <button class="btn-cache" onclick="clearCache('themes')">Clear</button>
+        </div>
+
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Clear plugins cache</div>
+            <div class="settings-row-sub">Removes downloaded plugin files from ~/.notiskin/plugins</div>
+          </div>
+          <button class="btn-cache" onclick="clearCache('plugins')">Clear</button>
+        </div>
+
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Reset config</div>
+            <div class="settings-row-sub">Deletes notiskin.config.json — Notiskin will recreate it on next launch</div>
+          </div>
+          <button class="btn-cache" onclick="clearCache('config')">Reset</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div id="notif-stack"></div>
+
+  <script>
+    const stateLabels = {
+      'up-to-date':  'Up to date',
+      'available':   'Downloading...',
+      'downloading': 'Downloading...',
+      'ready':       'Ready to install',
+      'error':       'Update error',
+    };
+
+    async function loadUpdateStatus() {
+      try {
+        const res = await fetch('/api/update-status');
+        const status = await res.json();
+        applyStatus(status);
+      } catch {}
+    }
+
+    function applyStatus(status) {
+      const badge = document.getElementById('update-badge');
+      const installRow = document.getElementById('install-row');
+      const installLabel = document.getElementById('install-version-label');
+      const banner = document.getElementById('update-banner');
+      const bannerText = document.getElementById('banner-text');
+
+      badge.className = `update-badge ${status.state}`;
+      badge.textContent = stateLabels[status.state] ?? status.state;
+
+      if (status.state === 'ready') {
+        installRow.style.display = 'flex';
+        installLabel.textContent = `Version ${status.version} downloaded`;
+        if (banner && bannerText) {
+          bannerText.textContent = `Notiskin ${status.version} ready`;
+          banner.style.display = 'flex';
+        }
+      } else {
+        installRow.style.display = 'none';
+        if (banner) banner.style.display = 'none';
+      }
+    }
+
+    async function installUpdate() {
+      await fetch('/api/update/install', { method: 'POST' });
+    }
+
+    async function clearCache(type) {
+      const res = await fetch(`/api/cache/${type}`, { method: 'DELETE' });
+      if (res.ok) {
+        showNotif(`${type.charAt(0).toUpperCase() + type.slice(1)} cache cleared`);
+      } else {
+        showNotif('Something went wrong');
+      }
+    }
+
+    function showNotif(message) {
+      const stack = document.getElementById('notif-stack');
+      const el = document.createElement('div');
+      el.className = 'notif';
+      el.textContent = message;
+      stack.appendChild(el);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+      setTimeout(() => {
+        el.classList.remove('show');
+        el.addEventListener('transitionend', () => el.remove(), { once: true });
+      }, 2000);
+    }
+
+    loadUpdateStatus();
+    setInterval(loadUpdateStatus, 30000);
+  </script>
+</body>
+</html>
