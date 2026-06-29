@@ -1,6 +1,6 @@
 {
   "name": "notiskin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open source modding tool for the Notion desktop app. Apply CSS themes and JavaScript plugins to Notion's Electron client",
   "main": "dist/electron/main.js",
   "bin": {
