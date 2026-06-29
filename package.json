@@ -24,7 +24,7 @@
     "test": "node --test",
     "clean": "rm -rf dist",
     "build:mac": "tsc && electron-builder --mac",
-    "publish": "electron-builder --mac --publish always"
+    "publish": "node publish.js"
   },
   "keywords": [
     "notion",
@@ -60,7 +60,8 @@
     "publish": {
       "provider": "github",
       "owner": "notiskin",
-      "repo": "notiskin"
+      "repo": "notiskin",
+      "releaseType": "release"
     },
     "mac": {
       "category": "public.app-category.productivity",

@@ -310,7 +310,7 @@
           <div class="card-header">
             <div>
               <div class="card-name">${esc(item.name)}</div>
-              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ', ' + esc(item.description) : ''}</div>
               ${item.rejection_reason ? `<p class="auto-flag">⚠ ${esc(item.rejection_reason)}</p>` : ''}
             </div>
             <div class="card-actions" id="actions-${esc(item.id)}">
@@ -329,7 +329,7 @@
           <div class="card-header">
             <div>
               <div class="card-name">${esc(item.name)}</div>
-              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ', ' + esc(item.description) : ''}</div>
             </div>
             <div class="card-actions" id="actions-${esc(item.id)}">
               <button class="btn-approve" data-id="${esc(item.id)}" data-type="plugin">Approve</button>
@@ -360,7 +360,7 @@
           <div class="card-header">
             <div>
               <div class="card-name">${esc(item.name)}</div>
-              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ', ' + esc(item.description) : ''}</div>
             </div>
           </div>
           ${item.rejection_reason ? `<div class="rejection-reason-badge"><strong>Rejection reason</strong>${esc(item.rejection_reason)}</div>` : ''}
@@ -375,7 +375,7 @@
           <div class="card-header">
             <div>
               <div class="card-name">${esc(item.name)}</div>
-              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ' — ' + esc(item.description) : ''}</div>
+              <div class="card-meta">by ${esc(item.author_github)}${item.description ? ', ' + esc(item.description) : ''}</div>
             </div>
           </div>
           ${item.rejection_reason ? `<div class="rejection-reason-badge"><strong>Rejection reason</strong>${esc(item.rejection_reason)}</div>` : ''}
