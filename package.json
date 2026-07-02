@@ -1,6 +1,6 @@
 {
   "name": "notiskin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Open source modding tool for the Notion desktop app. Apply CSS themes and JavaScript plugins to Notion's Electron client",
   "main": "dist/electron/main.js",
   "bin": {
@@ -66,6 +66,10 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        },
         {
           "target": "zip",
           "arch": ["arm64"]
