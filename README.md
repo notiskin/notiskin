@@ -134,6 +134,10 @@ npm run publish             # tags, builds, and uploads to GitHub Releases
 
 `publish` refuses to run with uncommitted changes, off `main`, or if the version's tag already exists. The build fails if `.env` or other dev-only files end up inside the app.
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
+
 ## License
 
 MIT

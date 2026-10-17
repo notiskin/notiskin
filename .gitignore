@@ -1,12 +1,12 @@
 .env
 node_modules/
 dist/
-docs/
+docs/*
+!docs/prompts/
 release/
 *.tsbuildinfo
 .DS_Store
 notiskin.config.json
 .claude/
-CLAUDE.md
 supabase/.temp/
 coverage/
