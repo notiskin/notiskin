@@ -1,0 +1,49 @@
+name: Release
+
+# run by hand from the Actions tab after the version bump is merged to main
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# two runs at once could create duplicate releases for the same tag
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Only release from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Releases are cut from main, this run is on ${GITHUB_REF}."
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      # drives the injector against a fake Notion built with Electron
+      - run: npm run test:integration
+      # never reuse a tag, users may already have that version installed
+      - name: Check the version's tag is new
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if [ -n "$(git ls-remote --tags origin "refs/tags/${tag}")" ]; then
+            echo "Tag ${tag} already exists on GitHub. Bump the version in package.json."
+            exit 1
+          fi
+          echo "Releasing ${tag}"
+      # the afterPack hook (scripts/check-bundle.js) fails the build if .env or dev-only files get packaged
+      - name: Build and publish
+        run: npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
