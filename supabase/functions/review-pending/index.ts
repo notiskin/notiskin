@@ -15,12 +15,12 @@ Deno.serve(async (req) => {
     db.from('themes')
       .select('id,name,author_github,description,css,rejection_reason')
       .eq('status', 'rejected')
-      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(30),
     db.from('plugins')
       .select('id,name,author_github,description,js,rejection_reason')
       .eq('status', 'rejected')
-      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(30),
   ]);
 

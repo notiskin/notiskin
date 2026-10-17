@@ -4,12 +4,11 @@
 -- This file collects the SQL from the old phase handoff notes (phases 11 and 12) so the
 -- database could be rebuilt if the project were lost.
 --
--- Known gaps, the app code uses these but their exact DDL was never recorded:
---   themes.name_normalized, plugins.name_normalized  text, with a UNIQUE constraint
---     (the edge functions treat error 23505 on insert as "name already exists")
---   themes.rejection_reason, plugins.rejection_reason  text, nullable
---   themes.updated_at, plugins.updated_at  timestamptz (review-pending orders by it)
--- Before relying on this file, dump the real schema from the dashboard and commit it as a migration.
+-- Superseded: the real live schema was captured on 2026-10-17 and is now
+-- supabase/migrations/20261016000000_baseline_marketplace_schema.sql
+-- (raw catalog output in supabase/snapshots/2026-10-pre-hardening.txt). Use that, not this file.
+-- Gaps this file had: name_normalized and rejection_reason weren't recorded, there's a
+-- CHECK on name, and themes/plugins have no updated_at column.
 --
 -- The RLS policies below are the ORIGINAL ones. They trust user_metadata, which users can edit,
 -- and are replaced by supabase/migrations/20261017000000_harden_marketplace_auth.sql.
