@@ -26,7 +26,7 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
 
   package:
-    # builds the unpacked .app so the afterPack check proves no secrets get bundled
+    # integration tests, then builds the unpacked .app so the afterPack check proves no secrets get bundled
     runs-on: macos-latest
     needs: check
     steps:
@@ -36,7 +36,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build
+      # drives the injector against a fake Notion built with Electron
+      - run: npm run test:integration
       - run: npx electron-builder --mac dir --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

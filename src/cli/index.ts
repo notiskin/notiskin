@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync, statSync, truncateSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { patchNotion, unpatchNotion, waitForCDP } from '../patcher/index';
+import { patchNotion, unpatchNotion } from '../patcher/index';
 import { readConfig, writeConfig } from '../utils/config';
-import { CDP_PORT, LOGS_DIR } from '../utils/constants';
+import { CDP_PORT, LOGS_DIR, NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR, INJECTOR_PID_PATH } from '../utils/constants';
+import { acquirePidLock } from '../utils/pidlock';
 import {
   applyConfig,
   deleteItem,
@@ -15,7 +16,7 @@ import {
   activeThemeCss,
   loadEnabledPlugins,
 } from '../core/library';
-import { applyAll } from '../injector/index';
+import { startInjectorDaemon } from '../injector/daemon';
 
 const PLUGIN_WARNING = `
 WARNING: Plugins run with full, unrestricted access to your Notion page and data.
@@ -203,17 +204,39 @@ async function pluginCommand(args: string[]): Promise<void> {
   throw new UsageError('Usage: notiskin plugin <enable|disable|delete> <name>');
 }
 
-// auto-run by the wrapper script on every Notion launch, Notion is starting with CDP open
+// started by the wrapper script on every Notion launch (and by apply), runs until Notion quits
 async function inject(): Promise<void> {
-  const config = readConfig();
-  const css = activeThemeCss(config);
-  const plugins = loadEnabledPlugins(config, log);
-  if (!css && plugins.length === 0) {
-    console.log('[inject] No theme or plugins enabled, nothing to do.');
+  const release = acquirePidLock(INJECTOR_PID_PATH);
+  if (!release) {
+    console.log('[inject] Injector is already running.');
     return;
   }
-  await waitForCDP(CDP_PORT);
-  await applyAll(css, plugins, CDP_PORT);
+  capLog(join(LOGS_DIR, 'inject.log'));
+  const stamp = (msg: string) => console.log(`[${new Date().toISOString()}] [inject] ${msg}`);
+
+  const daemon = await startInjectorDaemon({
+    port: CDP_PORT,
+    loadPayload: () => {
+      const config = readConfig();
+      return { css: activeThemeCss(config), plugins: loadEnabledPlugins(config, stamp) };
+    },
+    watchPaths: [NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR],
+    log: stamp,
+  });
+  stamp(`Watching ${daemon.attachedTargets().length} Notion tab(s).`);
+
+  const stop = () => void daemon.stop();
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
+  await daemon.done;
+  release();
+}
+
+// the injector now lives as long as Notion, keep its log from growing forever
+function capLog(path: string, maxBytes = 1024 * 1024): void {
+  try {
+    if (statSync(path).size > maxBytes) truncateSync(path, 0);
+  } catch {}
 }
 
 async function main(argv: string[]): Promise<void> {

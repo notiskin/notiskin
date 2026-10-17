@@ -229,6 +229,45 @@ async function injectCSSOnClient(cssContent: string, client: any): Promise<void>
   console.log('[injector] CSS injected successfully.');
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function removeStylesOnClient(client: any): Promise<void> {
+  await client.send('Runtime.evaluate', {
+    expression: `['notiskin-core-styles', 'notiskin-styles'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.remove();
+    })`,
+  });
+}
+
+// runs at the very start of every new document, before Notion paints, so reloads never flash unthemed
+// the full injection after load replaces these same elements by id
+export function earlyStyleScript(cssContent: string): string {
+  if (!cssContent.trim()) return '';
+  return `(function () {
+    function add(root, id, css) {
+      if (document.getElementById(id)) return;
+      var el = document.createElement('style');
+      el.id = id;
+      el.textContent = css;
+      root.appendChild(el);
+    }
+    function attach() {
+      var root = document.head || document.documentElement;
+      if (!root) return false;
+      add(root, 'notiskin-core-styles', ${JSON.stringify(CORE_CSS)});
+      add(root, 'notiskin-styles', ${JSON.stringify(cssContent)});
+      return true;
+    }
+    // at document start <html> doesn't exist yet, attach the moment the parser creates it
+    if (!attach()) {
+      var observer = new MutationObserver(function () {
+        if (attach()) observer.disconnect();
+      });
+      observer.observe(document, { childList: true, subtree: true });
+    }
+  })()`;
+}
+
 // plugins run once per page load, re-applying a theme must not double up their listeners
 // returns false when the plugin was already running in this page
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -259,10 +298,16 @@ async function injectPluginOnClient(plugin: PluginEntry, client: any): Promise<b
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function injectEverything(cssContent: string, plugins: PluginEntry[], client: any): Promise<void> {
-  await injectCoreCSSOnClient(client);
-  await injectCSSOnClient(cssContent, client);
-  await injectCoreJSOnClient(client);
+export async function injectEverything(cssContent: string, plugins: PluginEntry[], client: any): Promise<void> {
+  if (cssContent.trim()) {
+    await injectCoreCSSOnClient(client);
+    await injectCSSOnClient(cssContent, client);
+  } else {
+    // no theme means stock Notion, the core CSS on its own would still restyle the page
+    await removeStylesOnClient(client);
+  }
+  // window.notiskin observes every DOM change, only pay for it when a plugin needs it
+  if (plugins.length > 0) await injectCoreJSOnClient(client);
 
   for (const plugin of plugins) {
     try {

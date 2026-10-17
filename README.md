@@ -9,7 +9,7 @@ Notiskin is an open source modding tool for the Notion desktop app on macOS. It 
 Notion loads its interface live from `notion.so`, so Notiskin doesn't edit Notion's files. Instead it:
 
 1. Starts Notion with `--remote-debugging-port=9222`, which turns on the Chrome DevTools Protocol (CDP).
-2. Connects over CDP and injects a `<style>` tag for the theme and runs each enabled plugin in the page.
+2. Runs a small background injector for as long as Notion is open. It themes every Notion tab and window, re-applies after reloads (with no flash of the default look), and picks up theme, plugin, and settings changes live. It exits when Notion quits.
 3. Optionally **patches** Notion: the Notion executable is replaced by a tiny wrapper script that always adds the debug port and re-applies your theme on every launch. The original binary is kept as `Notion.real` and backed up to `~/.notiskin/backup/`.
 
 Themes and plugins live in `~/.notiskin/themes/*.css` and `~/.notiskin/plugins/*.js`. The active theme and enabled plugins are stored in `~/.notiskin/notiskin.config.json`.
@@ -75,7 +75,7 @@ Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain on
 
 ## Writing a plugin
 
-Plugins are plain JavaScript that runs inside Notion's page. Each plugin runs at most once per page load, so re-applying a theme won't double up listeners. A small helper API is available as `window.notiskin`:
+Plugins are plain JavaScript that runs inside each Notion tab once the page has loaded. Each plugin runs at most once per page load, so re-applying a theme won't double up listeners. Disabling a plugin reloads the current tab; other open tabs drop it on their next reload. A small helper API is available as `window.notiskin`:
 
 ```js
 notiskin.onPageChange(() => console.log('now on', notiskin.getPageTitle()));
@@ -93,6 +93,7 @@ npm start                   # run the desktop app
 npm run lint
 npm run typecheck
 npm test
+npm run test:integration    # runs the injector against a fake Notion made with Electron
 ```
 
 Set `NOTISKIN_DIR=/some/folder` to use a throwaway data folder instead of `~/.notiskin`.
@@ -104,7 +105,7 @@ src/cli/          command line entry point
 src/core/         shared theme/plugin logic used by the CLI, the GUI server, and launch-time injection
 src/electron/     desktop app main process
 src/gui/          Express server + HTML pages
-src/injector/     CDP injection
+src/injector/     CDP injection (index.ts one-shot, daemon.ts long-running)
 src/patcher/      Notion wrapper patching and the auto-repatch watcher
 src/updater/      update checks
 supabase/         marketplace edge functions and database migrations

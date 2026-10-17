@@ -1,9 +1,9 @@
 // shared theme/plugin logic, the CLI, the GUI server, and the launch-time inject all go through here
 // so they can't drift apart on where files live or how they get applied
-import { execFileSync } from 'child_process';
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, renameSync } from 'fs';
+import { execFileSync, spawn } from 'child_process';
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, renameSync, openSync, closeSync } from 'fs';
 import { join } from 'path';
-import { THEMES_DIR, PLUGINS_DIR, CDP_PORT, MAX_ITEM_BYTES } from '../utils/constants';
+import { THEMES_DIR, PLUGINS_DIR, CDP_PORT, MAX_ITEM_BYTES, LOGS_DIR } from '../utils/constants';
 import { readConfig, writeConfig, NotiskinConfig } from '../utils/config';
 import { launchNotion, waitForCDP, isCDPAvailable } from '../patcher/index';
 import { applyAll, reloadAndReapply, PluginEntry } from '../injector/index';
@@ -134,6 +134,24 @@ export async function quitNotion(timeoutMs = 10_000): Promise<void> {
   await sleep(500);
 }
 
+// starts the long-running injector in the background, it exits on its own if one is already running
+// in the desktop app, Electron's binary doubles as Node via ELECTRON_RUN_AS_NODE
+export function ensureInjector(): void {
+  const cli = join(__dirname, '..', 'cli', 'index.js');
+  mkdirSync(LOGS_DIR, { recursive: true });
+  const out = openSync(join(LOGS_DIR, 'inject.log'), 'a');
+  try {
+    const child = spawn(process.execPath, [cli, 'inject'], {
+      detached: true,
+      stdio: ['ignore', out, out],
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    });
+    child.unref();
+  } finally {
+    closeSync(out);
+  }
+}
+
 export interface ApplyOptions {
   // relaunch Notion with the debug port if it isn't already reachable
   restartIfNeeded?: boolean;
@@ -155,9 +173,12 @@ export async function applyConfig(opts: ApplyOptions = {}): Promise<boolean> {
     await quitNotion();
     launchNotion(CDP_PORT);
     await waitForCDP(CDP_PORT);
+    ensureInjector();
     await applyAll(css, plugins, CDP_PORT);
     return true;
   }
+
+  ensureInjector();
 
   if (opts.reload) {
     await reloadAndReapply(css, plugins, CDP_PORT);
