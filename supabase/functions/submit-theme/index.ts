@@ -1,86 +1,44 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
-};
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
-
-function normalizeName(name: string): string {
-  return name.toLowerCase().replace(/[\s\-_]/g, '');
-}
+import { adminClient, cleanDescription, cleanItemName, json, normalizeName, preflight, readJson, verifyUser } from '../_shared/http.ts';
+import { validateThemeCss } from '../_shared/css.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: CORS_HEADERS });
+  const early = preflight(req);
+  if (early) return early;
+  if (req.method !== 'POST') return json(req, { error: 'Method not allowed' }, 405);
+
+  const db = adminClient();
+  const user = await verifyUser(req, db);
+  if (!user) return json(req, { error: 'Sign in with GitHub to publish.' }, 401);
+
+  const body = await readJson(req);
+  if (!body) return json(req, { error: 'Invalid request body' }, 400);
+
+  const name = cleanItemName(body.name);
+  if (!name) return json(req, { error: 'Name must be 1-60 letters, numbers, and spaces.' }, 400);
+  const description = cleanDescription(body.description);
+  if (description === null) return json(req, { error: 'Description must be 500 characters or fewer.' }, 400);
+  if (typeof body.css !== 'string' || !body.css.trim()) return json(req, { error: 'Theme CSS is empty.' }, 400);
+  if (body.css.length > 20_000) return json(req, { error: 'Theme CSS is too long.' }, 400);
+  const css = body.css;
+
+  // valid themes are auto-approved, anything else waits for a human reviewer
+  const problem = validateThemeCss(css);
+  const { error } = await db.from('themes').insert({
+    name,
+    name_normalized: normalizeName(name),
+    description,
+    css,
+    author_github: user.githubUsername,
+    status: problem ? 'pending' : 'approved',
+    rejection_reason: problem ? `Auto-check failed: ${problem}` : null,
+  });
+
+  if (error?.code === '23505') return json(req, { error: 'A theme with this name already exists.' }, 409);
+  if (error) {
+    console.error('submit-theme insert failed', error);
+    return json(req, { error: 'Could not save your theme. Try again later.' }, 500);
   }
-
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader) return json({ error: 'No auth token' }, 401);
-
-  const { name: rawName, description, css, author_github } = await req.json() as {
-    name: string; description: string; css: string; author_github: string;
-  };
-
-  const cleanName = rawName.trim().replace(/  +/g, ' ').toLowerCase();
-  if (!cleanName || !/^[a-z0-9 ]+$/.test(cleanName)) {
-    return json({ error: 'Letters, numbers, and spaces only.' }, 400);
-  }
-
-  const db = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('NS_SERVICE_ROLE_KEY')!,
-  );
-
-  let reason: string | null = null;
-
-  if (/url\s*\(/i.test(css)) {
-    reason = "url() isn't allowed";
-  } else if (/@import/i.test(css)) {
-    reason = "@import isn't allowed";
-  } else {
-    const rootStripped = css
-      .replace(/:root\s*\{[\s\S]*?\}/g, '')
-      .replace(/\/\*[\s\S]*?\*\//g, '');
-    if (/\S/.test(rootStripped)) {
-      reason = 'All rules must be inside a :root block';
-    } else {
-      for (const rawLine of css.split('\n')) {
-        const line = rawLine.trim();
-        if (!line.includes(':')) continue;
-        if (line.startsWith('/*') || line.startsWith('*') || line.startsWith('//')) continue;
-        if (line.startsWith(':root') || line === '{' || line.startsWith('}')) continue;
-        const prop = line.split(':')[0].trim();
-        if (prop && !prop.startsWith('--ns-')) {
-          reason = `${prop} must start with --ns-`;
-          break;
-        }
-      }
-    }
-  }
-
-  const name_normalized = normalizeName(cleanName);
-
-  if (reason) {
-    const { error } = await db.from('themes').insert({
-      name: cleanName, name_normalized, description, css, author_github, status: 'pending',
-      rejection_reason: `Auto-check failed: ${reason}`,
-    });
-    if (error?.code === '23505') return json({ error: 'A theme with this name already exists.' }, 409);
-    if (error) return json({ error: error.message }, 500);
-    return json({ ok: true, autoApproved: false, reason: `Auto-check failed: ${reason}` });
-  } else {
-    const { error } = await db.from('themes').insert({
-      name: cleanName, name_normalized, description, css, author_github, status: 'approved',
-    });
-    if (error?.code === '23505') return json({ error: 'A theme with this name already exists.' }, 409);
-    if (error) return json({ error: error.message }, 500);
-    return json({ ok: true, autoApproved: true });
-  }
+  return problem
+    ? json(req, { ok: true, autoApproved: false, reason: `Auto-check failed: ${problem}` })
+    : json(req, { ok: true, autoApproved: true });
 });

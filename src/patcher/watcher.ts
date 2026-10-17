@@ -1,21 +1,26 @@
 // fs.watch uses FSEvents on macOS, not polling
 import { watch } from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync, copyFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import { dirname, join } from 'path';
-import { homedir } from 'os';
 import { findNotionBinary, isWrapperPresent, makeWrapperScript, signingHelperPath } from './index';
+import { NOTISKIN_DIR } from '../utils/constants';
 
 // __dirname here is dist/patcher/, step up one level to reach dist/cli/index.js
 const CLI_SCRIPT = join(__dirname, '..', 'cli', 'index.js');
 
-function isNotionRunning(): boolean {
+function pgrep(name: string): boolean {
   try {
-    execSync('pgrep -x Notion', { stdio: 'ignore' });
+    execFileSync('pgrep', ['-x', name], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
+}
+
+// a patched Notion runs as Notion.real, so both names count as running
+function isNotionRunning(): boolean {
+  return pgrep('Notion') || pgrep('Notion.real');
 }
 
 function sleep(ms: number): Promise<void> {
@@ -36,7 +41,7 @@ function appBundlePath(notionPath: string): string {
 
 async function repatch(notionPath: string): Promise<void> {
   const realPath = `${notionPath}.real`;
-  const backupDir = join(homedir(), '.notiskin', 'backup');
+  const backupDir = join(NOTISKIN_DIR, 'backup');
   const backupPath = join(backupDir, 'Notion.original');
 
   console.log('[watcher] Notion update detected. Waiting for Notion to close before touching files...');
@@ -70,7 +75,8 @@ async function repatch(notionPath: string): Promise<void> {
 
   // tier 1: passwordless via sudoers rule installed at patch time, no prompt, normal path
   try {
-    execSync(`sudo /usr/bin/codesign --force --deep --sign - "${bundle}"`, { stdio: 'pipe' });
+    // -n: never prompt, a LaunchAgent has no terminal to type a password into
+    execFileSync('sudo', ['-n', '/usr/bin/codesign', '--force', '--deep', '--sign', '-', bundle], { stdio: 'pipe' });
     signed = true;
     console.log('[watcher] Bundle re-signed successfully.');
   } catch (signErr: unknown) {
@@ -86,7 +92,7 @@ async function repatch(notionPath: string): Promise<void> {
     if (existsSync(helperApp)) {
       console.log('[watcher] Prompting for administrator password via Notiskin signing helper...');
       try {
-        execSync(`osascript "${helperApp}" "${bundle}"`, { stdio: 'pipe' });
+        execFileSync('osascript', [helperApp, bundle], { stdio: 'pipe' });
         signed = true;
         console.log('[watcher] Bundle re-signed successfully (via admin prompt).');
       } catch (elevErr: unknown) {
@@ -106,8 +112,9 @@ async function repatch(notionPath: string): Promise<void> {
     console.warn('[watcher] Repatch is complete but the bundle is unsigned.');
     console.warn('[watcher] Fix: run sudo npm run patch to reinstall the signing setup.');
     try {
-      execSync(
-        `osascript -e 'display notification "Bundle not signed after auto-repatch. Run: sudo npm run patch" with title "Notiskin" subtitle "Action required"'`,
+      execFileSync(
+        'osascript',
+        ['-e', 'display notification "Bundle not signed after auto-repatch. Run: sudo npm run patch" with title "Notiskin" subtitle "Action required"'],
         { stdio: 'ignore' }
       );
     } catch {

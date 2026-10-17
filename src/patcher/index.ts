@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import {
   existsSync,
   copyFileSync,
@@ -10,15 +10,17 @@ import {
   unlinkSync,
   chmodSync,
   rmSync,
+  mkdtempSync,
 } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { tmpdir } from 'os';
 import http from 'http';
 import { sleep } from '../utils/sleep';
+import { NOTISKIN_DIR, USER_HOME } from '../utils/constants';
 
 const NOTION_BINARY_CANDIDATES = [
   '/Applications/Notion.app/Contents/MacOS/Notion',
-  `${process.env.HOME}/Applications/Notion.app/Contents/MacOS/Notion`,
+  join(USER_HOME, 'Applications', 'Notion.app', 'Contents', 'MacOS', 'Notion'),
 ];
 
 const STARTUP_TIMEOUT_MS = 30_000;
@@ -51,7 +53,7 @@ function appBundlePath(notionPath: string): string {
 
 function resignBundle(notionPath: string): void {
   try {
-    execSync(`codesign --force --deep --sign - "${appBundlePath(notionPath)}"`, {
+    execFileSync('codesign', ['--force', '--deep', '--sign', '-', appBundlePath(notionPath)], {
       stdio: 'ignore',
     });
     console.log('[patcher] App bundle re-signed (ad-hoc).');
@@ -79,11 +81,9 @@ export function makeWrapperScript(nodePath: string, cliScriptPath: string): stri
 
 const SUDOERS_FILE = '/etc/sudoers.d/notiskin';
 
-// under sudo, $HOME = /root, use SUDO_USER to find the actual user's home dir
+// NOTISKIN_DIR already resolves the real user's home under sudo
 export function signingHelperPath(): string {
-  const sudoUser = process.env.SUDO_USER;
-  const base = sudoUser ? `/Users/${sudoUser}` : homedir();
-  return join(base, '.notiskin', 'Notiskin.app');
+  return join(NOTISKIN_DIR, 'Notiskin.app');
 }
 
 // .app so the password dialog says "Notiskin" not "osascript"
@@ -94,7 +94,7 @@ export function compileSigningHelper(): void {
 
   mkdirSync(helperDir, { recursive: true });
   // osacompile fails if the bundle dir already exists
-  try { execSync(`rm -rf "${helperApp}"`, { stdio: 'ignore' }); } catch {}
+  rmSync(helperApp, { recursive: true, force: true });
 
   writeFileSync(
     tmpScript,
@@ -107,11 +107,11 @@ export function compileSigningHelper(): void {
   );
 
   try {
-    execSync(`osacompile -o "${helperApp}" "${tmpScript}"`, { stdio: 'pipe' });
+    execFileSync('osacompile', ['-o', helperApp, tmpScript], { stdio: 'pipe' });
     // sudo creates files owned by root, chown back to the actual user
     const sudoUser = process.env.SUDO_USER;
     if (sudoUser) {
-      execSync(`chown -R "${sudoUser}" "${helperDir}"`, { stdio: 'ignore' });
+      execFileSync('chown', ['-R', sudoUser, helperDir], { stdio: 'ignore' });
     }
     console.log(`[patcher] Signing helper compiled at ${helperApp}`);
   } catch (err: unknown) {
@@ -131,14 +131,16 @@ function installSudoersRule(username: string, notionPath: string): void {
     '',
   ].join('\n');
 
-  const tmpFile = '/tmp/notiskin_sudoers_tmp';
+  // private temp dir, a fixed /tmp path written as root could be pre-planted as a symlink
+  const tmpDir = mkdtempSync(join(tmpdir(), 'notiskin-sudoers-'));
+  const tmpFile = join(tmpDir, 'rule');
 
   // validate before touching sudoers.d, reject means nothing was written
-  writeFileSync(tmpFile, rule, { encoding: 'utf-8', mode: 0o440 });
+  writeFileSync(tmpFile, rule, { encoding: 'utf-8', mode: 0o440, flag: 'wx' });
   try {
-    execSync(`visudo -c -f "${tmpFile}"`, { stdio: 'pipe' });
+    execFileSync('visudo', ['-c', '-f', tmpFile], { stdio: 'pipe' });
   } catch (err: unknown) {
-    try { unlinkSync(tmpFile); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
     throw new Error(
       `Sudoers rule failed visudo validation, aborting, nothing written to /etc/sudoers.d/. ` +
       `${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`
@@ -149,7 +151,7 @@ function installSudoersRule(username: string, notionPath: string): void {
     writeFileSync(SUDOERS_FILE, rule, { encoding: 'utf-8', mode: 0o440 });
     chmodSync(SUDOERS_FILE, 0o440);
   } finally {
-    try { unlinkSync(tmpFile); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
   }
 
   console.log(`[patcher] Sudoers rule installed at ${SUDOERS_FILE}`);
@@ -161,7 +163,7 @@ function installSudoersRule(username: string, notionPath: string): void {
 export function patchNotion(nodePath: string, cliScriptPath: string): void {
   const notionPath = findNotionBinary();
   const realPath = `${notionPath}.real`;
-  const backupDir = join(homedir(), '.notiskin', 'backup');
+  const backupDir = join(NOTISKIN_DIR, 'backup');
   const backupPath = join(backupDir, 'Notion.original');
 
   if (isWrapperPresent(notionPath)) {
@@ -273,10 +275,10 @@ export function unpatchNotion(): void {
     }
   }
 
-  const PLIST_PATH = join(homedir(), 'Library', 'LaunchAgents', 'com.notiskin.watcher.plist');
+  const PLIST_PATH = join(USER_HOME, 'Library', 'LaunchAgents', 'com.notiskin.watcher.plist');
   if (existsSync(PLIST_PATH)) {
     try {
-      execSync(`launchctl unload "${PLIST_PATH}"`, { stdio: 'ignore' });
+      execFileSync('launchctl', ['unload', PLIST_PATH], { stdio: 'ignore' });
     } catch {
       // agent may already be unloaded, still remove the file
     }
@@ -303,7 +305,7 @@ export function unpatchNotion(): void {
 
 export function killNotion(): void {
   try {
-    execSync('pkill -x "Notion"', { stdio: 'ignore' });
+    execFileSync('pkill', ['-x', 'Notion'], { stdio: 'ignore' });
     console.log('[patcher] Notion was running, closed it.');
   } catch {
     // pkill exits with code 1 when no matching process is found, that is fine

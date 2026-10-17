@@ -1,152 +1,217 @@
 #!/usr/bin/env node
 import 'dotenv/config';
-import express from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, appendFileSync, unlinkSync, rmSync } from 'fs';
+import { readFileSync, existsSync, appendFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
-import { execSync, exec } from 'child_process';
-import https from 'https';
-import http from 'http';
-import { createClient } from '@supabase/supabase-js';
+import { execFile } from 'child_process';
+import { randomBytes, timingSafeEqual } from 'crypto';
+import type { Server } from 'http';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { readConfig, writeConfig } from '../utils/config';
-import { getUpdateStatus, installUpdate } from '../updater/index';
-import { launchNotion, waitForCDP, isCDPAvailable } from '../patcher/index';
-import { applyAll, reloadAndReapply, PluginEntry } from '../injector/index';
+import {
+  NOTISKIN_DIR,
+  CONFIG_PATH,
+  GUI_HOST,
+  GUI_PORT,
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY,
+  MAX_ITEM_BYTES,
+} from '../utils/constants';
+import {
+  applyConfig,
+  deleteItem,
+  isItemType,
+  isNotionRunning,
+  isValidItemName,
+  itemExists,
+  listPlugins,
+  listThemes,
+  toFileStem,
+  writeItem,
+  ItemType,
+} from '../core/library';
 
-const CDP_PORT = 9222;
-const NOTISKIN_DIR = join(homedir(), '.notiskin');
-const THEMES_DIR = join(NOTISKIN_DIR, 'themes');
-const PLUGINS_DIR = join(NOTISKIN_DIR, 'plugins');
-let HTML_PATH = join(__dirname, '..', '..', 'src', 'gui', 'themes.html');
-const GUI_PORT = 3845;
+let pagesDir = join(__dirname, '..', '..', 'src', 'gui');
 
-let _publicSupabase: ReturnType<typeof createClient> | null = null;
-function getPublicSupabase() {
-  if (!_publicSupabase) {
-    _publicSupabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!);
-  }
+// fresh secret every launch, pages get it baked in, so other websites and apps can't drive the API
+const SESSION_TOKEN = randomBytes(32).toString('hex');
+const ALLOWED_HOSTS = new Set([`localhost:${GUI_PORT}`, `127.0.0.1:${GUI_PORT}`]);
+const ALLOWED_ORIGINS = new Set([...ALLOWED_HOSTS].map(h => `http://${h}`));
+const OPEN_EXTERNAL_HOSTS = new Set(['github.com', 'www.github.com']);
+const ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
+
+let _publicSupabase: SupabaseClient | null = null;
+function publicSupabase(): SupabaseClient {
+  if (!_publicSupabase) _publicSupabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
   return _publicSupabase;
 }
 
-
-function listThemes(): string[] {
-  if (!existsSync(THEMES_DIR)) return [];
-  return readdirSync(THEMES_DIR).filter(f => f.endsWith('.css')).map(f => f.replace(/\.css$/, ''));
-}
-
-function listPlugins(): string[] {
-  if (!existsSync(PLUGINS_DIR)) return [];
-  return readdirSync(PLUGINS_DIR).filter(f => f.endsWith('.js')).map(f => f.replace(/\.js$/, ''));
-}
-
-function isNotionRunning(): boolean {
-  try {
-    execSync('pgrep -x Notion', { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function loadEnabledPlugins(enabledNames: string[]): PluginEntry[] {
-  return enabledNames
-    .filter(name => existsSync(join(PLUGINS_DIR, `${name}.js`)))
-    .map(name => ({ name, content: readFileSync(join(PLUGINS_DIR, `${name}.js`), 'utf-8') }));
-}
-
-// patched binary runs as Notion.real (wrapper exec's into it), pkill "Notion" alone silently misses it
-async function waitForNotionToQuit(timeoutMs = 10_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    let running = false;
-    try { execSync('pgrep -x Notion', { stdio: 'pipe' }); running = true; } catch {}
-    if (!running) {
-      try { execSync('pgrep -x "Notion.real"', { stdio: 'pipe' }); running = true; } catch {}
-    }
-    if (!running) return;
-    await new Promise(r => setTimeout(r, 300));
-  }
-  // Timed out waiting for graceful exit, escalate to SIGKILL
-  try { execSync('pkill -9 -x Notion', { stdio: 'ignore' }); } catch {}
-  try { execSync('pkill -9 -x "Notion.real"', { stdio: 'ignore' }); } catch {}
-  await new Promise(r => setTimeout(r, 500));
-}
-
-async function applyNotiskin(themeName: string): Promise<void> {
-  const cssFile = join(THEMES_DIR, `${themeName}.css`);
-  if (!existsSync(cssFile)) throw new Error(`Theme not found`);
-
-  const config = readConfig();
-  const plugins = loadEnabledPlugins(config.enabledPlugins);
-  const cssContent = readFileSync(cssFile, 'utf-8');
-
-  if (await isCDPAvailable(CDP_PORT)) {
-    await applyAll(cssContent, plugins, CDP_PORT);
-    return;
-  }
-
-  try { execSync('pkill -x Notion', { stdio: 'ignore' }); } catch {}
-  try { execSync('pkill -x "Notion.real"', { stdio: 'ignore' }); } catch {}
-  await waitForNotionToQuit();
-
-  launchNotion(CDP_PORT);
-  await waitForCDP(CDP_PORT);
-  await applyAll(cssContent, plugins, CDP_PORT);
-}
-
-
-function downloadUrl(url: string, headers: Record<string, string> = {}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    const req = client.get(url, { headers }, res => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode} from ${url}`));
-        return;
-      }
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-    });
-    req.on('error', reject);
+function userSupabase(token: string): SupabaseClient {
+  return createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false },
   });
 }
 
-const app = express();
-app.use(express.json());
+function bearerToken(req: Request): string | null {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) return null;
+  return header.slice('Bearer '.length).trim() || null;
+}
 
+function debugLog(msg: string): void {
+  try {
+    mkdirSync(NOTISKIN_DIR, { recursive: true });
+    appendFileSync(join(NOTISKIN_DIR, 'debug.log'), `[${new Date().toISOString()}] ${msg}\n`);
+  } catch {}
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+// one Notion operation at a time, two overlapping restarts would fight over the process
+let queue: Promise<unknown> = Promise.resolve();
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => {});
+  return run;
+}
+
+// postgrest filter syntax uses , ( ) and ilike uses % _, strip them so search text can't change the query
+export function sanitizeSearch(q: unknown): string {
+  return String(q ?? '').replace(/[,()%_*\\"']/g, ' ').trim().slice(0, 100);
+}
+
+function tokenMatches(given: unknown): boolean {
+  if (typeof given !== 'string' || given.length !== SESSION_TOKEN.length) return false;
+  return timingSafeEqual(Buffer.from(given), Buffer.from(SESSION_TOKEN));
+}
+
+const BOOTSTRAP = `<script>
+(() => {
+  const token = ${JSON.stringify(SESSION_TOKEN)};
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init = {}) => {
+    const raw = input instanceof Request ? input.url : String(input);
+    const url = new URL(raw, location.href);
+    if (url.origin === location.origin && url.pathname.startsWith('/api/')) {
+      const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+      headers.set('X-Notiskin-Token', token);
+      init = { ...init, headers };
+    }
+    return originalFetch(input, init);
+  };
+})();
+</script>`;
+
+function sendPage(file: string) {
+  return (_req: Request, res: Response) => {
+    const html = readFileSync(join(pagesDir, file), 'utf-8');
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(html.replace(/<head>/i, `<head>\n${BOOTSTRAP}`));
+  };
+}
+
+async function proxyToEdgeFunction(fn: string, req: Request, res: Response): Promise<void> {
+  const token = bearerToken(req);
+  const response = await fetch(new URL(`/functions/v1/${fn}`, SUPABASE_URL), {
+    method: req.method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: req.method === 'GET' ? undefined : JSON.stringify(req.body ?? {}),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = { error: `Marketplace server error (${response.status})` };
+  }
+  res.status(response.status).json(body);
+}
+
+function openExternal(url: string): Promise<void> {
+  if (process.versions.electron) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { shell } = require('electron') as typeof import('electron');
+    return shell.openExternal(url);
+  }
+  return new Promise((resolve, reject) => {
+    execFile('open', [url], err => (err ? reject(err) : resolve()));
+  });
+}
+
+function loadUpdater(): typeof import('../updater/index') | null {
+  // the updater needs Electron, the standalone `npm run gui` server runs without it
+  if (!process.versions.electron) return null;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('../updater/index');
+}
+
+export const app = express();
+app.disable('x-powered-by');
+
+app.use((req, res, next) => {
+  res.set({
+    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': "frame-ancestors 'none'",
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+  });
+  // blocks DNS rebinding, a malicious domain pointed at 127.0.0.1 still sends its own Host header
+  if (!ALLOWED_HOSTS.has(req.headers.host ?? '')) {
+    res.status(403).send('Forbidden');
+    return;
+  }
+  next();
+});
+
+app.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    res.status(403).json({ error: 'Forbidden origin' });
+    return;
+  }
+  if (!tokenMatches(req.headers['x-notiskin-token'])) {
+    res.status(403).json({ error: 'Missing or invalid session token. Reload the page.' });
+    return;
+  }
+  next();
+});
+
+app.use(express.json({ limit: MAX_ITEM_BYTES * 2 }));
 
 const submitLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
+  limit: 5,
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip ?? req.socket.remoteAddress ?? 'unknown',
   message: { error: 'Too many submissions. Wait a few minutes.' },
 });
 
-const generalLimiter = rateLimit({
+const debugLogLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20,
-  standardHeaders: true,
+  limit: 60,
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip ?? req.socket.remoteAddress ?? 'unknown',
   message: { error: 'Too many requests.' },
 });
 
-app.get('/', (_req, res) => {
-  res.send(readFileSync(HTML_PATH, 'utf-8'));
+// served from the installed package instead of a CDN, so the version is pinned by package-lock
+const SUPABASE_UMD = require.resolve('@supabase/supabase-js/dist/umd/supabase.js');
+app.get('/vendor/supabase.js', (_req, res) => {
+  res.type('application/javascript').sendFile(SUPABASE_UMD);
 });
 
-app.get('/plugins.html', (_req, res) => {
-  const pluginsPath = HTML_PATH.replace('themes.html', 'plugins.html');
-  res.send(readFileSync(pluginsPath, 'utf-8'));
-});
-
-app.get('/review.html', (_req, res) => {
-  const reviewPath = HTML_PATH.replace('themes.html', 'review.html');
-  res.send(readFileSync(reviewPath, 'utf-8'));
-});
+app.get('/', sendPage('themes.html'));
+app.get('/plugins.html', sendPage('plugins.html'));
+app.get('/review.html', sendPage('review.html'));
+app.get('/settings.html', sendPage('settings.html'));
 
 app.get('/api/status', (_req, res) => {
   const config = readConfig();
@@ -157,171 +222,95 @@ app.get('/api/status', (_req, res) => {
   });
 });
 
+app.get('/api/state', (_req, res) => {
+  const config = readConfig();
+  res.json({
+    activeTheme: config.activeTheme || null,
+    themes: listThemes().map(name => ({ name, active: name === config.activeTheme })),
+    plugins: listPlugins().map(name => ({ name, active: config.enabledPlugins.includes(name) })),
+  });
+});
+
+async function searchMarketplace(table: 'themes' | 'plugins', q: string) {
+  let query = publicSupabase().from(table).select('*').eq('status', 'approved');
+  if (q) query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%,author_github.ilike.%${q}%`);
+  return query.order('created_at', { ascending: false }).limit(200);
+}
+
 app.get('/api/themes/search', async (req, res) => {
-  const q = (req.query.q as string || '').trim();
-  if (!q) {
-    const { data, error } = await getPublicSupabase()
-      .from('themes').select('*').eq('status', 'approved')
-      .order('created_at', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json({ themes: data || [] });
-  }
-  const { data, error } = await getPublicSupabase()
-    .from('themes').select('*').eq('status', 'approved')
-    .or(`name.ilike.%${q}%,description.ilike.%${q}%,author_github.ilike.%${q}%`)
-    .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ themes: data || [] });
+  const { data, error } = await searchMarketplace('themes', sanitizeSearch(req.query.q));
+  if (error) return res.status(502).json({ error: error.message });
+  res.json({ themes: data ?? [] });
 });
 
 app.get('/api/plugins/search', async (req, res) => {
-  const q = (req.query.q as string || '').trim();
-  if (!q) {
-    const { data, error } = await getPublicSupabase()
-      .from('plugins').select('*').eq('status', 'approved')
-      .order('created_at', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json({ plugins: data || [] });
-  }
-  const { data, error } = await getPublicSupabase()
-    .from('plugins').select('*').eq('status', 'approved')
-    .or(`name.ilike.%${q}%,description.ilike.%${q}%,author_github.ilike.%${q}%`)
-    .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ plugins: data || [] });
+  const { data, error } = await searchMarketplace('plugins', sanitizeSearch(req.query.q));
+  if (error) return res.status(502).json({ error: error.message });
+  res.json({ plugins: data ?? [] });
 });
 
 app.get('/api/themes', (_req, res) => {
-  const config = readConfig();
-  res.json({ themes: listThemes(), activeTheme: config.activeTheme });
+  res.json({ themes: listThemes(), activeTheme: readConfig().activeTheme });
+});
+
+app.get('/api/plugins', (_req, res) => {
+  res.json({ plugins: listPlugins(), enabledPlugins: readConfig().enabledPlugins });
 });
 
 app.post('/api/theme/clear', async (_req, res) => {
-  const config = readConfig();
-  writeConfig({ ...config, activeTheme: '' });
+  writeConfig({ ...readConfig(), activeTheme: '' });
   try {
-    if (await isCDPAvailable(CDP_PORT)) {
-      const plugins = loadEnabledPlugins(config.enabledPlugins);
-      await applyAll('', plugins, CDP_PORT);
-    }
+    await serialized(() => applyConfig());
     res.json({ ok: true });
-  } catch (err: unknown) {
-    res.json({ ok: false, error: (err as Error).message });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
   }
 });
 
 app.post('/api/theme/:name', async (req, res) => {
   const { name } = req.params;
-  if (!existsSync(join(THEMES_DIR, `${name}.css`))) {
-    res.json({ ok: false, error: `Theme not found` });
-    return;
-  }
-  const config = readConfig();
-  writeConfig({ ...config, activeTheme: name });
+  if (!itemExists('theme', name)) return res.json({ ok: false, error: 'Theme not found' });
+  writeConfig({ ...readConfig(), activeTheme: name });
   try {
-    await applyNotiskin(name);
+    await serialized(() => applyConfig({ restartIfNeeded: true }));
     res.json({ ok: true });
-  } catch (err: unknown) {
-    res.json({ ok: false, error: (err as Error).message });
-  }
-});
-
-app.get('/api/plugins', (_req, res) => {
-  const config = readConfig();
-  res.json({ plugins: listPlugins(), enabledPlugins: config.enabledPlugins });
-});
-
-app.get('/api/state', (_req, res) => {
-  try {
-    const config = readConfig();
-    res.json({
-      activeTheme: config.activeTheme || null,
-      themes: listThemes().map(name => ({ name, active: name === config.activeTheme })),
-      plugins: listPlugins().map(name => ({ name, active: config.enabledPlugins.includes(name) })),
-    });
-  } catch {
-    res.json({ activeTheme: null, themes: [], plugins: [] });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
   }
 });
 
 app.delete('/api/themes/:name', async (req, res) => {
-  const { name } = req.params;
-  const themeFile = join(THEMES_DIR, `${name}.css`);
-  if (!existsSync(themeFile)) {
-    res.json({ success: false, error: 'Theme not found' });
-    return;
-  }
-  try { unlinkSync(themeFile); } catch {}
-  const config = readConfig();
-  if (config.activeTheme === name) config.activeTheme = '';
-  writeConfig(config);
-  if (await isCDPAvailable(CDP_PORT)) {
-    try {
-      const cssContent = config.activeTheme ? readFileSync(join(THEMES_DIR, `${config.activeTheme}.css`), 'utf-8') : '';
-      const plugins = loadEnabledPlugins(config.enabledPlugins);
-      await reloadAndReapply(cssContent, plugins, CDP_PORT);
-    } catch {}
-  }
+  if (!deleteItem('theme', req.params.name)) return res.json({ success: false, error: 'Theme not found' });
+  try { await serialized(() => applyConfig()); } catch {}
   res.json({ success: true });
 });
 
 app.delete('/api/plugins/:name', async (req, res) => {
   const { name } = req.params;
-  const pluginFile = join(PLUGINS_DIR, `${name}.js`);
-  if (!existsSync(pluginFile)) {
-    res.json({ success: false, error: 'Plugin not found' });
-    return;
-  }
-  try { unlinkSync(pluginFile); } catch {}
-  const config = readConfig();
-  config.enabledPlugins = config.enabledPlugins.filter(p => p !== name);
-  config.acknowledgedPlugins = config.acknowledgedPlugins.filter(p => p !== name);
-  writeConfig(config);
-  if (await isCDPAvailable(CDP_PORT)) {
-    try {
-      const cssContent = config.activeTheme ? readFileSync(join(THEMES_DIR, `${config.activeTheme}.css`), 'utf-8') : '';
-      const remainingPlugins = loadEnabledPlugins(config.enabledPlugins);
-      await reloadAndReapply(cssContent, remainingPlugins, CDP_PORT);
-    } catch {}
+  const wasEnabled = readConfig().enabledPlugins.includes(name);
+  if (!deleteItem('plugin', name)) return res.json({ success: false, error: 'Plugin not found' });
+  if (wasEnabled) {
+    try { await serialized(() => applyConfig({ reload: true })); } catch {}
   }
   res.json({ success: true });
 });
 
 app.post('/api/plugin/enable/:name', async (req, res) => {
   const { name } = req.params;
-  if (!existsSync(join(PLUGINS_DIR, `${name}.js`))) {
-    res.json({ ok: false, error: `Plugin not found` });
-    return;
-  }
+  if (!itemExists('plugin', name)) return res.json({ ok: false, error: 'Plugin not found' });
   const config = readConfig();
-  if (!config.acknowledgedPlugins.includes(name)) {
-    res.json({ ok: false, needsWarning: true });
-    return;
-  }
+  if (!config.acknowledgedPlugins.includes(name)) return res.json({ ok: false, needsWarning: true });
   if (!config.enabledPlugins.includes(name)) {
     config.enabledPlugins.push(name);
     writeConfig(config);
   }
   try {
-    const cssContent = readFileSync(join(THEMES_DIR, `${config.activeTheme}.css`), 'utf-8');
-    if (await isCDPAvailable(CDP_PORT)) {
-      // inject only the new plugin, no restart needed
-      const plugin: PluginEntry = { name, content: readFileSync(join(PLUGINS_DIR, `${name}.js`), 'utf-8') };
-      await applyAll(cssContent, [plugin], CDP_PORT);
-    } else {
-      try { execSync('pkill -x Notion', { stdio: 'ignore' }); } catch {}
-      try { execSync('pkill -x "Notion.real"', { stdio: 'ignore' }); } catch {}
-      await waitForNotionToQuit();
-      launchNotion(CDP_PORT);
-      await waitForCDP(CDP_PORT);
-      const allPlugins = loadEnabledPlugins(config.enabledPlugins);
-      await applyAll(cssContent, allPlugins, CDP_PORT);
-    }
-  } catch (err: unknown) {
-    res.json({ ok: false, error: (err as Error).message });
-    return;
+    // already-running plugins are skipped by the injector, only the new one actually runs
+    await serialized(() => applyConfig({ restartIfNeeded: true }));
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
   }
-  res.json({ ok: true });
 });
 
 app.post('/api/plugin/disable/:name', async (req, res) => {
@@ -329,21 +318,18 @@ app.post('/api/plugin/disable/:name', async (req, res) => {
   const config = readConfig();
   config.enabledPlugins = config.enabledPlugins.filter(p => p !== name);
   writeConfig(config);
-  if (await isCDPAvailable(CDP_PORT)) {
-    try {
-      const cssContent = readFileSync(join(THEMES_DIR, `${config.activeTheme}.css`), 'utf-8');
-      const remainingPlugins = loadEnabledPlugins(config.enabledPlugins);
-      await reloadAndReapply(cssContent, remainingPlugins, CDP_PORT);
-    } catch (err: unknown) {
-      res.json({ ok: false, error: (err as Error).message });
-      return;
-    }
+  try {
+    // JS can't be un-run, reload the page to drop the plugin
+    await serialized(() => applyConfig({ reload: true }));
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
   }
-  res.json({ ok: true });
 });
 
 app.post('/api/plugin/acknowledge/:name', (req, res) => {
   const { name } = req.params;
+  if (!itemExists('plugin', name)) return res.json({ ok: false, error: 'Plugin not found' });
   const config = readConfig();
   if (!config.acknowledgedPlugins.includes(name)) {
     config.acknowledgedPlugins.push(name);
@@ -353,258 +339,177 @@ app.post('/api/plugin/acknowledge/:name', (req, res) => {
 });
 
 app.post('/api/apply', async (_req, res) => {
-  const config = readConfig();
   try {
-    await applyNotiskin(config.activeTheme);
+    await serialized(() => applyConfig({ restartIfNeeded: true }));
     res.json({ ok: true });
-  } catch (err: unknown) {
-    res.json({ ok: false, error: (err as Error).message });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
   }
 });
 
-app.get('/api/catalog', async (_req, res) => {
-  const db = getPublicSupabase();
-  const { data: themes } = await db.from('themes').select('*').eq('status', 'approved');
-  const { data: plugins } = await db.from('plugins').select('*').eq('status', 'approved');
-  res.json({ themes: themes ?? [], plugins: plugins ?? [] });
+// the server fetches the code itself, so only approved marketplace items can ever be written to disk
+app.post('/api/marketplace/install', async (req, res) => {
+  const { type, id } = (req.body ?? {}) as { type?: unknown; id?: unknown };
+  if (!isItemType(type)) return res.status(400).json({ success: false, error: 'type must be "theme" or "plugin"' });
+  if (typeof id !== 'string' && typeof id !== 'number') {
+    return res.status(400).json({ success: false, error: 'Missing item id' });
+  }
+  if (!ID_PATTERN.test(String(id))) return res.status(400).json({ success: false, error: 'Invalid item id' });
+
+  const table = type === 'theme' ? 'themes' : 'plugins';
+  const codeColumn = type === 'theme' ? 'css' : 'js';
+  const { data, error } = await publicSupabase()
+    .from(table)
+    .select(`name, ${codeColumn}`)
+    .eq('id', id)
+    .eq('status', 'approved')
+    .maybeSingle();
+  if (error) return res.status(502).json({ success: false, error: error.message });
+  const row = data as Record<string, unknown> | null;
+  const code = row?.[codeColumn];
+  if (!row || typeof row.name !== 'string' || typeof code !== 'string') {
+    return res.status(404).json({ success: false, error: 'That item is not available in the marketplace.' });
+  }
+
+  const stem = toFileStem(row.name);
+  if (!isValidItemName(stem)) return res.status(400).json({ success: false, error: 'Item has an unusable name' });
+
+  try {
+    if (!itemExists(type as ItemType, stem)) writeItem(type as ItemType, stem, code);
+    const needsWarning = type === 'plugin' && !readConfig().acknowledgedPlugins.includes(stem);
+    res.json({ success: true, name: stem, needsWarning });
+  } catch (err) {
+    res.json({ success: false, error: errorMessage(err) });
+  }
 });
 
-app.get('/api/review/pending', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const edgeFnUrl = new URL('/functions/v1/review-pending', process.env.SUPABASE_URL).toString();
-  const response = await fetch(edgeFnUrl, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-  });
-  const body = await response.json();
-  res.status(response.status).json(body);
-});
+app.get('/api/review/pending', (req, res) => proxyToEdgeFunction('review-pending', req, res));
+app.post('/api/review/decide', (req, res) => proxyToEdgeFunction('review-decide', req, res));
+app.post('/api/submit/theme', submitLimiter, (req, res) => proxyToEdgeFunction('submit-theme', req, res));
+app.post('/api/submit/plugin', submitLimiter, (req, res) => proxyToEdgeFunction('submit-plugin', req, res));
 
-app.post('/api/review/decide', submitLimiter, async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const edgeFnUrl = new URL('/functions/v1/review-decide', process.env.SUPABASE_URL).toString();
-  const response = await fetch(edgeFnUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-    body: JSON.stringify(req.body),
-  });
-  const body = await response.json();
-  res.status(response.status).json(body);
-});
-
-app.post('/api/submit/theme', submitLimiter, async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const edgeFnUrl = new URL('/functions/v1/submit-theme', process.env.SUPABASE_URL).toString();
-  const response = await fetch(edgeFnUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-    body: JSON.stringify(req.body),
-  });
-  const body = await response.json();
-  res.status(response.status).json(body);
-});
-
-app.post('/api/submit/plugin', submitLimiter, async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const edgeFnUrl = new URL('/functions/v1/submit-plugin', process.env.SUPABASE_URL).toString();
-  const response = await fetch(edgeFnUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-    body: JSON.stringify(req.body),
-  });
-  const body = await response.json();
-  res.status(response.status).json(body);
-});
-
-function makeUserSupabase(token: string) {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false },
-  });
-}
-
-app.post('/api/debug-log', generalLimiter, (req, res) => {
-  const { msg } = req.body as { msg: string };
-  appendFileSync(join(NOTISKIN_DIR, 'debug.log'), `[${new Date().toISOString()}] [frontend] ${String(msg)}\n`);
+app.post('/api/debug-log', debugLogLimiter, (req, res) => {
+  const msg = String((req.body as { msg?: unknown })?.msg ?? '').replace(/[\r\n]+/g, ' ').slice(0, 2000);
+  debugLog(`[frontend] ${msg}`);
   res.json({ ok: true });
 });
 
+function submissionTable(type: unknown): 'themes' | 'plugins' | null {
+  if (type === 'theme') return 'themes';
+  if (type === 'plugin') return 'plugins';
+  return null;
+}
+
 app.get('/api/submissions', async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) { res.status(401).json({ error: 'No auth token' }); return; }
-  const type = req.query.type as string;
-  if (type !== 'theme' && type !== 'plugin') {
-    res.status(400).json({ error: 'type must be theme or plugin' });
-    return;
-  }
-  const table = type === 'theme' ? 'themes' : 'plugins';
-  const supabase = makeUserSupabase(token);
-  const { data, error } = await (supabase.from(table) as any)
+  const token = bearerToken(req);
+  if (!token) return res.status(401).json({ error: 'No auth token' });
+  const table = submissionTable(req.query.type);
+  if (!table) return res.status(400).json({ error: 'type must be theme or plugin' });
+
+  // row level security limits this to the signed-in user's own submissions
+  const { data, error } = await userSupabase(token)
+    .from(table)
     .select('id,name,description,status,rejection_reason,created_at')
     .order('created_at', { ascending: false });
-  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (error) return res.status(502).json({ error: error.message });
   res.json({ submissions: data ?? [] });
 });
 
 app.delete('/api/submissions/:id', async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  const dbg = (msg: string) => appendFileSync('/tmp/notiskin-debug.log', `[${new Date().toISOString()}] ${msg}\n`);
-  dbg(`token present: ${!!token} length: ${token?.length ?? 0} prefix: ${token?.slice(0, 20)}`);
-
-  if (!token) { res.status(401).json({ error: 'No auth token' }); return; }
+  const token = bearerToken(req);
+  if (!token) return res.status(401).json({ error: 'No auth token' });
   const { id } = req.params;
-  const type = req.query.type as string;
-  if (type !== 'theme' && type !== 'plugin') {
-    res.status(400).json({ error: 'type must be theme or plugin' });
-    return;
-  }
+  if (!ID_PATTERN.test(id)) return res.status(400).json({ error: 'Invalid id' });
+  const table = submissionTable(req.query.type);
+  if (!table) return res.status(400).json({ error: 'type must be theme or plugin' });
 
-  const supabase = makeUserSupabase(token);
-  const { data: userData, error: userError } = await supabase.auth.getUser(token);
-  dbg(`getUser, id: ${userData?.user?.id} email: ${userData?.user?.email} error: ${userError?.message}`);
-
-  const table = type === 'theme' ? 'themes' : 'plugins';
-  const { data, error } = await (supabase.from(table) as any)
-    .delete()
-    .eq('id', id)
-    .select('id');
-  dbg(`delete result, data: ${JSON.stringify(data)} error: ${error?.message} code: ${error?.code}`);
-
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  if (!data || data.length === 0) {
-    res.status(403).json({ error: "This submission can't be deleted" });
-    return;
-  }
+  const { data, error } = await userSupabase(token).from(table).delete().eq('id', id).select('id');
+  if (error) return res.status(502).json({ error: error.message });
+  if (!data || data.length === 0) return res.status(403).json({ error: "This submission can't be deleted" });
   res.json({ ok: true });
-});
-
-app.post('/api/install', generalLimiter, async (req, res) => {
-  const { type, name, url, code } = req.body as { type: string; name: string; url?: string; code?: string };
-  if (!type || !name || (!url && !code)) {
-    res.json({ ok: false, error: 'Missing type, name, and either url or code' });
-    return;
-  }
-
-  const destDir = type === 'theme' ? THEMES_DIR : PLUGINS_DIR;
-  const ext = type === 'theme' ? '.css' : '.js';
-  const destPath = join(destDir, `${name}${ext}`);
-
-  try {
-    mkdirSync(destDir, { recursive: true });
-    const content = code ?? await downloadUrl(url!);
-    writeFileSync(destPath, content, 'utf-8');
-
-    const config = readConfig();
-    const needsWarning = type === 'plugin' && !config.acknowledgedPlugins.includes(name);
-    res.json({ ok: true, name, type, needsWarning });
-  } catch (err: unknown) {
-    res.json({ ok: false, error: (err as Error).message });
-  }
-});
-
-app.post('/api/marketplace/install', (req, res) => {
-  const { name, type, code } = req.body as { name: string; type: string; code: string };
-
-  if (!name || !type || !code) {
-    res.json({ success: false, error: 'Missing name, type, or code' });
-    return;
-  }
-  if (type !== 'theme' && type !== 'plugin') {
-    res.json({ success: false, error: 'type must be "theme" or "plugin"' });
-    return;
-  }
-
-  const safeName = name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-  const ext = type === 'theme' ? '.css' : '.js';
-  const destDir = type === 'theme' ? THEMES_DIR : PLUGINS_DIR;
-  const destPath = join(destDir, `${safeName}${ext}`);
-
-  if (existsSync(destPath)) {
-    res.json({ success: true });
-    return;
-  }
-
-  try {
-    mkdirSync(destDir, { recursive: true });
-    writeFileSync(destPath, code, 'utf-8');
-    res.json({ success: true });
-  } catch (err: unknown) {
-    res.json({ success: false, error: (err as Error).message });
-  }
-});
-
-app.get('/settings.html', (_req, res) => {
-  const settingsPath = HTML_PATH.replace('themes.html', 'settings.html');
-  res.send(readFileSync(settingsPath, 'utf-8'));
 });
 
 app.get('/api/update-status', (_req, res) => {
-  res.json(getUpdateStatus());
+  const updater = loadUpdater();
+  res.json(updater ? updater.getUpdateStatus() : { state: 'up-to-date' });
 });
 
 app.post('/api/update/install', (_req, res) => {
+  const updater = loadUpdater();
+  if (!updater) return res.status(400).json({ ok: false, error: 'Updates are only available in the desktop app' });
   res.json({ ok: true });
-  setTimeout(() => installUpdate(), 500);
+  setTimeout(() => updater.installUpdate(), 500);
 });
 
-app.delete('/api/cache/themes', (_req, res) => {
-  const dir = join(NOTISKIN_DIR, 'themes');
+app.get('/api/version', (_req, res) => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { version } = require('../../package.json') as { version: string };
+  res.json({ version });
+});
+
+app.post('/api/open-external', async (req, res) => {
+  const raw = (req.body as { url?: unknown })?.url;
+  let url: URL;
   try {
-    if (existsSync(dir)) {
-      for (const file of readdirSync(dir)) {
-        rmSync(join(dir, file), { force: true });
-      }
-    }
-    res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    url = new URL(String(raw));
+  } catch {
+    return res.status(400).json({ error: 'Invalid URL' });
   }
+  if (url.protocol !== 'https:' || !OPEN_EXTERNAL_HOSTS.has(url.hostname)) {
+    return res.status(400).json({ error: 'That link is not allowed' });
+  }
+  await openExternal(url.toString());
+  res.json({ ok: true });
+});
+
+function clearItems(type: ItemType): void {
+  const names = type === 'theme' ? listThemes() : listPlugins();
+  for (const name of names) deleteItem(type, name);
+}
+
+app.delete('/api/cache/themes', (_req, res) => {
+  clearItems('theme');
+  res.json({ ok: true });
 });
 
 app.delete('/api/cache/plugins', (_req, res) => {
-  const dir = join(NOTISKIN_DIR, 'plugins');
-  try {
-    if (existsSync(dir)) {
-      for (const file of readdirSync(dir)) {
-        rmSync(join(dir, file), { force: true });
-      }
-    }
-    res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  clearItems('plugin');
+  res.json({ ok: true });
 });
 
 app.delete('/api/cache/config', (_req, res) => {
-  const configPath = join(NOTISKIN_DIR, 'notiskin.config.json');
-  try {
-    if (existsSync(configPath)) rmSync(configPath);
-    res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH);
+  res.json({ ok: true });
 });
 
-export function startServer(openBrowser = true, appRoot?: string): Promise<void> {
-  if (appRoot) HTML_PATH = join(appRoot, 'src', 'gui', 'themes.html');
-  appendFileSync(join(NOTISKIN_DIR, 'debug.log'), `[${new Date().toISOString()}] HTML_PATH = ${HTML_PATH}\n`);
-  return new Promise((resolve) => {
-    const server = app.listen(GUI_PORT, () => {
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// express 5 forwards rejected promises here, so a failed route never hangs or crashes the server
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  debugLog(`[server] ${err instanceof Error ? err.stack : String(err)}`);
+  if (res.headersSent) return;
+  const status = (err as { status?: number }).status ?? 500;
+  res.status(status).json({ error: status === 500 ? 'Something went wrong' : errorMessage(err) });
+});
+
+export function startServer(openBrowser = true, appRoot?: string): Promise<Server> {
+  if (appRoot) pagesDir = join(appRoot, 'src', 'gui');
+  return new Promise((resolve, reject) => {
+    const server = app.listen(GUI_PORT, GUI_HOST);
+    server.once('listening', () => {
       const url = `http://localhost:${GUI_PORT}`;
       console.log(`Notiskin GUI → ${url}`);
-      if (openBrowser) exec(`open ${url}`);
-      resolve();
+      if (openBrowser) execFile('open', [url], () => {});
+      resolve(server);
+    });
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      reject(
+        err.code === 'EADDRINUSE'
+          ? new Error(`Port ${GUI_PORT} is already in use. Is another copy of Notiskin running?`)
+          : err
+      );
     });
     // apply + theme switch can take 60s+, avoid premature socket close
     server.setTimeout(120_000);

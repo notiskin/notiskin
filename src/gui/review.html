@@ -163,7 +163,7 @@
         color: #64b5f6;
       ">
         <span id="banner-text"></span>
-        <a href="/settings.html" style="color: #64b5f6; text-decoration: underline; white-space: nowrap;">Install</a>
+        <button onclick="openReleasesPage()" style="background: none; border: none; color: #64b5f6; text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download Update</button>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
@@ -222,7 +222,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="/vendor/supabase.js"></script>
   <script>
     const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
@@ -401,7 +401,7 @@
       try {
         const session = await db.auth.getSession();
         const token = session.data.session?.access_token;
-        const res = await fetch('http://localhost:3845/api/review/pending', {
+        const res = await fetch('/api/review/pending', {
           headers: { 'Authorization': `Bearer ${token}` },
         });
         if (res.status === 403) {
@@ -418,7 +418,7 @@
         }
         ({ themes, plugins, rejectedThemes, rejectedPlugins } = await res.json());
       } catch {
-        themesEl.innerHTML = '<span class="empty">Could not reach the server.</span>';
+        themesEl.innerHTML = '<span class="empty">Couldn\'t reach the server.</span>';
         pluginsEl.innerHTML = '';
         queueEl.style.display = 'block';
         return;
@@ -471,7 +471,7 @@
         const { data: { session } } = await db.auth.refreshSession();
         const token = session?.access_token;
         if (!token) return null;
-        const res = await fetch('http://localhost:3845/api/review/decide', {
+        const res = await fetch('/api/review/decide', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ type, id, status, reason }),
@@ -482,7 +482,7 @@
 
       let result = await attempt();
       if (result === null) {
-        alert('Session expired. Please reload and sign in.');
+        alert('Session expired. Reload and sign in.');
         return false;
       }
       if (!result.ok) {
@@ -572,6 +572,14 @@
           banner.style.display = 'flex';
         }
       } catch {}
+    }
+
+    async function openReleasesPage() {
+      await fetch('/api/open-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://github.com/notiskin/notiskin/releases/latest' })
+      });
     }
 
     checkUpdateBanner();

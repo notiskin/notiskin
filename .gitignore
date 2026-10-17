@@ -8,3 +8,5 @@ release/
 notiskin.config.json
 .claude/
 CLAUDE.md
+supabase/.temp/
+coverage/

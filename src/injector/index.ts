@@ -229,11 +229,24 @@ async function injectCSSOnClient(cssContent: string, client: any): Promise<void>
   console.log('[injector] CSS injected successfully.');
 }
 
+// plugins run once per page load, re-applying a theme must not double up their listeners
+// returns false when the plugin was already running in this page
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function injectPluginOnClient(plugin: PluginEntry, client: any): Promise<void> {
+async function injectPluginOnClient(plugin: PluginEntry, client: any): Promise<boolean> {
+  const key = JSON.stringify(plugin.name);
+  const check = (await client.send('Runtime.evaluate', {
+    expression: `!!(window.__notiskinLoaded && window.__notiskinLoaded[${key}])`,
+  })) as EvaluateResult;
+  if (check.result.value === true) return false;
+
   const result = (await client.send('Runtime.evaluate', {
     expression: plugin.content,
   })) as EvaluateResult;
+
+  // mark even on failure, a plugin that threw halfway shouldn't be re-run on top of itself
+  await client.send('Runtime.evaluate', {
+    expression: `(window.__notiskinLoaded = window.__notiskinLoaded || {})[${key}] = true`,
+  });
 
   if (result.exceptionDetails) {
     const msg =
@@ -241,6 +254,24 @@ async function injectPluginOnClient(plugin: PluginEntry, client: any): Promise<v
       result.exceptionDetails.text ||
       'unknown error';
     throw new Error(msg);
+  }
+  return true;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function injectEverything(cssContent: string, plugins: PluginEntry[], client: any): Promise<void> {
+  await injectCoreCSSOnClient(client);
+  await injectCSSOnClient(cssContent, client);
+  await injectCoreJSOnClient(client);
+
+  for (const plugin of plugins) {
+    try {
+      const ran = await injectPluginOnClient(plugin, client);
+      console.log(`[injector] Plugin '${plugin.name}' ${ran ? 'injected successfully' : 'already running, skipped'}.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[injector] Plugin '${plugin.name}' failed: ${msg}`);
+    }
   }
 }
 
@@ -267,19 +298,7 @@ export async function applyAll(
       ]);
     }
 
-    await injectCoreCSSOnClient(client);
-    await injectCSSOnClient(cssContent, client);
-    await injectCoreJSOnClient(client);
-
-    for (const plugin of plugins) {
-      try {
-        await injectPluginOnClient(plugin, client);
-        console.log(`[injector] Plugin '${plugin.name}' injected successfully.`);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[injector] Plugin '${plugin.name}' failed: ${msg}`);
-      }
-    }
+    await injectEverything(cssContent, plugins, client);
   } finally {
     try {
       await client.close();
@@ -305,28 +324,17 @@ export async function reloadAndReapply(
   try {
     await client.send('Page.enable');
 
-    const loadPromise = new Promise<void>(resolve => {
-      client.on('Page.loadEventFired', () => resolve());
-    });
+    const loadPromise = Promise.race([
+      new Promise<void>(resolve => client.on('Page.loadEventFired', () => resolve())),
+      sleep(20_000),
+    ]);
 
     await client.send('Page.reload');
     console.log('[injector] Reloading Notion page...');
     await loadPromise;
     await sleep(500);
 
-    await injectCoreCSSOnClient(client);
-    await injectCSSOnClient(cssContent, client);
-    await injectCoreJSOnClient(client);
-
-    for (const plugin of plugins) {
-      try {
-        await injectPluginOnClient(plugin, client);
-        console.log(`[injector] Plugin '${plugin.name}' injected successfully.`);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[injector] Plugin '${plugin.name}' failed: ${msg}`);
-      }
-    }
+    await injectEverything(cssContent, plugins, client);
   } finally {
     try {
       await client.close();

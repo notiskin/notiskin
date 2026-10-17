@@ -1,64 +1,42 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
-};
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
+import { adminClient, isReviewer, json, preflight, readJson, verifyUser } from '../_shared/http.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: CORS_HEADERS });
+  const early = preflight(req);
+  if (early) return early;
+  if (req.method !== 'POST') return json(req, { error: 'Method not allowed' }, 405);
+
+  const db = adminClient();
+  const user = await verifyUser(req, db);
+  if (!user) return json(req, { error: 'Invalid or expired sign-in' }, 401);
+  if (!(await isReviewer(db, user))) return json(req, { error: 'Not a reviewer' }, 403);
+
+  const body = await readJson(req);
+  if (!body) return json(req, { error: 'Invalid request body' }, 400);
+  const { type, id, status, reason } = body;
+
+  if (type !== 'theme' && type !== 'plugin') return json(req, { error: 'type must be theme or plugin' }, 400);
+  if (typeof id !== 'string' && typeof id !== 'number') return json(req, { error: 'Missing id' }, 400);
+  if (status !== 'approved' && status !== 'rejected') {
+    return json(req, { error: 'status must be approved or rejected' }, 400);
+  }
+  if (reason !== undefined && reason !== null && (typeof reason !== 'string' || reason.length > 1000)) {
+    return json(req, { error: 'Reason must be 1000 characters or fewer' }, 400);
   }
 
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader) return json({ error: 'No auth token' }, 401);
-
-  let username: string;
-  try {
-    const token = authHeader.replace('Bearer ', '');
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    username = payload.user_metadata?.user_name;
-    if (!username) throw new Error('no user_name');
-  } catch {
-    return json({ error: 'Invalid token' }, 401);
-  }
-
-  const db = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('NS_SERVICE_ROLE_KEY')!,
-  );
-
-  const { data: reviewer } = await db
-    .from('reviewers')
-    .select('*')
-    .eq('github_username', username)
-    .single();
-
-  if (!reviewer) return json({ error: 'Not a reviewer' }, 403);
-
-  const { type, id, status, reason } = await req.json() as {
-    type: string; id: string; status: string; reason?: string;
+  const update = {
+    status,
+    rejection_reason: status === 'rejected' ? (reason as string | undefined)?.trim() || null : null,
   };
 
-  const update: Record<string, unknown> = { status };
-  if (status === 'rejected') {
-    update.rejection_reason = reason ?? null;
-  } else if (status === 'approved') {
-    update.rejection_reason = null;
-  }
-
   const table = type === 'theme' ? 'themes' : 'plugins';
-  const { data, error } = await db.from(table).update(update).eq('id', id).select();
+  const { data, error } = await db.from(table).update(update).eq('id', id).select('id');
 
-  if (error) return json({ error: error.message }, 500);
-  if (!data || data.length === 0) return json({ error: 'Submission not found' }, 404);
+  if (error) {
+    console.error('review-decide update failed', error);
+    return json(req, { error: 'Could not save the decision' }, 500);
+  }
+  if (!data || data.length === 0) return json(req, { error: 'Submission not found' }, 404);
 
-  return json({ ok: true });
+  console.log(`review: ${user.githubUsername} set ${type} ${id} to ${status}`);
+  return json(req, { ok: true });
 });

@@ -1,62 +1,17 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
-};
+import { adminClient, isReviewer, json, preflight, verifyUser } from '../_shared/http.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: CORS_HEADERS });
-  }
+  const early = preflight(req);
+  if (early) return early;
 
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader) {
-    return new Response(JSON.stringify({ error: 'No auth token' }), {
-      status: 401,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
-  }
+  const db = adminClient();
+  const user = await verifyUser(req, db);
+  if (!user) return json(req, { error: 'Invalid or expired sign-in' }, 401);
+  if (!(await isReviewer(db, user))) return json(req, { error: 'Not a reviewer' }, 403);
 
-  let username: string;
-  try {
-    const token = authHeader.replace('Bearer ', '');
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    username = payload.user_metadata?.user_name;
-    if (!username) throw new Error('no user_name');
-  } catch {
-    return new Response(JSON.stringify({ error: 'Invalid token' }), {
-      status: 401,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
-  }
-
-  const db = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('NS_SERVICE_ROLE_KEY')!,
-  );
-
-  const { data: reviewer } = await db
-    .from('reviewers')
-    .select('*')
-    .eq('github_username', username)
-    .single();
-
-  if (!reviewer) {
-    return new Response(JSON.stringify({ error: 'Not a reviewer' }), {
-      status: 403,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
-  }
-
-  const [
-    { data: themes },
-    { data: plugins },
-    { data: rejectedThemes },
-    { data: rejectedPlugins },
-  ] = await Promise.all([
-    db.from('themes').select('*').eq('status', 'pending'),
-    db.from('plugins').select('*').eq('status', 'pending'),
+  const [themes, plugins, rejectedThemes, rejectedPlugins] = await Promise.all([
+    db.from('themes').select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100),
+    db.from('plugins').select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100),
     db.from('themes')
       .select('id,name,author_github,description,css,rejection_reason')
       .eq('status', 'rejected')
@@ -69,13 +24,16 @@ Deno.serve(async (req) => {
       .limit(30),
   ]);
 
-  return new Response(
-    JSON.stringify({
-      themes: themes ?? [],
-      plugins: plugins ?? [],
-      rejectedThemes: rejectedThemes ?? [],
-      rejectedPlugins: rejectedPlugins ?? [],
-    }),
-    { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
-  );
+  const failed = [themes, plugins, rejectedThemes, rejectedPlugins].find(r => r.error);
+  if (failed?.error) {
+    console.error('review-pending query failed', failed.error);
+    return json(req, { error: 'Could not load the review queue' }, 500);
+  }
+
+  return json(req, {
+    themes: themes.data ?? [],
+    plugins: plugins.data ?? [],
+    rejectedThemes: rejectedThemes.data ?? [],
+    rejectedPlugins: rejectedPlugins.data ?? [],
+  });
 });

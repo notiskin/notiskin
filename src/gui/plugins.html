@@ -484,7 +484,7 @@
         color: #64b5f6;
       ">
         <span id="banner-text"></span>
-        <a href="/settings.html" style="color: #64b5f6; text-decoration: underline; white-space: nowrap;">Install</a>
+        <button onclick="openReleasesPage()" style="background: none; border: none; color: #64b5f6; text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download Update</button>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
@@ -528,7 +528,6 @@
       </div>
 
       <div id="tab-publish" hidden>
-        <!-- Step 1: not logged in -->
         <div id="publish-login-section">
           <p>Sign in with GitHub to publish a plugin.</p>
           <button class="btn-github" onclick="publishSignIn()">
@@ -546,7 +545,6 @@
           </button>
         </div>
 
-        <!-- Step 2: logged in -->
         <div id="publish-form-section" style="display:none">
           <div class="user-bar">
             Signed in as <strong id="publish-username-display"></strong>
@@ -611,7 +609,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="/vendor/supabase.js"></script>
   <script>
     const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
@@ -834,7 +832,8 @@
       }
 
       let nameToId = {};
-      const { data: rows } = await db.from('plugins').select('id, name').eq('status', 'approved');
+      // ratings are a nice-to-have, never let a slow or offline marketplace block the local list
+      const { data: rows } = await db.from('plugins').select('id, name').eq('status', 'approved').abortSignal(AbortSignal.timeout(3000));
       if (rows) {
         rows.forEach(r => {
           const normalizedDbName = normalizeName(r.name);
@@ -889,7 +888,6 @@
           }
           if (!res.ok) { await loadPlugins(); return; }
         } catch (e) {
-          // ignore
         } finally {
           setBusy(false);
         }
@@ -898,7 +896,6 @@
         try {
           await api('POST', `/plugin/disable/${encodeURIComponent(name)}`);
         } catch (e) {
-          // ignore
         } finally {
           setBusy(false);
         }
@@ -922,7 +919,6 @@
       try {
         await api('POST', `/plugin/enable/${encodeURIComponent(name)}`);
       } catch (e) {
-        // ignore
       } finally {
         setBusy(false);
         await loadPlugins();
@@ -950,7 +946,7 @@
       await loadPlugins();
     }
 
-    const browseItems = {}; // keyed by "plugin:name"
+    const browseItems = {};
 
     function normalizeName(n) { return n.toLowerCase().replace(/[\s\-_]/g, ''); }
 
@@ -984,7 +980,7 @@
         const res = await fetch('/api/marketplace/install', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: item.name, type: 'plugin', code: item.js }),
+          body: JSON.stringify({ type: 'plugin', id: item.id }),
         });
         const data = await res.json();
         if (data.success) {
@@ -1284,6 +1280,14 @@
           banner.style.display = 'flex';
         }
       } catch {}
+    }
+
+    async function openReleasesPage() {
+      await fetch('/api/open-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://github.com/notiskin/notiskin/releases/latest' })
+      });
     }
 
     init();

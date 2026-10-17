@@ -1,18 +1,29 @@
-import * as dotenv from 'dotenv';
-import { join } from 'path';
 import { appendFileSync, mkdirSync } from 'fs';
-import { homedir } from 'os';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { join } from 'path';
+import { app, BrowserWindow, dialog, shell } from 'electron';
 import { startServer } from '../gui/server';
-import { initUpdater, installUpdate, getUpdateStatus } from '../updater/index';
+import { initUpdater } from '../updater/index';
+import { NOTISKIN_DIR, GUI_PORT } from '../utils/constants';
+
+const GUI_ORIGIN = `http://localhost:${GUI_PORT}`;
 
 function debugLog(msg: string): void {
-  const dir = join(homedir(), '.notiskin');
-  mkdirSync(dir, { recursive: true });
-  appendFileSync(join(dir, 'debug.log'), `[${new Date().toISOString()}] ${msg}\n`);
+  try {
+    mkdirSync(NOTISKIN_DIR, { recursive: true });
+    appendFileSync(join(NOTISKIN_DIR, 'debug.log'), `[${new Date().toISOString()}] ${msg}\n`);
+  } catch {}
 }
 
-const GUI_PORT = 3845;
+function isAllowedInWindow(url: string): boolean {
+  try {
+    const { origin, protocol, hostname } = new URL(url);
+    if (origin === GUI_ORIGIN) return true;
+    return protocol === 'https:' && (hostname === 'github.com' || hostname.endsWith('.supabase.co'));
+  } catch {
+    return false;
+  }
+}
+
 let win: BrowserWindow | null = null;
 
 const gotLock = app.requestSingleInstanceLock();
@@ -28,9 +39,15 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    dotenv.config({ path: join(app.getAppPath(), '.env') });
-    debugLog(`app.getAppPath() = ${app.getAppPath()}`);
-    await startServer(false, app.getAppPath());
+    try {
+      await startServer(false, app.getAppPath());
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      debugLog(`server failed to start: ${msg}`);
+      dialog.showErrorBox('Notiskin could not start', msg);
+      app.quit();
+      return;
+    }
 
     win = new BrowserWindow({
       width: 1024,
@@ -40,10 +57,22 @@ if (!gotLock) {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        sandbox: true,
       },
     });
 
-    win.loadURL(`http://localhost:${GUI_PORT}`);
+    // target=_blank links (author profiles etc.) open in the real browser, never a new app window
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('https://')) shell.openExternal(url).catch(() => {});
+      return { action: 'deny' };
+    });
+
+    // only the GUI itself and the GitHub sign-in round trip may load inside the window
+    win.webContents.on('will-navigate', (event, url) => {
+      if (!isAllowedInWindow(url)) event.preventDefault();
+    });
+
+    win.loadURL(GUI_ORIGIN);
 
     win.once('ready-to-show', () => {
       win?.show();
@@ -55,7 +84,4 @@ if (!gotLock) {
 
     initUpdater(win);
   });
-
-  ipcMain.handle('get-update-status', () => getUpdateStatus());
-  ipcMain.handle('install-update', () => installUpdate());
 }

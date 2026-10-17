@@ -1,11 +1,6 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
-
-const NOTISKIN_DIR = join(homedir(), '.notiskin');
-const CONFIG_PATH = join(NOTISKIN_DIR, 'notiskin.config.json');
-
-mkdirSync(NOTISKIN_DIR, { recursive: true });
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
+import { dirname } from 'path';
+import { CONFIG_PATH } from './constants';
 
 export interface NotiskinConfig {
   activeTheme: string;
@@ -13,25 +8,39 @@ export interface NotiskinConfig {
   acknowledgedPlugins: string[];
 }
 
-const DEFAULT_CONFIG: NotiskinConfig = { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [] };
+function defaultConfig(): NotiskinConfig {
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [] };
+}
 
-export function readConfig(): NotiskinConfig {
-  if (!existsSync(CONFIG_PATH)) {
-    writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2), 'utf-8');
-    return DEFAULT_CONFIG;
-  }
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+export function parseConfig(raw: unknown): NotiskinConfig {
+  if (!raw || typeof raw !== 'object') return defaultConfig();
+  const obj = raw as Record<string, unknown>;
+  return {
+    activeTheme: typeof obj.activeTheme === 'string' ? obj.activeTheme : '',
+    enabledPlugins: [...new Set(stringArray(obj.enabledPlugins))],
+    acknowledgedPlugins: [...new Set(stringArray(obj.acknowledgedPlugins))],
+  };
+}
+
+export function readConfig(path = CONFIG_PATH): NotiskinConfig {
+  if (!existsSync(path)) return defaultConfig();
   try {
-    const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-    return {
-      activeTheme: raw.activeTheme ?? DEFAULT_CONFIG.activeTheme,
-      enabledPlugins: Array.isArray(raw.enabledPlugins) ? raw.enabledPlugins : [],
-      acknowledgedPlugins: Array.isArray(raw.acknowledgedPlugins) ? raw.acknowledgedPlugins : [],
-    };
+    return parseConfig(JSON.parse(readFileSync(path, 'utf-8')));
   } catch {
-    return DEFAULT_CONFIG;
+    // keep the broken file around so the user can recover it, then start fresh
+    try { renameSync(path, `${path}.corrupt-${Date.now()}`); } catch {}
+    return defaultConfig();
   }
 }
 
-export function writeConfig(config: NotiskinConfig): void {
-  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+// write to a temp file then rename, a crash mid-write can't leave half a config behind
+export function writeConfig(config: NotiskinConfig, path = CONFIG_PATH): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(parseConfig(config), null, 2), 'utf-8');
+  renameSync(tmp, path);
 }

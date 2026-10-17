@@ -1,13 +1,14 @@
 {
   "name": "notiskin",
   "version": "0.3.0",
+  "private": true,
   "description": "Open source modding tool for the Notion desktop app. Apply CSS themes and JavaScript plugins to Notion's Electron client",
   "main": "dist/electron/main.js",
   "bin": {
     "notiskin": "dist/cli/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "dev": "tsc --watch",
     "start": "npm run build && electron .",
     "apply": "npm run build && node dist/cli/index.js",
@@ -21,10 +22,13 @@
     "watch:install": "npm run build && node dist/cli/index.js watch:install",
     "watch:uninstall": "npm run build && node dist/cli/index.js watch:uninstall",
     "gui": "npm run build && node dist/gui/run.js",
-    "test": "node --test",
+    "test": "npm run build && node --test 'test/*.test.js'",
     "clean": "rm -rf dist",
-    "build:mac": "tsc && electron-builder --mac",
-    "publish": "node publish.js"
+    "build:mac": "npm run build && electron-builder --mac --publish never",
+    "publish": "node publish.js",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "publish:dry-run": "node publish.js --dry-run"
   },
   "keywords": [
     "notion",
@@ -36,7 +40,7 @@
   "author": "",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
@@ -48,11 +52,15 @@
     "express-rate-limit": "^8.5.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/express": "^5.0.6",
     "@types/node": "^26.0.0",
     "electron": "^42.4.1",
     "electron-builder": "^26.15.3",
-    "typescript": "^6.0.3"
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.2"
   },
   "build": {
     "appId": "com.notiskin.app",
@@ -68,11 +76,15 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         }
       ]
     },
@@ -81,10 +93,11 @@
     },
     "files": [
       "dist/**/*",
-      "src/gui/**/*",
-      "marketplace/**/*",
-      "package.json",
-      ".env"
-    ]
+      "!dist/**/*.map",
+      "!dist/**/*.d.ts",
+      "src/gui/**/*.html",
+      "package.json"
+    ],
+    "afterPack": "scripts/check-bundle.js"
   }
 }

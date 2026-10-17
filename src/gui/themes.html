@@ -598,7 +598,7 @@
         color: #64b5f6;
       ">
         <span id="banner-text"></span>
-        <a href="/settings.html" style="color: #64b5f6; text-decoration: underline; white-space: nowrap;">Install</a>
+        <button onclick="openReleasesPage()" style="background: none; border: none; color: #64b5f6; text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download Update</button>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link active">Themes</a>
@@ -635,7 +635,6 @@
       </div>
 
       <div id="tab-publish" hidden>
-        <!-- Step 1: not logged in -->
         <div id="publish-login-section">
           <p>Sign in with GitHub to publish a theme.</p>
           <button class="btn-github" onclick="publishSignIn()">
@@ -653,7 +652,6 @@
           </button>
         </div>
 
-        <!-- Step 2: logged in -->
         <div id="publish-form-section" style="display:none">
           <div class="user-bar">
             Signed in as <strong id="publish-username-display"></strong>
@@ -707,12 +705,11 @@
     <div id="busy-msg">Applying. Notion will restart.</div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="/vendor/supabase.js"></script>
   <script>
     const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
 
-    // Browse and Publish both need this
     const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     async function api(method, path, body) {
@@ -944,7 +941,8 @@
       }
 
       let nameToId = {};
-      const { data: rows } = await db.from('themes').select('id, name').eq('status', 'approved');
+      // ratings are a nice-to-have, never let a slow or offline marketplace block the local list
+      const { data: rows } = await db.from('themes').select('id, name').eq('status', 'approved').abortSignal(AbortSignal.timeout(3000));
       if (rows) {
         rows.forEach(r => {
           const normalizedDbName = normalizeName(r.name);
@@ -986,7 +984,6 @@
       try {
         await api('POST', '/theme/clear');
       } catch (e) {
-        // ignore
       } finally {
         setBusy(false);
         await loadThemes();
@@ -998,7 +995,6 @@
       try {
         await api('POST', `/theme/${encodeURIComponent(name)}`);
       } catch (e) {
-        // ignore
       } finally {
         setBusy(false);
         await loadThemes();
@@ -1026,7 +1022,7 @@
       await loadThemes();
     }
 
-    const browseItems = {}; // keyed by "type:name"
+    const browseItems = {};
 
     function applyThemePreview(containerId, css) {
       const container = document.getElementById(containerId);
@@ -1090,12 +1086,11 @@
       btn.textContent = 'Installing';
       btn.closest('.card').querySelector('.install-error').textContent = '';
 
-      const code = item.type === 'theme' ? item.css : item.js;
       try {
         const res = await fetch('/api/marketplace/install', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: item.name, type: item.type, code }),
+          body: JSON.stringify({ type: item.type, id: item.id }),
         });
         const data = await res.json();
         if (data.success) {
@@ -1395,6 +1390,14 @@
           banner.style.display = 'flex';
         }
       } catch {}
+    }
+
+    async function openReleasesPage() {
+      await fetch('/api/open-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://github.com/notiskin/notiskin/releases/latest' })
+      });
     }
 
     init();
