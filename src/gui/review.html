@@ -171,6 +171,10 @@
         <a href="/review.html" class="sidebar-link active" id="nav-review" style="display:none">Review</a>
         <a href="/settings.html" class="sidebar-link" id="nav-settings">Settings</a>
       </nav>
+      <script>
+        // Settings checks reviewer access once at sign-in and saves it, so the link shows instantly
+        try { if (JSON.parse(localStorage.getItem('notiskin.reviewer'))?.isReviewer) document.getElementById('nav-review').style.display = ''; } catch {}
+      </script>
     </aside>
 
     <div class="main-content">
@@ -235,26 +239,10 @@
       return user?.identities?.find(i => i.provider === 'github')?.identity_data?.user_name || 'your GitHub account';
     }
 
-    // the Review link only shows for reviewers. Cosmetic, the edge functions do the real check
-    async function updateReviewLink(session, { fresh = false } = {}) {
-      const link = document.getElementById('nav-review');
-      if (!session) {
-        try { localStorage.removeItem('notiskin.reviewer'); } catch {}
-        link.style.display = 'none';
-        return false;
-      }
-      let cached = null;
-      try { cached = JSON.parse(localStorage.getItem('notiskin.reviewer')); } catch {}
-      if (fresh || cached?.userId !== session.user.id) {
-        const res = await fetch('/api/review/pending', {
-          headers: { 'Authorization': `Bearer ${session.access_token}` },
-        }).catch(() => null);
-        if (!res || (res.status !== 200 && res.status !== 403)) return false;
-        cached = { userId: session.user.id, isReviewer: res.ok };
-        try { localStorage.setItem('notiskin.reviewer', JSON.stringify(cached)); } catch {}
-      }
-      link.style.display = cached.isReviewer ? '' : 'none';
-      return cached.isReviewer;
+    // signed out: forget the saved reviewer access, Settings checks again at the next sign-in
+    function hideReviewLink() {
+      try { localStorage.removeItem('notiskin.reviewer'); } catch {}
+      document.getElementById('nav-review').style.display = 'none';
     }
 
     let currentUser = null;
@@ -553,7 +541,7 @@
       dbg(`onAuthStateChange event=${event} hasUser=${!!session?.user} currentUser=${!!currentUser}`);
       const prevUser = currentUser;
       currentUser = session?.user ?? null;
-      if (event !== 'TOKEN_REFRESHED') updateReviewLink(session);
+      if (!session) hideReviewLink();
       if (event === 'SIGNED_OUT') {
         queueLoaded = false;
         showLogin();
