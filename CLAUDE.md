@@ -121,7 +121,7 @@ Open:
 - Deleting your own pending submission from My Submissions wasn't tried in the real app (the database rule was tested on a scratch copy)
 - Supabase Auth's Site URL is `http://localhost:3000` with an empty redirect allow list. Sign-in works because Supabase accepts redirects to the same hostname, setting the Site URL to `http://localhost:3845` would be tidier
 
-Next: Phase 1, starting with the "Install into Notion" button (see ROADMAP.md). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+Next: Phase 1, starting with the "Install into Notion" button. Step-by-step plan: `docs/prompts/phase-1-install-button.md`. The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 

@@ -16,7 +16,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 ## Phase 1: Reliability (weeks 1–4, about 15–20 hours)
 
 - ✅ Long-running injector: themes every tab and window, survives reloads without flashing, applies changes live, exits with Notion
-- "Install into Notion" button in the app. Today only the CLI can patch, and the patch points at a local repo checkout and Node install, so people using the DMG can't keep themes across restarts. The app should patch using its own bundled runtime, with one admin password prompt
+- "Install into Notion" button in the app ([plan](docs/prompts/phase-1-install-button.md)). Today only the CLI can patch, and the patch points at a local repo checkout and Node install, so people using the DMG can't keep themes across restarts. The app should patch using its own bundled runtime, with one admin password prompt
 - Uninstall button that fully reverses it
 - Safe mode: start Notion with all mods off, in case a plugin breaks it
 - Diagnostics in Settings: patch status, injector status, recent log lines, "copy diagnostics" for bug reports
