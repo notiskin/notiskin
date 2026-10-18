@@ -206,6 +206,10 @@
         <a href="/review.html" class="sidebar-link" id="nav-review" style="display:none">Review</a>
         <a href="/settings.html" class="sidebar-link active" id="nav-settings">Settings</a>
       </nav>
+      <script>
+        // Settings checks reviewer access once at sign-in and saves it, so the link shows instantly
+        try { if (JSON.parse(localStorage.getItem('notiskin.reviewer'))?.isReviewer) document.getElementById('nav-review').style.display = ''; } catch {}
+      </script>
     </aside>
 
     <div class="main-content">
@@ -285,32 +289,38 @@
       return user?.identities?.find(i => i.provider === 'github')?.identity_data?.user_name || 'your GitHub account';
     }
 
-    // the Review link only shows for reviewers. Cosmetic, the edge functions do the real check
-    async function updateReviewLink(session, { fresh = false } = {}) {
-      const link = document.getElementById('nav-review');
-      if (!session) {
-        try { localStorage.removeItem('notiskin.reviewer'); } catch {}
-        link.style.display = 'none';
-        return false;
-      }
-      let cached = null;
-      try { cached = JSON.parse(localStorage.getItem('notiskin.reviewer')); } catch {}
-      if (fresh || cached?.userId !== session.user.id) {
-        const res = await fetch('/api/review/pending', {
+    // checks reviewer access once per sign-in and saves it for every page.
+    // Cosmetic, the edge functions do the real check
+    let pendingReviewerCheck = null;
+
+    async function checkReviewer(session) {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem('notiskin.reviewer')); } catch {}
+      if (saved?.userId !== session.user.id) {
+        // sign-in fires two events at once, share one request between them
+        pendingReviewerCheck ??= fetch('/api/review/pending', {
           headers: { 'Authorization': `Bearer ${session.access_token}` },
         }).catch(() => null);
+        const res = await pendingReviewerCheck;
+        pendingReviewerCheck = null;
         if (!res || (res.status !== 200 && res.status !== 403)) return false;
-        cached = { userId: session.user.id, isReviewer: res.ok };
-        try { localStorage.setItem('notiskin.reviewer', JSON.stringify(cached)); } catch {}
+        saved = { userId: session.user.id, isReviewer: res.ok };
+        try { localStorage.setItem('notiskin.reviewer', JSON.stringify(saved)); } catch {}
       }
-      link.style.display = cached.isReviewer ? '' : 'none';
-      return cached.isReviewer;
+      document.getElementById('nav-review').style.display = saved.isReviewer ? '' : 'none';
+      return saved.isReviewer;
+    }
+
+    // signed out: forget the saved reviewer access, Settings checks again at the next sign-in
+    function hideReviewLink() {
+      try { localStorage.removeItem('notiskin.reviewer'); } catch {}
+      document.getElementById('nav-review').style.display = 'none';
     }
 
     // the one place to sign in and out, the other pages share the session
     let accountSession = null;
 
-    async function renderAccount(session, { fresh = false } = {}) {
+    async function renderAccount(session) {
       accountSession = session;
       const label = document.getElementById('account-label');
       const sub = document.getElementById('account-sub');
@@ -320,13 +330,13 @@
         label.textContent = 'Not signed in';
         sub.textContent = 'Sign in to publish and rate themes and plugins';
         btn.textContent = 'Sign in with GitHub';
-        updateReviewLink(null);
+        hideReviewLink();
         return;
       }
       label.textContent = `Signed in as ${githubUsername(session.user)}`;
       sub.textContent = 'Publishing, ratings, and My Submissions use this account';
       btn.textContent = 'Sign out';
-      const isReviewer = await updateReviewLink(session, { fresh });
+      const isReviewer = await checkReviewer(session);
       if (isReviewer && accountSession === session && !label.querySelector('.account-badge')) {
         const badge = document.createElement('span');
         badge.className = 'account-badge';
@@ -355,12 +365,12 @@
     }
 
     db.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') renderAccount(session, { fresh: true });
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') renderAccount(session);
     });
 
     // onAuthStateChange alone misses an already stored session
     db.auth.getSession().then(({ data: { session } }) => {
-      renderAccount(session, { fresh: true });
+      renderAccount(session);
       if (window.location.hash) history.replaceState(null, '', window.location.pathname);
     });
 
