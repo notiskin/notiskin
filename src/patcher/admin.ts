@@ -1,4 +1,7 @@
-// runs the CLI's patch/unpatch as root behind one macOS password dialog, so the desktop app can install into Notion
+// runs the CLI's patch/unpatch as root behind one macOS password dialog.
+// Not used by the app right now: macOS App Management refuses changes to another app's bundle made from
+// the admin shell, even with the password (checked on macOS 26), so the server runs the CLI as the user.
+// shellQuote and errorFromOutput are still used; the rest is kept in case a privileged route is needed later.
 import { execFile } from 'child_process';
 
 export type AdminAction = 'patch' | 'unpatch';

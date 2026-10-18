@@ -4,7 +4,6 @@ import express, { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { readFileSync, existsSync, appendFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { userInfo } from 'os';
 import { execFile } from 'child_process';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import type { Server } from 'http';
@@ -36,7 +35,7 @@ import {
   ItemType,
 } from '../core/library';
 import { appBundlePath, findNotionBinary, getNotionStatus, NotionStatus } from '../patcher/index';
-import { ADMIN_PROMPTS, AdminAction, AdminResult, buildAdminCommand, runAsAdmin } from '../patcher/admin';
+import { AdminAction, errorFromOutput } from '../patcher/admin';
 
 let pagesDir = join(__dirname, '..', '..', 'src', 'gui');
 
@@ -165,22 +164,56 @@ function execFileAsync(file: string, args: string[]): Promise<void> {
   });
 }
 
-// swappable so tests never run osascript or look at the real Notion
+export type SetupFailure = 'app-management' | 'not-owner';
+
+export type SetupResult =
+  | { status: 'ok'; output: string }
+  | { status: 'error'; message: string; output: string };
+
+// EPERM is macOS App Management refusing the change, EACCES means Notion.app belongs to another account
+export function setupFailureReason(output: string): SetupFailure | null {
+  if (/EPERM|operation not permitted/i.test(output)) return 'app-management';
+  if (/EACCES|permission denied/i.test(output)) return 'not-owner';
+  return null;
+}
+
+// App Management is granted to whichever app started the change
+export function appManagementName(execPath = process.execPath, electron = Boolean(process.versions.electron)): string {
+  if (execPath.includes('/node_modules/electron/')) return 'Electron';
+  return electron ? 'Notiskin' : 'Terminal';
+}
+
+// runs the CLI as the current user, no admin prompt: macOS App Management refuses changes made
+// from an admin shell, and Notion.app normally belongs to the user anyway (see patcher/admin.ts)
+function runCli(action: AdminAction): Promise<SetupResult> {
+  return new Promise(resolve => {
+    execFile(
+      process.execPath,
+      [CLI_SCRIPT, action],
+      { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 2 * 60_000, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const output = `${stdout}${stderr}`;
+        if (!err) return resolve({ status: 'ok', output });
+        resolve({ status: 'error', message: errorFromOutput(stderr || err.message), output });
+      }
+    );
+  });
+}
+
+// swappable so tests never change a real Notion
 export const notionSetup = {
   platform: (): NodeJS.Platform => process.platform,
   status: (): NotionStatus => getNotionStatus(),
-  // in the desktop app execPath is Electron (run as Node by the command), under `npm run gui` it is Node itself
-  runAdmin: (action: AdminAction): Promise<AdminResult> =>
-    runAsAdmin(
-      buildAdminCommand(action, { user: userInfo().username, execPath: process.execPath, cliPath: CLI_SCRIPT }),
-      ADMIN_PROMPTS[action]
-    ),
+  // in the desktop app execPath is Electron (run as Node by the env var), under `npm run gui` it is Node itself
+  run: (action: AdminAction): Promise<SetupResult> => runCli(action),
   // open the bundle like the Dock does, so the wrapper runs and starts the injector
   restart: async (): Promise<void> => {
     const bundle = appBundlePath(findNotionBinary());
     await quitNotion();
     await execFileAsync('open', [bundle]);
   },
+  openAppManagement: (): Promise<void> =>
+    execFileAsync('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles']),
 };
 
 const MAC_ONLY = 'Installing into Notion only works on macOS.';
@@ -198,25 +231,29 @@ function logSetup(action: AdminAction, text: string): void {
   } catch {}
 }
 
-// one password prompt at a time, a double click must not start a second install
+// one install or uninstall at a time, a double click must not start a second one
 let notionSetupBusy = false;
 
 async function runNotionSetup(action: AdminAction, res: Response): Promise<void> {
   if (!requireMac(res)) return;
   if (notionSetupBusy) {
-    res.status(409).json({ ok: false, error: 'Already working on it. Finish the password prompt first.' });
+    res.status(409).json({ ok: false, error: 'Already working on it.' });
     return;
   }
   notionSetupBusy = true;
   try {
-    const result = await notionSetup.runAdmin(action);
-    if (result.status === 'cancelled') {
-      res.json({ ok: false, cancelled: true });
+    const result = await notionSetup.run(action);
+    logSetup(action, result.output);
+    if (result.status === 'ok') {
+      res.json({ ok: true, status: notionSetup.status() });
       return;
     }
-    logSetup(action, result.output);
-    if (result.status === 'ok') res.json({ ok: true, status: notionSetup.status() });
-    else res.json({ ok: false, error: result.message });
+    res.json({
+      ok: false,
+      error: result.message,
+      reason: setupFailureReason(result.output),
+      appName: appManagementName(),
+    });
   } catch (err) {
     logSetup(action, errorMessage(err));
     res.json({ ok: false, error: errorMessage(err) });
@@ -302,6 +339,16 @@ app.get('/api/notion/status', (_req, res) => {
 // nothing from the request goes into the command, it is built from this process's own paths
 app.post('/api/notion/install', (_req, res) => runNotionSetup('patch', res));
 app.post('/api/notion/uninstall', (_req, res) => runNotionSetup('unpatch', res));
+
+app.post('/api/notion/app-management', async (_req, res) => {
+  if (!requireMac(res)) return;
+  try {
+    await notionSetup.openAppManagement();
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
+  }
+});
 
 app.post('/api/notion/restart', async (_req, res) => {
   if (!requireMac(res)) return;
