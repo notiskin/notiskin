@@ -11,6 +11,9 @@ import { sleep } from '../utils/sleep';
 
 export type ItemType = 'theme' | 'plugin';
 
+// works from the repo's dist/ and from inside the packaged app.asar
+export const CLI_SCRIPT = join(__dirname, '..', 'cli', 'index.js');
+
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}$/;
 
 // names become file names, so no slashes, no leading dots, nothing that can escape the folder
@@ -137,11 +140,10 @@ export async function quitNotion(timeoutMs = 10_000): Promise<void> {
 // starts the long-running injector in the background, it exits on its own if one is already running
 // in the desktop app, Electron's binary doubles as Node via ELECTRON_RUN_AS_NODE
 export function ensureInjector(): void {
-  const cli = join(__dirname, '..', 'cli', 'index.js');
   mkdirSync(LOGS_DIR, { recursive: true });
   const out = openSync(join(LOGS_DIR, 'inject.log'), 'a');
   try {
-    const child = spawn(process.execPath, [cli, 'inject'], {
+    const child = spawn(process.execPath, [CLI_SCRIPT, 'inject'], {
       detached: true,
       stdio: ['ignore', out, out],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },

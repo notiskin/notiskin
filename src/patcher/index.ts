@@ -17,11 +17,17 @@ import { tmpdir } from 'os';
 import http from 'http';
 import { sleep } from '../utils/sleep';
 import { NOTISKIN_DIR, USER_HOME } from '../utils/constants';
+import { shellQuote } from './admin';
 
-const NOTION_BINARY_CANDIDATES = [
-  '/Applications/Notion.app/Contents/MacOS/Notion',
-  join(USER_HOME, 'Applications', 'Notion.app', 'Contents', 'MacOS', 'Notion'),
-];
+function notionBinaryCandidates(): string[] {
+  // tests point this at a copy of the fake Notion, never /Applications
+  const override = process.env.NOTISKIN_NOTION_APP;
+  if (override) return [join(override, 'Contents', 'MacOS', 'Notion')];
+  return [
+    '/Applications/Notion.app/Contents/MacOS/Notion',
+    join(USER_HOME, 'Applications', 'Notion.app', 'Contents', 'MacOS', 'Notion'),
+  ];
+}
 
 const STARTUP_TIMEOUT_MS = 30_000;
 
@@ -35,9 +41,9 @@ export function isWrapperPresent(notionPath: string): boolean {
   }
 }
 
-// watcher.ts uses this to avoid duplicating NOTION_BINARY_CANDIDATES
+// watcher.ts uses this to avoid duplicating the candidate list
 export function findNotionBinary(): string {
-  for (const candidate of NOTION_BINARY_CANDIDATES) {
+  for (const candidate of notionBinaryCandidates()) {
     if (existsSync(candidate)) return candidate;
   }
   throw new Error(
@@ -47,7 +53,7 @@ export function findNotionBinary(): string {
 }
 
 // /Applications/Notion.app/Contents/MacOS/Notion -> /Applications/Notion.app
-function appBundlePath(notionPath: string): string {
+export function appBundlePath(notionPath: string): string {
   return dirname(dirname(dirname(notionPath)));
 }
 
@@ -66,17 +72,122 @@ function resignBundle(notionPath: string): void {
   }
 }
 
+export interface WrapperOptions {
+  // the desktop app runs the CLI with its own Electron binary acting as Node
+  appMode?: boolean;
+}
+
+const INJECT_REDIRECT = ' inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &';
+
 // runs as background job so it can poll for CDP while Notion.real starts
 // exec replaces the shell, macOS sees the correct PID
-export function makeWrapperScript(nodePath: string, cliScriptPath: string): string {
+// if the inject program is gone (Notiskin moved or deleted) only that line fails, Notion still starts
+export function makeWrapperScript(nodePath: string, cliScriptPath: string, opts: WrapperOptions = {}): string {
+  // the CLI line is kept byte-for-byte as earlier versions wrote it, so existing installs still match
+  // the env var only applies to the inject command, it must never reach Notion.real (Notion is Electron too)
+  const injectCommand = opts.appMode
+    ? `ELECTRON_RUN_AS_NODE=1 ${shellQuote(nodePath)} ${shellQuote(cliScriptPath)}`
+    : `"${nodePath}" "${cliScriptPath}"`;
   return [
     '#!/bin/sh',
     '# notiskin-wrapper',
     'mkdir -p "$HOME/.notiskin/logs"',
-    `"${nodePath}" "${cliScriptPath}" inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &`,
+    `${injectCommand}${INJECT_REDIRECT}`,
     'exec "$(dirname "$0")/Notion.real" --remote-debugging-port=9222 "$@"',
     '',
   ].join('\n');
+}
+
+// splits the sh words our wrappers use: 'single quoted', "double quoted", and bare words
+export function splitShellWords(text: string): string[] {
+  const words: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    while (text[i] === ' ') i++;
+    if (i >= text.length) break;
+    let word = '';
+    while (i < text.length && text[i] !== ' ') {
+      const ch = text[i];
+      if (ch === "'" || ch === '"') {
+        const end = text.indexOf(ch, i + 1);
+        if (end < 0) throw new Error('Unterminated quote');
+        word += text.slice(i + 1, end);
+        i = end + 1;
+      } else if (ch === '\\') {
+        word += text[i + 1] ?? '';
+        i += 2;
+      } else {
+        word += ch;
+        i++;
+      }
+    }
+    words.push(word);
+  }
+  return words;
+}
+
+// the program and script a wrapper runs for injection, null if it can't be read
+export function wrapperInjectTarget(script: string): { program: string; cliScript: string } | null {
+  const line = script.split('\n').find(l => l.endsWith(INJECT_REDIRECT));
+  if (!line) return null;
+  let words: string[];
+  try {
+    words = splitShellWords(line.slice(0, -INJECT_REDIRECT.length));
+  } catch {
+    return null;
+  }
+  // skip env assignments like ELECTRON_RUN_AS_NODE=1
+  while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
+  if (words.length !== 2) return null;
+  return { program: words[0], cliScript: words[1] };
+}
+
+// inside the packaged app the CLI sits in app.asar, plain Node can't look inside it, so check the archive itself
+function pathExists(path: string): boolean {
+  const asar = path.indexOf('.asar/');
+  return existsSync(asar >= 0 ? path.slice(0, asar + '.asar'.length) : path);
+}
+
+export type NotionStatus = 'not-installed' | 'installed' | 'needs-repair' | 'notion-missing';
+
+// read-only, works without root
+export function getNotionStatus(): NotionStatus {
+  let notionPath: string;
+  try {
+    notionPath = findNotionBinary();
+  } catch {
+    return 'notion-missing';
+  }
+  if (isWrapperPresent(notionPath)) {
+    const target = wrapperInjectTarget(readFileSync(notionPath, 'utf-8'));
+    // Notiskin was moved or deleted after installing, Notion still starts but nothing gets themed
+    if (!target || !pathExists(target.program) || !pathExists(target.cliScript)) return 'needs-repair';
+    return 'installed';
+  }
+  // a Notion update replaced the wrapper with a fresh binary
+  return existsSync(`${notionPath}.real`) ? 'needs-repair' : 'not-installed';
+}
+
+interface Owner {
+  uid: number;
+  gid: number;
+}
+
+function bundleOwner(notionPath: string): Owner {
+  const { uid, gid } = statSync(appBundlePath(notionPath));
+  return { uid, gid };
+}
+
+// patching as root leaves root-owned files (the wrapper, whatever codesign rewrote),
+// and Notion's own updater runs as the user, so give the bundle back to whoever owned it
+function restoreBundleOwner(notionPath: string, owner: Owner): void {
+  if (process.getuid?.() !== 0 || owner.uid === 0) return;
+  try {
+    execFileSync('chown', ['-R', `${owner.uid}:${owner.gid}`, appBundlePath(notionPath)], { stdio: 'ignore' });
+    console.log('[patcher] Gave Notion.app back to its owner.');
+  } catch {
+    console.warn(`[patcher] Warning: could not reset the owner of ${appBundlePath(notionPath)}, Notion's updater may fail.`);
+  }
 }
 
 const SUDOERS_FILE = '/etc/sudoers.d/notiskin';
@@ -160,14 +271,37 @@ function installSudoersRule(username: string, notionPath: string): void {
   console.log('[patcher] (The rule only covers the exact codesign command, nothing else gains passwordless access.)');
 }
 
-export function patchNotion(nodePath: string, cliScriptPath: string): void {
+// the wrapper is already there but runs something else, e.g. Notiskin was moved, or it was patched from the CLI before
+function rewriteWrapper(notionPath: string, script: string, owner: Owner): void {
+  console.log('[patcher] Updating the wrapper script...');
+  try {
+    writeFileSync(notionPath, script, { encoding: 'utf-8', mode: 0o755 });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      throw new Error('Permission denied.\nRun: sudo npm run patch');
+    }
+    throw err;
+  }
+  resignBundle(notionPath);
+  restoreBundleOwner(notionPath, owner);
+  console.log('[patcher] Done. Quit Notion and reopen it normally, themes and plugins will load automatically.');
+}
+
+export function patchNotion(nodePath: string, cliScriptPath: string, opts: WrapperOptions = {}): void {
   const notionPath = findNotionBinary();
   const realPath = `${notionPath}.real`;
   const backupDir = join(NOTISKIN_DIR, 'backup');
   const backupPath = join(backupDir, 'Notion.original');
+  const script = makeWrapperScript(nodePath, cliScriptPath, opts);
+  // before any change, codesign and the new wrapper would otherwise make root the owner
+  const owner = bundleOwner(notionPath);
 
   if (isWrapperPresent(notionPath)) {
-    console.log('[patcher] Already patched, wrapper is in place.');
+    if (readFileSync(notionPath, 'utf-8') === script) {
+      console.log('[patcher] Already patched, wrapper is in place.');
+      return;
+    }
+    rewriteWrapper(notionPath, script, owner);
     return;
   }
 
@@ -194,7 +328,7 @@ export function patchNotion(nodePath: string, cliScriptPath: string): void {
   // restore on failure, can't leave Notion without a working binary
   console.log('[patcher] Writing wrapper script...');
   try {
-    writeFileSync(notionPath, makeWrapperScript(nodePath, cliScriptPath), { encoding: 'utf-8', mode: 0o755 });
+    writeFileSync(notionPath, script, { encoding: 'utf-8', mode: 0o755 });
   } catch (err: unknown) {
     try {
       renameSync(realPath, notionPath);
@@ -203,6 +337,7 @@ export function patchNotion(nodePath: string, cliScriptPath: string): void {
   }
 
   resignBundle(notionPath);
+  restoreBundleOwner(notionPath, owner);
 
   // watcher uses this to show "Notiskin" instead of "osascript" in elevation prompts
   console.log('[patcher] Compiling signing helper...');
@@ -236,6 +371,7 @@ export function patchNotion(nodePath: string, cliScriptPath: string): void {
 export function unpatchNotion(): void {
   const notionPath = findNotionBinary();
   const realPath = `${notionPath}.real`;
+  const owner = bundleOwner(notionPath);
 
   if (!existsSync(realPath)) {
     throw new Error(
@@ -265,6 +401,7 @@ export function unpatchNotion(): void {
   renameSync(realPath, notionPath);
 
   resignBundle(notionPath);
+  restoreBundleOwner(notionPath, owner);
 
   if (existsSync(SUDOERS_FILE)) {
     try {

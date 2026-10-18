@@ -2,7 +2,7 @@ require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { app, sanitizeSearch } = require('../dist/gui/server');
+const { app, sanitizeSearch, notionSetup } = require('../dist/gui/server');
 
 let server;
 let port;
@@ -116,4 +116,101 @@ test('sanitizeSearch strips PostgREST filter syntax', () => {
   assert.equal(sanitizeSearch('100%_'), '100');
   assert.equal(sanitizeSearch(undefined), '');
   assert.equal(sanitizeSearch('x'.repeat(500)).length, 100);
+});
+
+// the Install into Notion endpoints, with the platform and the password prompt mocked
+function mockNotionSetup({ platform = 'darwin', status = 'not-installed', runAdmin, restart } = {}) {
+  const calls = [];
+  notionSetup.platform = () => platform;
+  notionSetup.status = () => status;
+  notionSetup.runAdmin = async action => {
+    calls.push(action);
+    return runAdmin ? runAdmin(action) : { status: 'ok', output: '' };
+  };
+  notionSetup.restart = async () => {
+    calls.push('restart');
+    if (restart) await restart();
+  };
+  return calls;
+}
+
+const NOTION_ROUTES = [
+  ['GET', '/api/notion/status'],
+  ['POST', '/api/notion/install'],
+  ['POST', '/api/notion/uninstall'],
+  ['POST', '/api/notion/restart'],
+];
+
+test('Notion setup endpoints need the session token', async () => {
+  const calls = mockNotionSetup();
+  for (const [method, path] of NOTION_ROUTES) {
+    const res = await request(method, path);
+    assert.equal(res.status, 403, path);
+    const foreign = await request(method, path, { headers: authed({ Origin: 'https://evil.test' }) });
+    assert.equal(foreign.status, 403, path);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('Notion setup endpoints only work on macOS', async () => {
+  const calls = mockNotionSetup({ platform: 'linux' });
+  for (const [method, path] of NOTION_ROUTES) {
+    const res = await request(method, path, { headers: authed() });
+    assert.equal(res.status, 400, path);
+    assert.match(res.json.error, /macOS/);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('status, install, and uninstall report back in plain terms', async () => {
+  const calls = mockNotionSetup({ status: 'installed' });
+  const status = await request('GET', '/api/notion/status', { headers: authed() });
+  assert.equal(status.json.status, 'installed');
+
+  // a request body is ignored, the command only comes from the server's own paths
+  const install = await request('POST', '/api/notion/install', { headers: authed(), body: { action: 'rm -rf /' } });
+  assert.deepEqual(install.json, { ok: true, status: 'installed' });
+  const uninstall = await request('POST', '/api/notion/uninstall', { headers: authed() });
+  assert.equal(uninstall.json.ok, true);
+  const restart = await request('POST', '/api/notion/restart', { headers: authed() });
+  assert.equal(restart.json.ok, true);
+  assert.deepEqual(calls, ['patch', 'unpatch', 'restart']);
+});
+
+test('a cancelled password prompt is not reported as a failure', async () => {
+  mockNotionSetup({ runAdmin: () => ({ status: 'cancelled' }) });
+  const res = await request('POST', '/api/notion/install', { headers: authed() });
+  assert.deepEqual(res.json, { ok: false, cancelled: true });
+});
+
+test('install errors come back as a message', async () => {
+  mockNotionSetup({ runAdmin: () => ({ status: 'error', message: 'Could not find Notion.app.', output: 'x' }) });
+  const res = await request('POST', '/api/notion/install', { headers: authed() });
+  assert.deepEqual(res.json, { ok: false, error: 'Could not find Notion.app.' });
+
+  mockNotionSetup({ runAdmin: () => { throw new Error('boom'); } });
+  const thrown = await request('POST', '/api/notion/install', { headers: authed() });
+  assert.deepEqual(thrown.json, { ok: false, error: 'boom' });
+});
+
+test('only one install or uninstall runs at a time', async () => {
+  let finish;
+  const calls = mockNotionSetup({ runAdmin: () => new Promise(r => { finish = r; }) });
+  const first = request('POST', '/api/notion/install', { headers: authed() });
+  while (!finish) await new Promise(r => setTimeout(r, 5));
+
+  const second = await request('POST', '/api/notion/install', { headers: authed() });
+  assert.equal(second.status, 409);
+  const other = await request('POST', '/api/notion/uninstall', { headers: authed() });
+  assert.equal(other.status, 409);
+
+  finish({ status: 'ok', output: '' });
+  assert.equal((await first).json.ok, true);
+  assert.deepEqual(calls, ['patch']);
+
+  // the lock is released afterwards, also after a cancel
+  mockNotionSetup({ runAdmin: () => ({ status: 'cancelled' }) });
+  assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.cancelled, true);
+  mockNotionSetup();
+  assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.ok, true);
 });
