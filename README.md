@@ -126,13 +126,23 @@ The functions need an `NS_SERVICE_ROLE_KEY` secret (`supabase secrets set NS_SER
 
 ### Releasing
 
+Releases are built by the **Release** workflow in GitHub Actions, so no personal token is needed.
+
+1. Bump the version without tagging: `npm version minor --no-git-tag-version`
+2. Commit `package.json` and `package-lock.json`
+3. Merge to `main`
+4. Run the **Release** workflow from the Actions tab (Actions → Release → Run workflow, on `main`)
+
+The workflow runs lint, typecheck, unit and integration tests, refuses to run if the version's tag already exists, then builds and uploads to GitHub Releases. The build fails if `.env` or other dev-only files end up inside the app.
+
+Local fallback (macOS only, needs a `GH_TOKEN` with "contents: write" in `.env`):
+
 ```bash
-npm version minor           # bumps package.json and commits
 npm run publish:dry-run     # lint, test, build, and secret-check without publishing
 npm run publish             # tags, builds, and uploads to GitHub Releases
 ```
 
-`publish` refuses to run with uncommitted changes, off `main`, or if the version's tag already exists. The build fails if `.env` or other dev-only files end up inside the app.
+`publish` refuses to run with uncommitted changes, off `main`, or if the version's tag already exists. Bump with `--no-git-tag-version` as above, since `publish` creates the tag itself.
 
 ## Roadmap
 
