@@ -166,6 +166,17 @@
     }
 
     .btn-cache:hover { color: #e0e0e0; border-color: #444; }
+
+    .account-badge {
+      display: inline-block;
+      font-size: 11px;
+      padding: 1px 7px;
+      margin-left: 6px;
+      border-radius: 999px;
+      background: #1e1b3a;
+      color: #a5b4fc;
+      vertical-align: 1px;
+    }
   </style>
 </head>
 <body>
@@ -192,13 +203,23 @@
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
         <a href="/plugins.html" class="sidebar-link">Plugins</a>
-        <a href="/review.html" class="sidebar-link">Review</a>
+        <a href="/review.html" class="sidebar-link" id="nav-review" style="display:none">Review</a>
         <a href="/settings.html" class="sidebar-link active" id="nav-settings">Settings</a>
       </nav>
     </aside>
 
     <div class="main-content">
 
+      <div class="settings-section">
+        <h2>Account</h2>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label" id="account-label">Not signed in</div>
+            <div class="settings-row-sub" id="account-sub">Sign in to publish and rate themes and plugins</div>
+          </div>
+          <button class="btn-install" id="account-btn" onclick="toggleSignIn()" disabled>Sign in with GitHub</button>
+        </div>
+      </div>
       <div class="settings-section">
         <h2>Updates</h2>
 
@@ -252,7 +273,97 @@
 
   <div id="notif-stack"></div>
 
+  <script src="/vendor/supabase.js"></script>
   <script>
+    const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
+
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // the GitHub identity, not user_metadata, which users can edit
+    function githubUsername(user) {
+      return user?.identities?.find(i => i.provider === 'github')?.identity_data?.user_name || 'your GitHub account';
+    }
+
+    // the Review link only shows for reviewers. Cosmetic, the edge functions do the real check
+    async function updateReviewLink(session, { fresh = false } = {}) {
+      const link = document.getElementById('nav-review');
+      if (!session) {
+        try { localStorage.removeItem('notiskin.reviewer'); } catch {}
+        link.style.display = 'none';
+        return false;
+      }
+      let cached = null;
+      try { cached = JSON.parse(localStorage.getItem('notiskin.reviewer')); } catch {}
+      if (fresh || cached?.userId !== session.user.id) {
+        const res = await fetch('/api/review/pending', {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        }).catch(() => null);
+        if (!res || (res.status !== 200 && res.status !== 403)) return false;
+        cached = { userId: session.user.id, isReviewer: res.ok };
+        try { localStorage.setItem('notiskin.reviewer', JSON.stringify(cached)); } catch {}
+      }
+      link.style.display = cached.isReviewer ? '' : 'none';
+      return cached.isReviewer;
+    }
+
+    // the one place to sign in and out, the other pages share the session
+    let accountSession = null;
+
+    async function renderAccount(session, { fresh = false } = {}) {
+      accountSession = session;
+      const label = document.getElementById('account-label');
+      const sub = document.getElementById('account-sub');
+      const btn = document.getElementById('account-btn');
+      btn.disabled = false;
+      if (!session) {
+        label.textContent = 'Not signed in';
+        sub.textContent = 'Sign in to publish and rate themes and plugins';
+        btn.textContent = 'Sign in with GitHub';
+        updateReviewLink(null);
+        return;
+      }
+      label.textContent = `Signed in as ${githubUsername(session.user)}`;
+      sub.textContent = 'Publishing, ratings, and My Submissions use this account';
+      btn.textContent = 'Sign out';
+      const isReviewer = await updateReviewLink(session, { fresh });
+      if (isReviewer && accountSession === session && !label.querySelector('.account-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'account-badge';
+        badge.textContent = 'Reviewer';
+        label.appendChild(badge);
+      }
+    }
+
+    async function toggleSignIn() {
+      const btn = document.getElementById('account-btn');
+      btn.disabled = true;
+      if (accountSession) {
+        await db.auth.signOut();
+        return;
+      }
+      btn.textContent = 'Signing in...';
+      const { error } = await db.auth.signInWithOAuth({
+        provider: 'github',
+        // always show GitHub's account picker, so switching accounts works
+        options: { redirectTo: window.location.origin + '/settings.html', queryParams: { prompt: 'select_account' } },
+      });
+      if (error) {
+        showNotif('Sign in failed');
+        renderAccount(null);
+      }
+    }
+
+    db.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') renderAccount(session, { fresh: true });
+    });
+
+    // onAuthStateChange alone misses an already stored session
+    db.auth.getSession().then(({ data: { session } }) => {
+      renderAccount(session, { fresh: true });
+      if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+    });
+
     const stateLabels = {
       'up-to-date':  'Up to date',
       'available':   'Downloading...',
