@@ -4,6 +4,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { readFileSync, existsSync, appendFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
+import { userInfo } from 'os';
 import { execFile } from 'child_process';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import type { Server } from 'http';
@@ -17,9 +18,11 @@ import {
   SUPABASE_URL,
   SUPABASE_PUBLISHABLE_KEY,
   MAX_ITEM_BYTES,
+  LOGS_DIR,
 } from '../utils/constants';
 import {
   applyConfig,
+  CLI_SCRIPT,
   deleteItem,
   isItemType,
   isNotionRunning,
@@ -27,10 +30,13 @@ import {
   itemExists,
   listPlugins,
   listThemes,
+  quitNotion,
   toFileStem,
   writeItem,
   ItemType,
 } from '../core/library';
+import { appBundlePath, findNotionBinary, getNotionStatus, NotionStatus } from '../patcher/index';
+import { ADMIN_PROMPTS, AdminAction, AdminResult, buildAdminCommand, runAsAdmin } from '../patcher/admin';
 
 let pagesDir = join(__dirname, '..', '..', 'src', 'gui');
 
@@ -153,6 +159,72 @@ function loadUpdater(): typeof import('../updater/index') | null {
   return require('../updater/index');
 }
 
+function execFileAsync(file: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, err => (err ? reject(err) : resolve()));
+  });
+}
+
+// swappable so tests never run osascript or look at the real Notion
+export const notionSetup = {
+  platform: (): NodeJS.Platform => process.platform,
+  status: (): NotionStatus => getNotionStatus(),
+  // in the desktop app execPath is Electron (run as Node by the command), under `npm run gui` it is Node itself
+  runAdmin: (action: AdminAction): Promise<AdminResult> =>
+    runAsAdmin(
+      buildAdminCommand(action, { user: userInfo().username, execPath: process.execPath, cliPath: CLI_SCRIPT }),
+      ADMIN_PROMPTS[action]
+    ),
+  // open the bundle like the Dock does, so the wrapper runs and starts the injector
+  restart: async (): Promise<void> => {
+    const bundle = appBundlePath(findNotionBinary());
+    await quitNotion();
+    await execFileAsync('open', [bundle]);
+  },
+};
+
+const MAC_ONLY = 'Installing into Notion only works on macOS.';
+
+function requireMac(res: Response): boolean {
+  if (notionSetup.platform() === 'darwin') return true;
+  res.status(400).json({ ok: false, error: MAC_ONLY });
+  return false;
+}
+
+function logSetup(action: AdminAction, text: string): void {
+  try {
+    mkdirSync(LOGS_DIR, { recursive: true });
+    appendFileSync(join(LOGS_DIR, 'inject.log'), `[${new Date().toISOString()}] [${action}] ${text.trim()}\n`);
+  } catch {}
+}
+
+// one password prompt at a time, a double click must not start a second install
+let notionSetupBusy = false;
+
+async function runNotionSetup(action: AdminAction, res: Response): Promise<void> {
+  if (!requireMac(res)) return;
+  if (notionSetupBusy) {
+    res.status(409).json({ ok: false, error: 'Already working on it. Finish the password prompt first.' });
+    return;
+  }
+  notionSetupBusy = true;
+  try {
+    const result = await notionSetup.runAdmin(action);
+    if (result.status === 'cancelled') {
+      res.json({ ok: false, cancelled: true });
+      return;
+    }
+    logSetup(action, result.output);
+    if (result.status === 'ok') res.json({ ok: true, status: notionSetup.status() });
+    else res.json({ ok: false, error: result.message });
+  } catch (err) {
+    logSetup(action, errorMessage(err));
+    res.json({ ok: false, error: errorMessage(err) });
+  } finally {
+    notionSetupBusy = false;
+  }
+}
+
 export const app = express();
 app.disable('x-powered-by');
 
@@ -220,6 +292,25 @@ app.get('/api/status', (_req, res) => {
     activeTheme: config.activeTheme,
     enabledPlugins: config.enabledPlugins,
   });
+});
+
+app.get('/api/notion/status', (_req, res) => {
+  if (!requireMac(res)) return;
+  res.json({ status: notionSetup.status(), notionRunning: isNotionRunning() });
+});
+
+// nothing from the request goes into the command, it is built from this process's own paths
+app.post('/api/notion/install', (_req, res) => runNotionSetup('patch', res));
+app.post('/api/notion/uninstall', (_req, res) => runNotionSetup('unpatch', res));
+
+app.post('/api/notion/restart', async (_req, res) => {
+  if (!requireMac(res)) return;
+  try {
+    await serialized(() => notionSetup.restart());
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
+  }
 });
 
 app.get('/api/state', (_req, res) => {

@@ -263,7 +263,8 @@ async function main(argv: string[]): Promise<void> {
     case 'inject':
       return inject();
     case 'patch':
-      return patchNotion(process.execPath, join(__dirname, 'index.js'));
+      // inside the desktop app this runs on Electron's binary, so the wrapper has to set ELECTRON_RUN_AS_NODE too
+      return patchNotion(process.execPath, join(__dirname, 'index.js'), { appMode: Boolean(process.versions.electron) });
     case 'unpatch':
       return unpatchNotion();
     case 'watch:install':

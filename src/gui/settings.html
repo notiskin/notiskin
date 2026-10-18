@@ -142,6 +142,13 @@
     .update-badge.downloading { background: #1a2030; color: #64b5f6; }
     .update-badge.ready       { background: #1a2030; color: #64b5f6; }
     .update-badge.error       { background: #2e1a1a; color: #e57373; }
+    .update-badge.neutral     { background: #1e1e1e; color: #999; }
+
+    .settings-row-error {
+      font-size: 11px;
+      color: #e57373;
+      margin-top: 4px;
+    }
 
     .btn-install {
       font-size: 12px;
@@ -213,6 +220,25 @@
     </aside>
 
     <div class="main-content">
+
+      <div class="settings-section">
+        <h2>Notion</h2>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Load themes when Notion starts <span id="notion-badge" class="update-badge neutral">Checking...</span></div>
+            <div class="settings-row-sub" id="notion-sub"></div>
+            <div class="settings-row-error" id="notion-error" style="display:none"></div>
+          </div>
+          <button class="btn-install" id="notion-btn" onclick="runNotionAction()" style="display:none"></button>
+        </div>
+        <div class="settings-row" id="notion-restart-row" style="display:none">
+          <div>
+            <div class="settings-row-label">Restart Notion</div>
+            <div class="settings-row-sub" id="notion-restart-sub"></div>
+          </div>
+          <button class="btn-install" id="notion-restart-btn" onclick="restartNotion()">Restart Notion</button>
+        </div>
+      </div>
 
       <div class="settings-section">
         <h2>Account</h2>
@@ -373,6 +399,139 @@
       renderAccount(session);
       if (window.location.hash) history.replaceState(null, '', window.location.pathname);
     });
+
+    // Install into Notion: one button whose job depends on the status
+    const NOTION_STATES = {
+      'not-installed': {
+        badge: 'Not installed', tone: 'neutral', button: 'Install', action: 'install',
+        sub: 'Install so your theme loads every time Notion starts. macOS will ask for your password, then Notion needs a restart.',
+      },
+      'installed': {
+        badge: 'Installed', tone: 'up-to-date', button: 'Uninstall', action: 'uninstall',
+        sub: 'Your theme loads every time Notion starts. Uninstalling asks for your password.',
+      },
+      'needs-repair': {
+        badge: 'Needs repair', tone: 'available', button: 'Repair', action: 'install',
+        sub: 'A Notion update or moving Notiskin switched this off. Repair asks for your password, then Notion needs a restart.',
+      },
+      'notion-missing': {
+        badge: 'Notion not found', tone: 'error', button: null,
+        sub: 'Put Notion in your Applications folder, then come back here.',
+      },
+    };
+    const LOG_HINT = 'Details are in ~/.notiskin/logs/inject.log';
+
+    let notionState = null;
+    let notionBusy = false;
+
+    function showNotionError(message) {
+      const el = document.getElementById('notion-error');
+      el.textContent = message || '';
+      el.style.display = message ? '' : 'none';
+    }
+
+    function renderNotion(status, unavailableReason) {
+      notionState = NOTION_STATES[status] ?? null;
+      const badge = document.getElementById('notion-badge');
+      const sub = document.getElementById('notion-sub');
+      const btn = document.getElementById('notion-btn');
+      if (!notionState) {
+        badge.className = 'update-badge neutral';
+        badge.textContent = 'Unavailable';
+        sub.textContent = unavailableReason || 'Could not check Notion.';
+        btn.style.display = 'none';
+        return;
+      }
+      badge.className = `update-badge ${notionState.tone}`;
+      badge.textContent = notionState.badge;
+      sub.textContent = notionState.sub;
+      btn.textContent = notionState.button ?? '';
+      btn.style.display = notionState.button ? '' : 'none';
+      btn.disabled = notionBusy;
+    }
+
+    async function loadNotionStatus() {
+      if (notionBusy) return null;
+      try {
+        const res = await fetch('/api/notion/status');
+        const data = await res.json();
+        renderNotion(data.status, data.error);
+        return data;
+      } catch {
+        renderNotion(null, 'Could not check Notion.');
+        return null;
+      }
+    }
+
+    function showRestartOffer(message) {
+      document.getElementById('notion-restart-sub').textContent = message;
+      document.getElementById('notion-restart-row').style.display = 'flex';
+    }
+
+    function hideRestartOffer() {
+      document.getElementById('notion-restart-row').style.display = 'none';
+    }
+
+    async function runNotionAction() {
+      if (!notionState?.action || notionBusy) return;
+      const action = notionState.action;
+      const btn = document.getElementById('notion-btn');
+      notionBusy = true;
+      btn.disabled = true;
+      btn.textContent = 'Waiting for password...';
+      showNotionError('');
+      hideRestartOffer();
+      let data = null;
+      try {
+        const res = await fetch(`/api/notion/${action}`, { method: 'POST' });
+        data = await res.json();
+      } catch {}
+      notionBusy = false;
+
+      if (data?.cancelled) {
+        showNotif('Cancelled');
+      } else if (!data?.ok) {
+        const verb = action === 'install' ? 'install into' : 'uninstall from';
+        showNotionError(`Couldn't ${verb} Notion: ${data?.error || 'something went wrong'}. ${LOG_HINT}`);
+      } else {
+        showNotif(action === 'install' ? 'Installed into Notion' : 'Removed from Notion');
+      }
+      const status = await loadNotionStatus();
+      if (!data?.ok) return;
+      // quitting Notion closes the user's windows, so only offer it, never do it on its own
+      if (status?.notionRunning) {
+        showRestartOffer(
+          action === 'install'
+            ? 'Your theme loads after Notion restarts. This closes your Notion windows.'
+            : 'Notion keeps the theme until it restarts. This closes your Notion windows.'
+        );
+      } else if (action === 'install') {
+        showNotif('Open Notion and your theme will load');
+      }
+    }
+
+    async function restartNotion() {
+      const btn = document.getElementById('notion-restart-btn');
+      btn.disabled = true;
+      btn.textContent = 'Restarting...';
+      let data = null;
+      try {
+        const res = await fetch('/api/notion/restart', { method: 'POST' });
+        data = await res.json();
+      } catch {}
+      btn.disabled = false;
+      btn.textContent = 'Restart Notion';
+      if (data?.ok) {
+        hideRestartOffer();
+        showNotif('Notion restarted');
+      } else {
+        showNotionError(`Couldn't restart Notion: ${data?.error || 'something went wrong'}. Quit and reopen it yourself.`);
+      }
+    }
+
+    loadNotionStatus();
+    // a Notion update or a CLI patch can change things while Settings is open
+    window.addEventListener('focus', () => loadNotionStatus());
 
     const stateLabels = {
       'up-to-date':  'Up to date',
