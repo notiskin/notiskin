@@ -112,4 +112,10 @@ drop policy if exists "ratings_insert" on public.ratings;
 drop policy if exists "ratings_update" on public.ratings;
 revoke insert, update, delete on public.ratings from anon, authenticated;
 
+-- leftovers from Supabase's default grants. TRUNCATE skips row level security, and signed-out
+-- visitors never need to insert (the insert policies are for authenticated only)
+revoke truncate, references, trigger on public.themes, public.plugins, public.reviewers, public.ratings
+  from anon, authenticated;
+revoke insert on public.themes, public.plugins from anon;
+
 commit;
