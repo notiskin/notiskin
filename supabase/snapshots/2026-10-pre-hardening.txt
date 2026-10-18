@@ -1,0 +1,100 @@
+Live marketplace schema of Supabase project rdsoztlxtbfwdjcfqhmt, captured 2026-10-17 before the
+20261017000000_harden_marketplace_auth migration. Read-only queries run as supabase_read_only_user
+through the Management API. Postgres 17. No row data or user data is included.
+
+== policies (tablename | policyname | cmd | roles | qual | with_check)
+plugins | Authenticated users can insert plugins | INSERT | {authenticated} | null | ((status = 'pending'::text) AND (author_github = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)))
+plugins | Authors can delete own pending or rejected | DELETE | {authenticated} | ((author_github = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)) AND (status = ANY (ARRAY['pending'::text, 'rejected'::text]))) | null
+plugins | Authors can read own submissions | SELECT | {public} | (author_github = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)) | null
+plugins | Read approved only | SELECT | {public} | (status = 'approved'::text) | null
+plugins | Reviewers can update plugin status | UPDATE | {authenticated} | (EXISTS ( SELECT 1 FROM reviewers WHERE (reviewers.github_username = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)))) | null
+ratings | ratings_insert | INSERT | {public} | null | (user_id = auth.uid())
+ratings | ratings_select | SELECT | {public} | true | null
+ratings | ratings_update | UPDATE | {public} | (user_id = auth.uid()) | null
+reviewers | Authenticated users can read reviewers | SELECT | {authenticated} | true | null
+themes | Authenticated users can insert themes | INSERT | {authenticated} | null | ((status = 'pending'::text) AND (author_github = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)))
+themes | Authors can delete own pending or rejected | DELETE | {authenticated} | ((author_github = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)) AND (status = ANY (ARRAY['pending'::text, 'rejected'::text]))) | null
+themes | Authors can read own submissions | SELECT | {public} | (author_github = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)) | null
+themes | Read approved only | SELECT | {public} | (status = 'approved'::text) | null
+themes | Reviewers can update theme status | UPDATE | {authenticated} | (EXISTS ( SELECT 1 FROM reviewers WHERE (reviewers.github_username = ((auth.jwt() -> 'user_metadata'::text) ->> 'user_name'::text)))) | null
+
+== columns (table | column | type | nullable | default)
+plugins | id | uuid | NO | gen_random_uuid()
+plugins | name | text | NO | null
+plugins | description | text | YES | null
+plugins | author_github | text | NO | null
+plugins | js | text | NO | null
+plugins | status | text | NO | 'pending'::text
+plugins | created_at | timestamp with time zone | YES | now()
+plugins | rejection_reason | text | YES | null
+plugins | name_normalized | text | YES | null
+plugins | avg_rating | double precision | YES | 0
+plugins | rating_count | integer | YES | 0
+ratings | id | uuid | NO | gen_random_uuid()
+ratings | user_id | uuid | NO | null
+ratings | item_id | uuid | NO | null
+ratings | item_type | text | NO | null
+ratings | rating | integer | NO | null
+ratings | created_at | timestamp with time zone | YES | now()
+ratings | updated_at | timestamp with time zone | YES | now()
+reviewers | github_username | text | NO | null
+themes | id | uuid | NO | gen_random_uuid()
+themes | name | text | NO | null
+themes | description | text | YES | null
+themes | author_github | text | NO | null
+themes | css | text | NO | null
+themes | status | text | NO | 'pending'::text
+themes | created_at | timestamp with time zone | YES | now()
+themes | rejection_reason | text | YES | null
+themes | name_normalized | text | YES | null
+themes | avg_rating | double precision | YES | 0
+themes | rating_count | integer | YES | 0
+
+== constraints (table | name | definition)
+plugins | plugins_name_normalized_unique | UNIQUE (name_normalized)
+plugins | plugins_name_valid | CHECK ((name ~ '^[a-z0-9 ]+$'::text))
+plugins | plugins_pkey | PRIMARY KEY (id)
+ratings | ratings_item_type_check | CHECK ((item_type = ANY (ARRAY['theme'::text, 'plugin'::text])))
+ratings | ratings_pkey | PRIMARY KEY (id)
+ratings | ratings_rating_check | CHECK (((rating >= 1) AND (rating <= 5)))
+ratings | ratings_user_id_item_id_item_type_key | UNIQUE (user_id, item_id, item_type)
+reviewers | reviewers_pkey | PRIMARY KEY (github_username)
+themes | themes_name_normalized_unique | UNIQUE (name_normalized)
+themes | themes_name_valid | CHECK ((name ~ '^[a-z0-9 ]+$'::text))
+themes | themes_pkey | PRIMARY KEY (id)
+
+== indexes (table | name | definition)
+plugins | plugins_name_normalized_unique | CREATE UNIQUE INDEX plugins_name_normalized_unique ON public.plugins USING btree (name_normalized)
+plugins | plugins_pkey | CREATE UNIQUE INDEX plugins_pkey ON public.plugins USING btree (id)
+ratings | ratings_pkey | CREATE UNIQUE INDEX ratings_pkey ON public.ratings USING btree (id)
+ratings | ratings_user_id_item_id_item_type_key | CREATE UNIQUE INDEX ratings_user_id_item_id_item_type_key ON public.ratings USING btree (user_id, item_id, item_type)
+reviewers | reviewers_pkey | CREATE UNIQUE INDEX reviewers_pkey ON public.reviewers USING btree (github_username)
+themes | themes_name_normalized_unique | CREATE UNIQUE INDEX themes_name_normalized_unique ON public.themes USING btree (name_normalized)
+themes | themes_pkey | CREATE UNIQUE INDEX themes_pkey ON public.themes USING btree (id)
+
+== row level security (table | enabled | forced)
+plugins | true | false
+ratings | true | false
+reviewers | true | false
+themes | true | false
+
+== grants for anon, authenticated, service_role (table or table.column | role | privileges)
+plugins | anon | INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE
+plugins | authenticated | DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+plugins | service_role | DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+plugins.status | authenticated | UPDATE
+ratings | anon | MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE
+ratings | authenticated | INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+ratings | service_role | DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+reviewers | anon | MAINTAIN,REFERENCES,TRIGGER,TRUNCATE
+reviewers | authenticated | MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE
+reviewers | service_role | MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE
+themes | anon | INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE
+themes | authenticated | DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+themes | service_role | DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+themes.status | authenticated | UPDATE
+
+== other
+triggers on public tables: none
+functions in public schema: none
+row counts: themes 8, plugins 2, reviewers 1, ratings 0 (statuses: approved=10)
