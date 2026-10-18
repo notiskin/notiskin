@@ -23,7 +23,7 @@ Reference projects: Spicetify, BetterDiscord, Vencord. MIT licensed. Hosted at g
 
 `.env` at repo root is for development/release only and must never be packaged (check-bundle.js enforces this):
 - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (optional overrides, defaults live in src/utils/constants.ts)
-- `GH_TOKEN` (release only)
+- `GH_TOKEN` (only for the local `npm run publish` fallback, releases normally run in GitHub Actions)
 
 See `.env.example` for the template.
 
@@ -61,6 +61,7 @@ supabase/
 scripts/check-bundle.js   — electron-builder afterPack hook, fails the build if .env etc. get packaged
 test/                     — node:test suites (npm test builds first)
 .github/workflows/ci.yml  — lint, typecheck, test, audit, package check
+.github/workflows/release.yml — manual Release workflow (macOS): tests, draft release, build, publish once every file is attached
 ```
 
 ---
@@ -92,7 +93,9 @@ test/                     — node:test suites (npm test builds first)
 - MutationObserver plugins can self-trigger infinite loops. Scope observers tightly, wrap in try/catch, include loop guards.
 - `onAuthStateChange` alone doesn't catch already-persisted sessions. Always call `getSession()` on page load too.
 - The local server binds 127.0.0.1 and every `/api` call needs the per-launch `X-Notiskin-Token` header (injected into pages by server.ts, added automatically by a fetch wrapper). New pages must be served through `sendPage()`.
-- Never trust `user_metadata` for identity, users can edit it. Edge functions use `verifyUser()` (GitHub identity), RLS uses `public.current_github_username()`.
+- Never trust `user_metadata` for identity, users can edit it. Edge functions use `verifyUser()` (GitHub identity), RLS uses `public.current_github_username()`, and the GUI shows `githubUsername(user)` from the identity.
+- Sign-in only happens in Settings (always shows GitHub's account picker). The Review link only shows for reviewers: Settings checks once per sign-in and saves `notiskin.reviewer` in localStorage, every page reads it right after the sidebar. Cosmetic only, the edge functions do the real check.
+- The Supabase migrations were never applied with the CLI (there's no migration history table on the live project). Before the first `supabase db push`, run `supabase migration repair --status applied 20261016000000 20261017000000`, never push the baseline onto the live database.
 
 ---
 
@@ -106,15 +109,20 @@ test/                     — node:test suites (npm test builds first)
 
 ## Current status and open items (update this section as things change)
 
-Done (Oct 2026): security hardening (commit 7ea8a9d) and the long-running injector (commit 3275a8f). See ROADMAP.md for what's next.
+Done (Oct 2026): security hardening (commit 7ea8a9d), the long-running injector (commit 3275a8f), and Phase 0:
+- The GitHub token that leaked in v0.1.0–v0.3.0 is revoked, and those releases are deleted (their tags are kept)
+- Releases are built by `.github/workflows/release.yml` with the workflow's own token, no personal token needed
+- Supabase restored. The live schema is committed as a baseline migration (`supabase/snapshots/2026-10-pre-hardening.txt` is the raw capture), the hardening migration is applied and checked, and the edge functions are redeployed with JWT verification on
+- Checked against the real backend: a forged `user_metadata` reviewer gets no access, direct client writes are refused, authorship comes from the GitHub identity, CSS escapes and `image-set` are held for review, and reviewing, rating and installing still work
+- v0.4.0 published by the workflow, bundle checked free of `.env`
+- Sign-in moved to Settings, Review tab only shown to reviewers
 
-Open, needs the owner or an explicit go-ahead:
-- Releases v0.1.0, v0.2.0, and v0.3.0 on GitHub were built with `.env` inside `app.asar`, including a GitHub token. The owner said they'd revoke that token (not confirmed in writing). The leaked release assets still need removing after 0.4.0 ships.
-- The Supabase project `rdsoztlxtbfwdjcfqhmt` stopped resolving in DNS on 2026-10-17, probably paused. The marketplace is down until it's restored.
-- `supabase/migrations/20261017000000_harden_marketplace_auth.sql` and the rewritten edge functions are written but **not deployed**.
-- Releases are currently built locally with `publish.js` (macOS only, needs a GH_TOKEN). Moving releases to a GitHub Actions workflow is part of Phase 0.
+Open:
+- Deleting your own pending submission from My Submissions wasn't tried in the real app (the database rule was tested on a scratch copy)
+- Supabase Auth's Site URL is `http://localhost:3000` with an empty redirect allow list. Sign-in works because Supabase accepts redirects to the same hostname, setting the Site URL to `http://localhost:3845` would be tidier
+- GitHub Actions warns that `actions/checkout@v4` and `actions/setup-node@v4` run on deprecated Node 20, bump them when newer majors are out
 
-Step-by-step plan for the open items: `docs/prompts/phase-0-security-cleanup.md`.
+Next: Phase 1, starting with the "Install into Notion" button (see ROADMAP.md). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 

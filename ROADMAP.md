@@ -2,15 +2,16 @@
 
 Weeks assume roughly 5–8 hours of work a week. ✅ = done.
 
-## Phase 0: Finish the security cleanup (about 2–3 hours, mostly the owner)
+## ✅ Phase 0: Finish the security cleanup (done October 2026)
 
 Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-security-cleanup.md)
 
-- Confirm the GitHub token that leaked in old releases is revoked
-- Restore the Supabase project (it stopped resolving on 2026-10-17, probably paused)
-- Apply the auth-hardening migration and deploy the rewritten edge functions
-- Build releases in GitHub Actions instead of on a laptop, so no personal token is needed
-- Release 0.4.0, then remove the v0.1.0–v0.3.0 builds that contain `.env`
+- ✅ Confirm the GitHub token that leaked in old releases is revoked
+- ✅ Restore the Supabase project (it stopped resolving on 2026-10-17, it was paused)
+- ✅ Apply the auth-hardening migration and deploy the rewritten edge functions
+- ✅ Build releases in GitHub Actions instead of on a laptop, so no personal token is needed
+- ✅ Release 0.4.0, then remove the v0.1.0–v0.3.0 builds that contain `.env`
+- ✅ Sign in from Settings only, and only show the Review tab to reviewers
 
 ## Phase 1: Reliability (weeks 1–4, about 15–20 hours)
 
