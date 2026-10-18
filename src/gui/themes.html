@@ -402,6 +402,7 @@
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
+      text-decoration: none;
       transition: opacity 0.15s;
     }
     .btn-github:hover { opacity: 0.85; }
@@ -603,7 +604,7 @@
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link active">Themes</a>
         <a href="/plugins.html" class="sidebar-link">Plugins</a>
-        <a href="/review.html" class="sidebar-link">Review</a>
+        <a href="/review.html" class="sidebar-link" id="nav-review" style="display:none">Review</a>
         <a href="/settings.html" class="sidebar-link" id="nav-settings">Settings</a>
       </nav>
     </aside>
@@ -636,8 +637,8 @@
 
       <div id="tab-publish" hidden>
         <div id="publish-login-section">
-          <p>Sign in with GitHub to publish a theme.</p>
-          <button class="btn-github" onclick="publishSignIn()">
+          <p>Sign in with GitHub in Settings to publish a theme.</p>
+          <a class="btn-github" href="/settings.html">
             <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
                 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
@@ -648,14 +649,14 @@
                 .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
                 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
             </svg>
-            Continue with GitHub
-          </button>
+            Go to Settings
+          </a>
         </div>
 
         <div id="publish-form-section" style="display:none">
           <div class="user-bar">
             Signed in as <strong id="publish-username-display"></strong>
-            <button class="btn-signout" onclick="publishSignOut()">Sign out</button>
+            <a class="btn-signout" href="/settings.html">Account</a>
           </div>
 
           <form id="publish-form" onsubmit="handlePublishSubmit(event)">
@@ -711,6 +712,33 @@
     const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
 
     const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // the GitHub identity, not user_metadata, which users can edit
+    function githubUsername(user) {
+      return user?.identities?.find(i => i.provider === 'github')?.identity_data?.user_name || 'your GitHub account';
+    }
+
+    // the Review link only shows for reviewers. Cosmetic, the edge functions do the real check
+    async function updateReviewLink(session, { fresh = false } = {}) {
+      const link = document.getElementById('nav-review');
+      if (!session) {
+        try { localStorage.removeItem('notiskin.reviewer'); } catch {}
+        link.style.display = 'none';
+        return false;
+      }
+      let cached = null;
+      try { cached = JSON.parse(localStorage.getItem('notiskin.reviewer')); } catch {}
+      if (fresh || cached?.userId !== session.user.id) {
+        const res = await fetch('/api/review/pending', {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        }).catch(() => null);
+        if (!res || (res.status !== 200 && res.status !== 403)) return false;
+        cached = { userId: session.user.id, isReviewer: res.ok };
+        try { localStorage.setItem('notiskin.reviewer', JSON.stringify(cached)); } catch {}
+      }
+      link.style.display = cached.isReviewer ? '' : 'none';
+      return cached.isReviewer;
+    }
 
     async function api(method, path, body) {
       const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -820,7 +848,7 @@
       try {
         const { data: { session } } = await db.auth.getSession();
         if (!session) {
-          showNotif('Sign in to rate');
+          showNotif('Sign in from Settings to rate');
           userRatings[itemId] = previousRating;
           if (btn) btn.classList.toggle('rated', !!previousRating);
           return;
@@ -1172,35 +1200,13 @@
     function showPublishForm(user) {
       document.getElementById('publish-login-section').style.display = 'none';
       document.getElementById('publish-form-section').style.display  = 'block';
-      const username = user.user_metadata?.user_name || user.email || 'you';
-      document.getElementById('publish-username-display').textContent = username;
+      document.getElementById('publish-username-display').textContent = githubUsername(user);
     }
 
     function showPublishMsg(type, text) {
       const el = document.getElementById('publish-msg');
       el.className = `publish-msg ${type}`;
       el.textContent = text;
-    }
-
-    async function publishSignIn() {
-      const btn = document.querySelector('.btn-github');
-      btn.disabled = true;
-      btn.textContent = 'Signing in';
-      const { error } = await db.auth.signInWithOAuth({
-        provider: 'github',
-        options: { redirectTo: window.location.origin + window.location.pathname },
-      });
-      if (error) {
-        console.error('Sign in error:', error);
-        btn.disabled = false;
-        btn.textContent = 'Continue with GitHub';
-      }
-    }
-
-    async function publishSignOut() {
-      await db.auth.signOut();
-      publishCurrentUser = null;
-      showPublishLogin();
     }
 
     function initCharacterCounters() {
@@ -1248,18 +1254,16 @@
       document.getElementById('f-name').value = name;
       const description   = document.getElementById('f-description').value.trim();
       const code          = document.getElementById('f-code').value;
-      const author_github = publishCurrentUser.user_metadata?.user_name || publishCurrentUser.email || '';
 
       try {
         const { data: { session } } = await db.auth.getSession();
-        console.log('token:', session.access_token);
         const res = await fetch('/api/submit/theme', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ name, description, css: code, author_github }),
+          body: JSON.stringify({ name, description, css: code }),
         });
         const result = await res.json();
         if (!res.ok) throw new Error(result.error ?? 'Submission failed');
@@ -1281,6 +1285,7 @@
     function initPublishAuth() {
       db.auth.onAuthStateChange((_event, session) => {
         publishCurrentUser = session?.user ?? null;
+        updateReviewLink(session);
         if (publishCurrentUser) showPublishForm(publishCurrentUser);
         else showPublishLogin();
       });
@@ -1288,6 +1293,7 @@
       (async () => {
         const { data: { session } } = await db.auth.getSession();
         publishCurrentUser = session?.user ?? null;
+        updateReviewLink(session);
         if (publishCurrentUser) showPublishForm(publishCurrentUser);
         else showPublishLogin();
         if (window.location.hash) {
