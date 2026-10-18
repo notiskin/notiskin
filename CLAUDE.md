@@ -120,7 +120,6 @@ Done (Oct 2026): security hardening (commit 7ea8a9d), the long-running injector 
 Open:
 - Deleting your own pending submission from My Submissions wasn't tried in the real app (the database rule was tested on a scratch copy)
 - Supabase Auth's Site URL is `http://localhost:3000` with an empty redirect allow list. Sign-in works because Supabase accepts redirects to the same hostname, setting the Site URL to `http://localhost:3845` would be tidier
-- GitHub Actions warns that `actions/checkout@v4` and `actions/setup-node@v4` run on deprecated Node 20, bump them when newer majors are out
 
 Next: Phase 1, starting with the "Install into Notion" button (see ROADMAP.md). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
