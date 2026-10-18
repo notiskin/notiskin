@@ -2,7 +2,7 @@ require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { app, sanitizeSearch, notionSetup } = require('../dist/gui/server');
+const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName } = require('../dist/gui/server');
 
 let server;
 let port;
@@ -118,18 +118,21 @@ test('sanitizeSearch strips PostgREST filter syntax', () => {
   assert.equal(sanitizeSearch('x'.repeat(500)).length, 100);
 });
 
-// the Install into Notion endpoints, with the platform and the password prompt mocked
-function mockNotionSetup({ platform = 'darwin', status = 'not-installed', runAdmin, restart } = {}) {
+// the Install into Notion endpoints, with the platform and the CLI run mocked
+function mockNotionSetup({ platform = 'darwin', status = 'not-installed', run, restart } = {}) {
   const calls = [];
   notionSetup.platform = () => platform;
   notionSetup.status = () => status;
-  notionSetup.runAdmin = async action => {
+  notionSetup.run = async action => {
     calls.push(action);
-    return runAdmin ? runAdmin(action) : { status: 'ok', output: '' };
+    return run ? run(action) : { status: 'ok', output: '' };
   };
   notionSetup.restart = async () => {
     calls.push('restart');
     if (restart) await restart();
+  };
+  notionSetup.openAppManagement = async () => {
+    calls.push('app-management');
   };
   return calls;
 }
@@ -139,6 +142,7 @@ const NOTION_ROUTES = [
   ['POST', '/api/notion/install'],
   ['POST', '/api/notion/uninstall'],
   ['POST', '/api/notion/restart'],
+  ['POST', '/api/notion/app-management'],
 ];
 
 test('Notion setup endpoints need the session token', async () => {
@@ -174,28 +178,32 @@ test('status, install, and uninstall report back in plain terms', async () => {
   assert.equal(uninstall.json.ok, true);
   const restart = await request('POST', '/api/notion/restart', { headers: authed() });
   assert.equal(restart.json.ok, true);
-  assert.deepEqual(calls, ['patch', 'unpatch', 'restart']);
+  const settings = await request('POST', '/api/notion/app-management', { headers: authed() });
+  assert.equal(settings.json.ok, true);
+  assert.deepEqual(calls, ['patch', 'unpatch', 'restart', 'app-management']);
 });
 
-test('a cancelled password prompt is not reported as a failure', async () => {
-  mockNotionSetup({ runAdmin: () => ({ status: 'cancelled' }) });
+test('install errors come back as a message with the reason', async () => {
+  mockNotionSetup({ run: () => ({ status: 'error', message: 'Could not find Notion.app.', output: 'x' }) });
   const res = await request('POST', '/api/notion/install', { headers: authed() });
-  assert.deepEqual(res.json, { ok: false, cancelled: true });
-});
+  assert.equal(res.json.ok, false);
+  assert.equal(res.json.error, 'Could not find Notion.app.');
+  assert.equal(res.json.reason, null);
 
-test('install errors come back as a message', async () => {
-  mockNotionSetup({ runAdmin: () => ({ status: 'error', message: 'Could not find Notion.app.', output: 'x' }) });
-  const res = await request('POST', '/api/notion/install', { headers: authed() });
-  assert.deepEqual(res.json, { ok: false, error: 'Could not find Notion.app.' });
+  const eperm = "Error: EPERM: operation not permitted, rename '/Applications/Notion.app/Contents/MacOS/Notion'";
+  mockNotionSetup({ run: () => ({ status: 'error', message: 'EPERM', output: eperm }) });
+  const blocked = await request('POST', '/api/notion/install', { headers: authed() });
+  assert.equal(blocked.json.reason, 'app-management');
+  assert.equal(typeof blocked.json.appName, 'string');
 
-  mockNotionSetup({ runAdmin: () => { throw new Error('boom'); } });
+  mockNotionSetup({ run: () => { throw new Error('boom'); } });
   const thrown = await request('POST', '/api/notion/install', { headers: authed() });
   assert.deepEqual(thrown.json, { ok: false, error: 'boom' });
 });
 
 test('only one install or uninstall runs at a time', async () => {
   let finish;
-  const calls = mockNotionSetup({ runAdmin: () => new Promise(r => { finish = r; }) });
+  const calls = mockNotionSetup({ run: () => new Promise(r => { finish = r; }) });
   const first = request('POST', '/api/notion/install', { headers: authed() });
   while (!finish) await new Promise(r => setTimeout(r, 5));
 
@@ -208,9 +216,22 @@ test('only one install or uninstall runs at a time', async () => {
   assert.equal((await first).json.ok, true);
   assert.deepEqual(calls, ['patch']);
 
-  // the lock is released afterwards, also after a cancel
-  mockNotionSetup({ runAdmin: () => ({ status: 'cancelled' }) });
-  assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.cancelled, true);
+  // the lock is released afterwards, also after a failure
+  mockNotionSetup({ run: () => ({ status: 'error', message: 'x', output: '' }) });
+  assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.ok, false);
   mockNotionSetup();
   assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.ok, true);
+});
+
+test('failure reasons are read from the CLI output', () => {
+  assert.equal(setupFailureReason("Error: EPERM: operation not permitted, rename 'a' -> 'b'"), 'app-management');
+  assert.equal(setupFailureReason('Error: Failed to write wrapper, original restored. EPERM: operation not permitted'), 'app-management');
+  assert.equal(setupFailureReason('Error: Permission denied.\nRun: sudo npm run patch'), 'not-owner');
+  assert.equal(setupFailureReason('Error: Could not find Notion.app.'), null);
+});
+
+test('the App Management hint names the app macOS checks', () => {
+  assert.equal(appManagementName('/Applications/notiskin.app/Contents/MacOS/notiskin', true), 'Notiskin');
+  assert.equal(appManagementName('/Users/me/notiskin/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', true), 'Electron');
+  assert.equal(appManagementName('/usr/local/bin/node', false), 'Terminal');
 });
