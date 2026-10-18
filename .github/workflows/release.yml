@@ -34,16 +34,44 @@ jobs:
       - run: npm run test:integration
       # never reuse a tag, users may already have that version installed
       - name: Check the version's tag is new
+        id: version
         run: |
-          tag="v$(node -p "require('./package.json').version")"
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
           if [ -n "$(git ls-remote --tags origin "refs/tags/${tag}")" ]; then
             echo "Tag ${tag} already exists on GitHub. Bump the version in package.json."
             exit 1
           fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "Releasing ${tag}"
+      # electron-builder uploads the dmg and zip in parallel and both try to create the release,
+      # so create it first, as a draft nobody can see yet. electron-builder uploads into it
+      - name: Create a draft release
+        run: gh release create "$TAG" --draft --title "$TAG" --target "$GITHUB_SHA" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
       # the afterPack hook (scripts/check-bundle.js) fails the build if .env or dev-only files get packaged
-      - name: Build and publish
-        run: npx electron-builder --mac --publish always
+      - name: Build and upload
+        run: npx electron-builder --mac --publish always -c.publish.releaseType=draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # only goes public once every file is there, the app's updater reads latest-mac.yml
+      - name: Publish the release
+        run: |
+          assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          for file in latest-mac.yml \
+            "notiskin-${VERSION}-arm64.dmg" "notiskin-${VERSION}-arm64.dmg.blockmap" \
+            "notiskin-${VERSION}-arm64-mac.zip" "notiskin-${VERSION}-arm64-mac.zip.blockmap"; do
+            if ! printf '%s\n' "$assets" | grep -qxF "$file"; then
+              echo "Missing ${file}, leaving ${TAG} as a draft."
+              exit 1
+            fi
+          done
+          gh release edit "$TAG" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
