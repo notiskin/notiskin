@@ -105,6 +105,15 @@ export function loadEnabledPlugins(config: NotiskinConfig, warn: (msg: string) =
   return entries;
 }
 
+// what Notion should get right now, safe mode sends nothing
+export function currentPayload(
+  config: NotiskinConfig = readConfig(),
+  warn: (msg: string) => void = () => {}
+): { css: string; plugins: PluginEntry[] } {
+  if (config.safeMode) return { css: '', plugins: [] };
+  return { css: activeThemeCss(config), plugins: loadEnabledPlugins(config, warn) };
+}
+
 function pgrep(name: string): boolean {
   try {
     execFileSync('pgrep', ['-x', name], { stdio: 'ignore' });
@@ -166,11 +175,11 @@ export interface ApplyOptions {
 export async function applyConfig(opts: ApplyOptions = {}): Promise<boolean> {
   const log = opts.log ?? (() => {});
   const config = readConfig();
-  const css = activeThemeCss(config);
-  const plugins = loadEnabledPlugins(config, log);
+  const { css, plugins } = currentPayload(config, log);
 
   if (!(await isCDPAvailable(CDP_PORT))) {
-    if (!opts.restartIfNeeded) return false;
+    // in safe mode there's nothing to inject, so restarting Notion would only close its windows
+    if (!opts.restartIfNeeded || config.safeMode) return false;
     log('Restarting Notion with remote debugging enabled...');
     await quitNotion();
     launchNotion(CDP_PORT);

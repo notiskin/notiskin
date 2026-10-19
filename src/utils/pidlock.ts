@@ -11,6 +11,16 @@ function isAlive(pid: number): boolean {
   }
 }
 
+// the pid of the live process holding the lock, null if nobody does (diagnostics uses this)
+export function pidLockHolder(path: string): number | null {
+  try {
+    const pid = Number(readFileSync(path, 'utf-8').trim());
+    return pid > 0 && isAlive(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
 // returns a release function, or null if another live process already holds the lock
 // a lock left behind by a crashed process is taken over
 export function acquirePidLock(path: string): (() => void) | null {

@@ -9,14 +9,14 @@ import { CDP_PORT, LOGS_DIR, NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR, INJECTOR_PID
 import { acquirePidLock } from '../utils/pidlock';
 import {
   applyConfig,
+  currentPayload,
   deleteItem,
   itemExists,
   listPlugins,
   listThemes,
-  activeThemeCss,
-  loadEnabledPlugins,
 } from '../core/library';
 import { startInjectorDaemon } from '../injector/daemon';
+import { diagnosticsReport } from '../core/diagnostics';
 
 const PLUGIN_WARNING = `
 WARNING: Plugins run with full, unrestricted access to your Notion page and data.
@@ -35,6 +35,8 @@ const USAGE = `Usage: notiskin <command>
   plugin enable <name>      enable a plugin and apply
   plugin disable <name>     disable a plugin and apply
   plugin delete <name>      delete an installed plugin
+  safe-mode [on|off]        pause all themes and plugins (or show whether they're paused)
+  diagnostics               print a report for bug reports (page links, IDs and your username hidden)
   patch                     make Notion load Notiskin on every launch
   unpatch                   fully restore Notion and remove everything patch added
   watch:install             repatch automatically after Notion updates
@@ -63,6 +65,7 @@ function notFound(kind: 'theme' | 'plugin', name: string): never {
 
 async function apply(opts: { reload?: boolean } = {}): Promise<void> {
   const config = readConfig();
+  if (config.safeMode) console.log('Safe mode is on, nothing will be injected. Turn it off with: notiskin safe-mode off');
   console.log(`Theme:   ${config.activeTheme || '(none)'}`);
   console.log(`Plugins: ${config.enabledPlugins.join(', ') || '(none)'}`);
   await applyConfig({ restartIfNeeded: true, reload: opts.reload, log });
@@ -204,6 +207,22 @@ async function pluginCommand(args: string[]): Promise<void> {
   throw new UsageError('Usage: notiskin plugin <enable|disable|delete> <name>');
 }
 
+async function safeModeCommand(args: string[]): Promise<void> {
+  const [sub] = args;
+  const config = readConfig();
+  if (sub === undefined) {
+    console.log(`Safe mode is ${config.safeMode ? 'on' : 'off'}.`);
+    return;
+  }
+  if (sub !== 'on' && sub !== 'off') throw new UsageError('Usage: notiskin safe-mode [on|off]');
+  const on = sub === 'on';
+  writeConfig({ ...config, safeMode: on });
+  // plugins can't be un-run, so turning it on reloads the page; never restarts a closed Notion
+  const applied = await applyConfig({ reload: on, log });
+  console.log(on ? 'Safe mode on, themes and plugins are paused.' : 'Safe mode off, themes and plugins are back.');
+  if (!applied) console.log('(Notion is not running with Notiskin right now, the change applies next time it starts.)');
+}
+
 // started by the wrapper script on every Notion launch (and by apply), runs until Notion quits
 async function inject(): Promise<void> {
   const release = acquirePidLock(INJECTOR_PID_PATH);
@@ -216,10 +235,7 @@ async function inject(): Promise<void> {
 
   const daemon = await startInjectorDaemon({
     port: CDP_PORT,
-    loadPayload: () => {
-      const config = readConfig();
-      return { css: activeThemeCss(config), plugins: loadEnabledPlugins(config, stamp) };
-    },
+    loadPayload: () => currentPayload(readConfig(), stamp),
     watchPaths: [NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR],
     log: stamp,
   });
@@ -280,6 +296,11 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'plugin':
       return pluginCommand(rest);
+    case 'safe-mode':
+      return safeModeCommand(rest);
+    case 'diagnostics':
+      console.log(await diagnosticsReport());
+      return;
     case 'inject':
       return inject();
     case 'patch':

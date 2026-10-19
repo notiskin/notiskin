@@ -32,6 +32,12 @@ macOS may block the install under **System Settings → Privacy & Security → A
 
 The app has tabs for themes, plugins, the marketplace (browse, install, rate, publish), and settings. It runs a small server on `127.0.0.1:3845` that only the app's own window can use: every API call needs a secret token that is generated fresh each launch, and requests from other websites are rejected.
 
+### Safe mode and diagnostics
+
+If a plugin breaks Notion, open **Settings → Safe mode → Turn on**. Every theme and plugin is paused (Notion's page reloads to drop plugins) until you turn it off, and nothing you've chosen is forgotten. From Terminal: `notiskin safe-mode on` / `off`.
+
+**Settings → Diagnostics** shows versions, install status, whether the injector is running, and recent log lines, with a **Copy** button for bug reports. Notion page links, IDs, and your Mac username are hidden before anything is shown or copied. From Terminal: `notiskin diagnostics`.
+
 ## Command line
 
 ```bash
@@ -47,6 +53,8 @@ npm run plugins                     # list installed plugins (* = enabled)
 npm run plugin -- enable <name>
 npm run plugin -- disable <name>    # reloads Notion's page, JS can't be un-run
 npm run plugin -- delete <name>
+node dist/cli/index.js safe-mode on   # pause all themes and plugins (off to resume)
+node dist/cli/index.js diagnostics    # the same report as Settings → Diagnostics
 ```
 
 ### Patching Notion from the command line (alternative to the app's Install button, touches /Applications/Notion.app)

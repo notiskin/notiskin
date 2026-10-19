@@ -144,6 +144,22 @@
     .update-badge.error       { background: #2e1a1a; color: #e57373; }
     .update-badge.neutral     { background: #1e1e1e; color: #999; }
 
+    .diagnostics-report {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #bbb;
+      background: #0d0d0d;
+      border: 1px solid #1e1e1e;
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 12px;
+      max-height: 320px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
     .settings-row-error {
       font-size: 11px;
       color: #e57373;
@@ -242,6 +258,17 @@
       </div>
 
       <div class="settings-section">
+        <h2>Safe mode</h2>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Pause all themes and plugins <span id="safe-badge" class="update-badge neutral">Off</span></div>
+            <div class="settings-row-sub" id="safe-sub">Use this if a plugin breaks Notion. Your choices are kept, nothing is deleted.</div>
+          </div>
+          <button class="btn-install" id="safe-btn" onclick="toggleSafeMode()" disabled>Turn on</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h2>Account</h2>
         <div class="settings-row">
           <div>
@@ -269,6 +296,21 @@
           </div>
           <button class="btn-install" onclick="openReleasesPage()">Download Update</button>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <h2>Diagnostics</h2>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Report for bug reports</div>
+            <div class="settings-row-sub">Versions, install status, and recent log lines. Notion page links, IDs, and your Mac username are hidden.</div>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button class="btn-cache" id="diag-copy-btn" onclick="copyDiagnostics()" style="display:none">Copy</button>
+            <button class="btn-install" id="diag-btn" onclick="loadDiagnostics()">Show diagnostics</button>
+          </div>
+        </div>
+        <pre class="diagnostics-report" id="diag-report" style="display:none"></pre>
       </div>
 
       <div class="settings-section">
@@ -559,6 +601,88 @@
     loadNotionStatus();
     // a Notion update or a CLI patch can change things while Settings is open
     window.addEventListener('focus', () => loadNotionStatus());
+
+    // Safe mode: one switch, the injector stops sending anything while it's on
+    let safeModeOn = false;
+
+    function renderSafeMode(on) {
+      safeModeOn = on;
+      const badge = document.getElementById('safe-badge');
+      badge.className = `update-badge ${on ? 'available' : 'neutral'}`;
+      badge.textContent = on ? 'On' : 'Off';
+      document.getElementById('safe-sub').textContent = on
+        ? 'Themes and plugins are paused, Notion runs as if Notiskin weren\'t there. Turning it off brings them back.'
+        : 'Use this if a plugin breaks Notion. Turning it on reloads Notion\'s page. Your choices are kept, nothing is deleted.';
+      const btn = document.getElementById('safe-btn');
+      btn.textContent = on ? 'Turn off' : 'Turn on';
+      btn.disabled = false;
+    }
+
+    async function loadSafeMode() {
+      try {
+        const status = await fetch('/api/status').then(r => r.json());
+        renderSafeMode(Boolean(status.safeMode));
+      } catch {}
+    }
+
+    async function toggleSafeMode() {
+      const btn = document.getElementById('safe-btn');
+      const on = !safeModeOn;
+      btn.disabled = true;
+      btn.textContent = on ? 'Turning on...' : 'Turning off...';
+      let data = null;
+      try {
+        const res = await fetch('/api/safe-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on }),
+        });
+        data = await res.json();
+      } catch {}
+      if (!data?.ok) {
+        renderSafeMode(safeModeOn);
+        showNotif('Could not change safe mode');
+        return;
+      }
+      renderSafeMode(data.safeMode);
+      showNotif(on ? 'Safe mode on' : 'Safe mode off');
+    }
+
+    loadSafeMode();
+
+    // Diagnostics: built on request, already redacted by the server
+    async function loadDiagnostics() {
+      const btn = document.getElementById('diag-btn');
+      const report = document.getElementById('diag-report');
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+      try {
+        const data = await fetch('/api/diagnostics').then(r => r.json());
+        report.textContent = data.report || 'No report available.';
+        document.getElementById('diag-copy-btn').style.display = '';
+      } catch {
+        report.textContent = 'Could not build the report.';
+      }
+      report.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Refresh';
+    }
+
+    async function copyDiagnostics() {
+      const text = document.getElementById('diag-report').textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // older clipboard route, works without clipboard permission
+        const area = document.createElement('textarea');
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
+      }
+      showNotif('Diagnostics copied');
+    }
 
     const stateLabels = {
       'up-to-date':  'Up to date',
