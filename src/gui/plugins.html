@@ -4,13 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Notiskin</title>
+  <link rel="stylesheet" href="/brand.css">
+  <script src="/tour.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      background: #111;
-      color: #e0e0e0;
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
     }
 
@@ -19,8 +21,8 @@
     .sidebar {
       width: 180px;
       min-height: 100vh;
-      background: #0d0d0d;
-      border-right: 1px solid #1e1e1e;
+      background: var(--sidebar);
+      border-right: 1px solid var(--border);
       padding: 32px 0;
       position: fixed;
       top: 0; left: 0;
@@ -28,24 +30,18 @@
       flex-direction: column;
       gap: 32px;
     }
-    .sidebar-logo {
-      font-size: 15px;
-      font-weight: 700;
-      color: #e0e0e0;
-      padding: 0 20px;
-      letter-spacing: -0.2px;
-    }
+    .sidebar-logo { padding: 0 20px; }
     .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
     .sidebar-link {
       font-size: 13px;
-      color: #555;
+      color: var(--text-3);
       text-decoration: none;
       padding: 7px 20px;
       border-left: 2px solid transparent;
       transition: color 0.15s;
     }
-    .sidebar-link:hover { color: #aaa; }
-    .sidebar-link.active { color: #e0e0e0; border-left-color: #6366f1; }
+    .sidebar-link:hover { color: var(--text-2); }
+    .sidebar-link.active { color: var(--text); border-left-color: var(--accent); }
 
     .main-content {
       margin-left: 180px;
@@ -58,36 +54,29 @@
       display: flex;
       gap: 0;
       margin-bottom: 28px;
-      border-bottom: 1px solid #1e1e1e;
+      border-bottom: 1px solid var(--border);
     }
     .tab-btn {
       padding: 7px 16px;
       background: none;
       border: none;
       border-bottom: 2px solid transparent;
-      color: #555;
+      color: var(--text-3);
       font-size: 13px;
       font-weight: 500;
       cursor: pointer;
       margin-bottom: -1px;
       transition: color 0.15s;
     }
-    .tab-btn:hover { color: #aaa; opacity: 1; }
-    .tab-btn.active { color: #e0e0e0; border-bottom-color: #6366f1; }
+    .tab-btn:hover { color: var(--text-2); opacity: 1; }
+    .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
 
     section { margin-bottom: 36px; }
-    h2 {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #555;
-      margin-bottom: 10px;
-    }
+    h2 { font-family: var(--font-display); font-size: 20px; font-weight: 520; letter-spacing: -0.01em; color: var(--text); margin-bottom: 12px; }
 
     .card {
-      background: #1c1c1c;
-      border: 1px solid #2a2a2a;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 11px 14px;
       display: flex;
@@ -96,19 +85,19 @@
       transition: border-color 0.15s;
     }
     .card + .card { margin-top: 6px; }
-    .card:hover { border-color: #3a3a3a; }
+    .card:hover { border-color: var(--border); }
 
     .card-info { flex: 1; min-width: 0; }
-    .card-name { font-size: 14px; font-weight: 500; color: #e0e0e0; }
-    .card-desc { font-size: 12px; color: #666; margin-top: 2px; }
-    .card-meta { font-size: 11px; color: #444; margin-top: 2px; }
+    .card-name { font-size: 14px; font-weight: 500; color: var(--text); }
+    .card-desc { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+    .card-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 
     .toggle { position: relative; width: 38px; height: 21px; flex-shrink: 0; }
     .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
     .toggle-track {
       position: absolute;
       inset: 0;
-      background: #333;
+      background: var(--surface-hover);
       border-radius: 21px;
       cursor: pointer;
       transition: background 0.2s;
@@ -116,13 +105,13 @@
     .toggle-thumb {
       position: absolute;
       width: 15px; height: 15px;
-      background: #888;
+      background: var(--text-3);
       border-radius: 50%;
       top: 3px; left: 3px;
       transition: transform 0.2s, background 0.2s;
       pointer-events: none;
     }
-    .toggle input:checked ~ .toggle-track { background: #6366f1; }
+    .toggle input:checked ~ .toggle-track { background: var(--accent); }
     .toggle input:checked ~ .toggle-thumb { transform: translateX(17px); background: white; }
     .toggle input:disabled ~ .toggle-track { opacity: 0.4; cursor: not-allowed; }
 
@@ -140,8 +129,8 @@
     button:hover:not(:disabled) { opacity: 0.85; }
     button:active:not(:disabled) { opacity: 0.7; }
     button:disabled { opacity: 0.35; cursor: not-allowed; }
-    .btn-primary { background: #6366f1; color: white; }
-    .btn-ghost { background: #252525; color: #bbb; border: 1px solid #333; }
+    .btn-primary { background: var(--ink); color: var(--on-ink); }
+    .btn-ghost { background: var(--surface-hover); color: var(--text-2); border: 1px solid var(--border); }
 
     .badge {
       display: inline-block;
@@ -153,15 +142,15 @@
       border-radius: 4px;
       vertical-align: middle;
     }
-    .badge.plugin { color: #a78bfa; border: 1px solid #2e1f5e; background: #150f33; }
+    .badge.plugin { color: var(--accent-text); border: 1px solid var(--border); background: var(--accent-soft); }
 
-    .empty   { font-size: 13px; color: #444; padding: 10px 2px; }
-    .loading { font-size: 13px; color: #333; padding: 10px 2px; }
-    .error   { font-size: 13px; color: #f87171; padding: 10px 2px; }
+    .empty   { font-size: 13px; color: var(--text-3); padding: 10px 2px; }
+    .loading { font-size: 13px; color: var(--text-3); padding: 10px 2px; }
+    .error   { font-size: 13px; color: var(--danger); padding: 10px 2px; }
 
     .btn-delete {
       background: transparent;
-      color: #444;
+      color: var(--text-3);
       border: none;
       font-size: 16px;
       line-height: 1;
@@ -171,13 +160,13 @@
       transition: color 0.15s, background 0.15s;
       flex-shrink: 0;
     }
-    .btn-delete:hover { color: #f87171; background: #2a1515; }
+    .btn-delete:hover { color: var(--danger); background: var(--danger-soft); }
 
     #busy-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.55);
+      background: var(--overlay);
       z-index: 50;
       align-items: center;
       justify-content: center;
@@ -187,35 +176,35 @@
     #busy-overlay.visible { display: flex; }
     .spinner {
       width: 32px; height: 32px;
-      border: 3px solid #333;
-      border-top-color: #6366f1;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    #busy-msg { font-size: 14px; color: #aaa; }
+    #busy-msg { font-size: 14px; color: var(--text-2); }
 
     #warning-dialog {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.65);
+      background: var(--overlay);
       z-index: 100;
       align-items: center;
       justify-content: center;
     }
     #warning-dialog.visible { display: flex; }
     .dialog {
-      background: #1c1c1c;
-      border: 1px solid #3a2a2a;
+      background: var(--surface);
+      border: 1px solid var(--danger-border);
       border-radius: 12px;
       padding: 24px;
       max-width: 460px;
       width: 90%;
     }
     .dialog-icon { font-size: 28px; margin-bottom: 12px; }
-    .dialog h3 { font-size: 15px; font-weight: 600; color: #fbbf24; margin-bottom: 10px; }
-    .dialog p { font-size: 13px; color: #aaa; line-height: 1.65; margin-bottom: 20px; }
+    .dialog h3 { font-size: 15px; font-weight: 600; color: var(--warning); margin-bottom: 10px; }
+    .dialog p { font-size: 13px; color: var(--text-2); line-height: 1.65; margin-bottom: 20px; }
     .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
     #tab-browse .card {
@@ -225,9 +214,9 @@
 
     .card-row { display: flex; align-items: flex-start; gap: 16px; }
 
-    #tab-browse .card-meta a { color: #6366f1; text-decoration: none; }
+    #tab-browse .card-meta a { color: var(--accent-text); text-decoration: none; }
     #tab-browse .card-meta a:hover { text-decoration: underline; }
-    #tab-browse .card-desc { font-size: 13px; color: #777; margin-top: 4px; line-height: 1.5; }
+    #tab-browse .card-desc { font-size: 13px; color: var(--text-3); margin-top: 4px; line-height: 1.5; }
 
     .btn-install {
       padding: 6px 13px;
@@ -236,8 +225,8 @@
       font-size: 13px;
       font-weight: 500;
       cursor: pointer;
-      background: #6366f1;
-      color: white;
+      background: var(--ink);
+      color: var(--on-ink);
       white-space: nowrap;
       flex-shrink: 0;
       transition: opacity 0.1s;
@@ -245,44 +234,44 @@
     .btn-install:hover:not(:disabled) { opacity: 0.85; }
     .btn-install:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    .install-error { font-size: 12px; color: #f87171; margin-top: 6px; }
+    .install-error { font-size: 12px; color: var(--danger); margin-top: 6px; }
 
     .notice {
-      border-left: 2px solid #444;
+      border-left: 2px solid var(--border-strong);
       padding: 6px 12px;
-      color: #888;
+      color: var(--text-3);
       font-size: 13px;
       margin-bottom: 16px;
     }
 
     .notice-warn {
-      background: #1a1613;
-      border: 1px solid #3a2a1a;
+      background: var(--warning-soft);
+      border: 1px solid var(--warning-border);
       border-radius: 8px;
       padding: 14px 16px;
       font-size: 13px;
-      color: #aaa;
+      color: var(--text-2);
       margin-bottom: 28px;
       line-height: 1.65;
     }
-    .notice-warn strong { color: #fbbf24; }
+    .notice-warn strong { color: var(--warning); }
 
     .submit-note {
       margin: 8px 0 0;
       font-size: 12px;
-      color: #666;
+      color: var(--text-3);
     }
 
     #publish-login-section { text-align: center; padding: 40px 0; }
-    #publish-login-section p { font-size: 14px; color: #666; margin-bottom: 20px; }
+    #publish-login-section p { font-size: 14px; color: var(--text-3); margin-bottom: 20px; }
 
     .btn-github {
       display: inline-flex;
       align-items: center;
       gap: 10px;
       padding: 10px 20px;
-      background: #e0e0e0;
-      color: #111;
+      background: var(--ink);
+      color: var(--on-ink);
       border: none;
       border-radius: 8px;
       font-size: 14px;
@@ -300,21 +289,21 @@
       gap: 10px;
       margin-bottom: 24px;
       font-size: 13px;
-      color: #666;
+      color: var(--text-3);
     }
-    .user-bar strong { color: #e0e0e0; }
+    .user-bar strong { color: var(--text); }
 
     .btn-signout {
       margin-left: auto;
       font-size: 12px;
-      color: #555;
+      color: var(--text-3);
       background: none;
       border: none;
       cursor: pointer;
       padding: 0;
       text-decoration: underline;
     }
-    .btn-signout:hover { color: #aaa; opacity: 1; }
+    .btn-signout:hover { color: var(--text-2); opacity: 1; }
 
     #tab-publish label {
       display: block;
@@ -322,28 +311,28 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: #555;
+      color: var(--text-3);
       margin-bottom: 6px;
     }
 
     .field { margin-bottom: 20px; }
-    .field-hint { font-size: 11px; color: #444; margin-top: 5px; }
+    .field-hint { font-size: 11px; color: var(--text-3); margin-top: 5px; }
 
     input[type="text"], textarea {
       width: 100%;
-      background: #1c1c1c;
-      border: 1px solid #2a2a2a;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      color: #e0e0e0;
+      color: var(--text);
       font-family: inherit;
       font-size: 14px;
       padding: 9px 12px;
       outline: none;
       transition: border-color 0.15s;
     }
-    input[type="text"]:focus, textarea:focus { border-color: #6366f1; }
+    input[type="text"]:focus, textarea:focus { border-color: var(--accent); }
     textarea {
-      font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+      font-family: var(--font-mono);
       font-size: 12px;
       resize: vertical;
       min-height: 220px;
@@ -352,8 +341,8 @@
     .btn-submit {
       width: 100%;
       padding: 11px;
-      background: #6366f1;
-      color: white;
+      background: var(--ink);
+      color: var(--on-ink);
       border: none;
       border-radius: 8px;
       font-size: 14px;
@@ -371,8 +360,8 @@
       border-radius: 6px;
       display: none;
     }
-    .publish-msg.success { background: #0d2b1a; border: 1px solid #1a5c35; color: #4ade80; display: block; }
-    .publish-msg.error   { background: #2b0d0d; border: 1px solid #5c1a1a; color: #f87171; display: block; }
+    .publish-msg.success { background: var(--success-soft); border: 1px solid var(--success-border); color: var(--success); display: block; }
+    .publish-msg.error   { background: var(--danger-soft); border: 1px solid var(--danger-border); color: var(--danger); display: block; }
 
     #tab-submissions .card { display: block; padding: 12px 14px; }
     .sub-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -382,14 +371,14 @@
       font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
       padding: 2px 7px; border-radius: 4px; vertical-align: middle;
     }
-    .status-badge.pending  { color: #fbbf24; background: #1a1500; border: 1px solid #4a3500; }
-    .status-badge.approved { color: #4ade80; background: #0d2b1a; border: 1px solid #1a5c35; }
-    .status-badge.rejected { color: #f87171; background: #2b0d0d; border: 1px solid #5c1a1a; }
+    .status-badge.pending  { color: var(--warning); background: var(--warning-soft); border: 1px solid var(--warning-border); }
+    .status-badge.approved { color: var(--success); background: var(--success-soft); border: 1px solid var(--success-border); }
+    .status-badge.rejected { color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-border); }
     .submission-reason {
-      margin-top: 6px; font-size: 11px; color: #f87171;
-      padding: 5px 8px; background: #1a0a0a; border-radius: 4px; border: 1px solid #3a1a1a;
+      margin-top: 6px; font-size: 11px; color: var(--danger);
+      padding: 5px 8px; background: var(--danger-soft); border-radius: 4px; border: 1px solid var(--danger-border);
     }
-    .btn-danger { background: transparent; color: #f87171; border: 1px solid #3a2a2a; }
+    .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger-border); }
 
     #notif-stack {
       position: fixed;
@@ -402,12 +391,12 @@
       pointer-events: none;
     }
     .notif {
-      background: #1c1c1c;
-      border: 1px solid #333;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 10px 16px;
       font-size: 13px;
-      color: #e0e0e0;
+      color: var(--text);
       white-space: nowrap;
       transform: translateX(calc(100% + 24px));
       opacity: 0;
@@ -419,19 +408,19 @@
       background: none;
       border: none;
       cursor: pointer;
-      color: #888;
+      color: var(--text-3);
       font-size: 14px;
       padding: 2px 4px;
       transition: color 0.15s;
       line-height: 1;
     }
-    .rate-btn:hover { color: #f0b429; }
-    .rate-btn.rated { color: #f0b429; }
+    .rate-btn:hover { color: var(--warning); }
+    .rate-btn.rated { color: var(--warning); }
 
     .rating-popover {
       position: absolute;
-      background: #1c1c1c;
-      border: 1px solid #333;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 10px 14px;
       display: flex;
@@ -444,25 +433,25 @@
     .rating-popover .popover-stars { display: flex; gap: 4px; }
     .rating-popover .popover-star {
       font-size: 22px;
-      color: #444;
+      color: var(--text-3);
       cursor: pointer;
       transition: color 0.1s;
       user-select: none;
     }
-    .rating-popover .popover-star.filled { color: #f0b429; }
-    .rating-popover .popover-label { font-size: 11px; color: #666; }
+    .rating-popover .popover-star.filled { color: var(--warning); }
+    .rating-popover .popover-label { font-size: 11px; color: var(--text-3); }
     .popover-wrapper { position: relative; display: inline-block; }
     .remove-rating-btn {
       background: none;
       border: none;
       cursor: pointer;
-      color: #666;
+      color: var(--text-3);
       font-size: 11px;
       padding: 0;
       transition: color 0.15s;
     }
     .remove-rating-btn:hover {
-      color: #e05555;
+      color: var(--danger);
     }
   </style>
 </head>
@@ -470,7 +459,7 @@
   <div class="app-layout">
 
     <aside class="sidebar">
-      <div class="sidebar-logo">Notiskin</div>
+      <div class="sidebar-logo"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 2.5h7.5l7 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2z" fill="var(--surface)" stroke="var(--text)" stroke-width="1.6" stroke-linejoin="round"/><path d="M12.5 2.5v5.5a1.5 1.5 0 0 0 1.5 1.5h5.5z" fill="var(--accent)" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 15h6" stroke="var(--text)" stroke-width="1.6" stroke-linecap="round"/></svg>notiskin</div>
       <div id="update-banner" style="
         display: none;
         align-items: center;
@@ -478,14 +467,14 @@
         gap: 8px;
         padding: 8px 12px;
         margin: -16px 12px 0;
-        background: #1a2030;
-        border: 1px solid #2a3a50;
+        background: var(--info-soft);
+        border: 1px solid var(--info-border);
         border-radius: 6px;
         font-size: 11px;
-        color: #64b5f6;
+        color: var(--info);
       ">
         <span id="banner-text"></span>
-        <button onclick="openReleasesPage()" style="background: none; border: none; color: #64b5f6; text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download Update</button>
+        <button onclick="openReleasesPage()" style="background: none; border: none; color: var(--info); text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download Update</button>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
@@ -501,9 +490,9 @@
 
     <div class="main-content">
 
-      <div id="safe-mode-notice" style="display:none; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; margin-bottom:20px; background:#2a2510; border:1px solid #4a4020; border-radius:8px; font-size:13px; color:#f5c518;">
+      <div id="safe-mode-notice" style="display:none; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; margin-bottom:20px; background:var(--warning-soft); border:1px solid var(--warning-border); border-radius:8px; font-size:13px; color:var(--warning);">
         <span>Safe mode is on. Themes and plugins are paused, your choices are saved for when you turn it off.</span>
-        <button onclick="turnOffSafeMode()" style="background:#3a3418; color:#f5c518; border:1px solid #4a4020;">Turn off</button>
+        <button onclick="turnOffSafeMode()" style="background:var(--warning-soft); color:var(--warning); border:1px solid var(--warning-border);">Turn off</button>
       </div>
 
       <div class="tabs">
@@ -1105,7 +1094,7 @@
       function updateCount(input, countEl, max) {
         const len = input.value.length;
         countEl.textContent = `${len}/${max}`;
-        countEl.style.color = len >= max ? '#e57373' : '';
+        countEl.style.color = len >= max ? 'var(--danger)' : '';
       }
 
       nameInput.addEventListener('input', function () {
