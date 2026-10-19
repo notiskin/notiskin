@@ -2,7 +2,7 @@
 
 ## What this is
 
-Notiskin is an open-source macOS tool that injects custom CSS themes and JavaScript plugins into the Notion desktop app. It works by relaunching Notion with `--remote-debugging-port=9222` and using the Chrome DevTools Protocol (CDP) to inject a `<style>` or `<script>` element into the live running page. It does **not** edit Notion's bundled files — Notion loads its content live from `app.notion.com`, so asar editing doesn't work for main content injection.
+Notiskin is an open-source macOS tool that injects custom CSS themes and JavaScript plugins into the Notion desktop app. It works by starting Notion with `--remote-debugging-pipe` (DevTools over two private FIFOs, no network port) and using the Chrome DevTools Protocol (CDP) to inject a `<style>` or `<script>` element into the live running page. It does **not** edit Notion's bundled files — Notion loads its content live from `app.notion.com`, so asar editing doesn't work for main content injection.
 
 Reference projects: Spicetify, BetterDiscord, Vencord. MIT licensed. Hosted at github.com/notiskin/notiskin.
 
@@ -14,7 +14,7 @@ Reference projects: Spicetify, BetterDiscord, Vencord. MIT licensed. Hosted at g
 - **Runtime:** Node.js
 - **GUI server:** Express on port 3845
 - **Desktop app:** Electron (entry point: `src/electron/main.ts`)
-- **Injection mechanism:** Chrome DevTools Protocol via `chrome-remote-interface`
+- **Injection mechanism:** Chrome DevTools Protocol over Notion's DevTools pipe (`src/injector/pipe.ts`, no library)
 - **Marketplace backend:** Supabase (Postgres + Auth + Storage)
 - **Auth:** GitHub OAuth via Supabase
 - **Packaging:** electron-builder (separate Apple Silicon `arm64` and Intel `x64` dmg/zip, currently unsigned). File names carry the chip and `-mac` so future Windows/Linux builds don't clash; electron-updater picks the right zip by chip
@@ -43,17 +43,18 @@ src/
     themes.html / plugins.html / review.html / settings.html — GUI pages (Settings has the Notion section: Install / Repair / Uninstall)
     tour.js               — Welcome tour shared by Themes, Plugins and Settings (served at /tour.js, packaged via build.files)
     brand.css, fonts/     — The "paper and ink" look: color tokens (light + dark, follows macOS), Fraunces + Inter bundled (SIL OFL). Served from a fixed list in server.ts
-  injector/index.ts       — One-shot CDP injection (CSS + JS into Notion), plugins run once per page load
-  injector/daemon.ts      — Long-running injector: one browser-level CDP connection, themes every Notion tab, re-applies on reload and on file changes, exits when Notion quits
+  injector/index.ts       — What gets injected (core CSS, theme, window.notiskin, plugins), plugins run once per page load
+  injector/daemon.ts      — Long-running injector: the only CDP client, themes every Notion tab, re-applies on reload and on file changes, exits when Notion quits
+  injector/pipe.ts        — CDP client over Notion's FIFOs in ~/.notiskin/run/<pid>, findNotionRun()
+  injector/control.ts     — The injector's control socket (~/.notiskin/run/injector.sock): apply / reload / status
   utils/pidlock.ts        — Single-instance lock (~/.notiskin/injector.pid)
   patcher/
     index.ts              — Patches Notion's app bundle; exports patchNotion(), unpatchNotion(), getNotionStatus(), makeWrapperScript()
     admin.ts              — osascript admin-prompt runner, unused (App Management blocks it); shellQuote/errorFromOutput are used
     watcher.ts            — FSEvents watcher; detects Notion updates and repatches
   updater/index.ts        — electron-updater wrapper (Electron only)
-  types/chrome-remote-interface.d.ts
   utils/
-    constants.ts          — Paths (~/.notiskin, overridable via NOTISKIN_DIR), ports, public Supabase config
+    constants.ts          — Paths (~/.notiskin, overridable via NOTISKIN_DIR), the GUI port, public Supabase config
     config.ts             — Read/write notiskin.config.json (atomic writes)
     sleep.ts
 
@@ -74,13 +75,13 @@ test/                     — node:test suites (npm test builds first)
 
 **CLI (`src/cli/index.ts`):** The npm bin target. Commands: `patch`, `unpatch`, `themes`, `theme <name>`, `plugins`, `plugin enable/disable <name>`, `apply`, `safe-mode [on|off]`, `diagnostics`, `watch:install`, `watch:uninstall`. These work independently of the Electron app.
 
-**Electron app (`src/electron/main.ts`):** Starts the Express server, creates a BrowserWindow loading `http://localhost:3845`, quits fully when the window is closed. Single-instance lock prevents duplicate windows. This is what opens when you launch Notiskin from Spotlight or Applications.
+**Electron app (`src/electron/main.ts`):** Starts the Express server, creates a BrowserWindow loading `http://localhost:3845`, quits fully when the window is closed. Single-instance lock prevents duplicate windows. On start it quietly repairs a wrapper from before the DevTools pipe (`repairLegacyWrapper()` in server.ts, same as clicking Repair, never restarts Notion); if that fails Settings still shows Repair. This is what opens when you launch Notiskin from Spotlight or Applications.
 
 **Express server (`src/gui/server.ts`):** Serves `themes.html`, `plugins.html`, `review.html`, and `settings.html`. Exposes REST endpoints for the GUI: theme switching, plugin toggling, marketplace search/install (the server fetches approved code from Supabase by id), submissions, and proxies to the edge functions. `/api/notion/*` (status, install, uninstall, restart, app-management) is macOS only: install/uninstall run the CLI's `patch`/`unpatch` as the current user with `process.execPath` + `ELECTRON_RUN_AS_NODE=1`, one at a time, through the swappable `notionSetup` object (tests mock it). Failures come back with a reason (`app-management` for EPERM, `not-owner` for EACCES). Does **not** auto-start on import — call `startServer()` explicitly. `src/gui/run.ts` is a thin dev entry point that calls `startServer(true)` directly.
 
-**Injector (`src/injector/`):** `index.ts` is the one-shot path the GUI/CLI use for immediate feedback; it targets the visible page (checks `document.visibilityState`). `daemon.ts` is started by `notiskin inject` (the wrapper runs it on every Notion launch, and `ensureInjector()` in core/library.ts starts it whenever a theme is applied). It attaches to every Notion page target via `Target.setDiscoverTargets` + flat sessions, registers a document-start style script so reloads don't flash, re-injects on `Page.loadEventFired`, and re-applies to all tabs when files in ~/.notiskin change. Theme CSS is a `<style id="notiskin-styles">` element; core CSS and `window.notiskin` are only injected when a theme / plugin is active.
+**Injector (`src/injector/`):** Notion has no debug port. The wrapper makes two FIFOs in `~/.notiskin/run/<Notion's pid>/` (folder 0700, FIFOs 0600) and gives them to Notion as fd 3 (commands) and fd 4 (replies) with `--remote-debugging-pipe`. `daemon.ts` is the only thing that talks to that pipe (two clients would garble each other). It is started by `notiskin inject <pipe folder>` (the wrapper runs it on every Notion launch), or by `ensureInjector()` in core/library.ts with no folder, which finds the running Notion with `findNotionRun()`. It attaches to every Notion page target via `Target.setDiscoverTargets` + flat sessions, registers a document-start style script so reloads don't flash, re-injects on `Page.loadEventFired`, and re-applies to all tabs when files in ~/.notiskin change. The CLI and the app reach it through its control socket: `applyConfig()` sends `apply` or `reload` (reload re-themes first, then reloads every Notion tab and waits for them), starts an injector if Notion has a pipe but no injector, and only with `restartIfNeeded` quits and relaunches Notion (through `open` if patched, or with its own FIFOs if not). Theme CSS is a `<style id="notiskin-styles">` element; core CSS and `window.notiskin` are only injected when a theme / plugin is active. `index.ts` only holds what gets injected.
 
-**Patcher (`src/patcher/index.ts`):** Replaces the Notion executable with a wrapper shell script that adds `--remote-debugging-port=9222` on every launch and triggers the injector. The original binary is renamed to `Notion.real`. Also manages re-signing with `codesign`. `patchNotion()` and `unpatchNotion()` are the main exports. The CLI wrapper line is byte-for-byte what older versions wrote; app mode (`{ appMode: true }`, used when the CLI runs on Electron's binary) adds `ELECTRON_RUN_AS_NODE=1` to the inject line only, never to `Notion.real`. Patching again rewrites a wrapper that points somewhere else, which is how Repair fixes a moved Notiskin. When run as root it gives `Notion.app` back to its previous owner, and the CLI gives `dist/` back to `SUDO_USER`. `getNotionStatus()` (not-installed, installed, needs-repair, notion-missing) needs no root. `NOTISKIN_NOTION_APP` overrides the Notion location, for tests only.
+**Patcher (`src/patcher/index.ts`):** Replaces the Notion executable with a wrapper shell script that sets up the pipe, starts `inject` in the background and `exec`s `Notion.real --remote-debugging-pipe` (exec keeps the pid, so the pipe folder is named after Notion). If the Notiskin program is gone or any step fails, it runs plain `exec Notion.real "$@"` with no debugging. The original binary is renamed to `Notion.real`. Also manages re-signing with `codesign`. `patchNotion()` and `unpatchNotion()` are the main exports. App mode (`{ appMode: true }`, used when the CLI runs on Electron's binary) adds `ELECTRON_RUN_AS_NODE=1` to the inject line only, never to `Notion.real`. Wrappers from before the pipe (they contain `--remote-debugging-port`) count as `needs-repair`, `hasLegacyWrapper()` finds them. Patching again rewrites a wrapper that differs, which is how Repair fixes a moved Notiskin or an old wrapper. When run as root it gives `Notion.app` back to its previous owner, and the CLI gives `dist/` back to `SUDO_USER`. `getNotionStatus()` (not-installed, installed, needs-repair, notion-missing) needs no root. `NOTISKIN_NOTION_APP` overrides the Notion location, for tests only.
 
 **Watcher (`src/patcher/watcher.ts`):** An FSEvents watcher installed as a LaunchAgent. Watches for Notion updates (which overwrite the wrapper), then repatches when Notion is next closed.
 
@@ -90,12 +91,21 @@ test/                     — node:test suites (npm test builds first)
 
 ## Important constraints and known behaviour
 
-- Notion preloads hidden duplicate pages. The one-shot injector checks `document.visibilityState === 'visible'`; the daemon deliberately themes all Notion pages, hidden ones included, so preloaded tabs are ready when shown.
-- Integration tests use a fake Notion (test/fixtures/fake-notion, an Electron app). Never point tests at the real Notion app.
+- Notion preloads hidden duplicate pages. The daemon deliberately themes all Notion pages, hidden ones included, so preloaded tabs are ready when shown.
+- The DevTools pipe (checked on Electron 41.3.0, Notion 7.22's version, and 42): Chromium quits when its pipe closes, so Notion holds both ends of both FIFOs itself (`3<>` / `4<>`). The injector can crash, be killed or be deleted and Notion carries on; a new injector reconnects mid-session. Keep these:
+  - `command exec 3<>...` in the wrapper, a plain `exec` whose redirect fails ends the script before Notion starts
+  - the injector's `3<&- 4<&-`, it must not hold Notion's pipes
+  - never read or write the FIFOs with `net.Socket`: macOS's kqueue misses FIFO data (a reply over the 8 KB pipe buffer stalled the reader for good on a real Mac) and never reports their end-of-file. `PipeConnection` uses blocking `fs.read`/`fs.write` on the thread pool, and also polls Notion's pid
+  - `notiskin inject` keeps its pid lock until the process exits (it calls `process.exit` after stopping), a second injector reading the same pipe steals replies
+  - `Target.detachedFromTarget` only drops the session it names; detaching an old injector's session must not drop the daemon's own session for that tab
+  - command ids start at a random number and unknown replies are ignored, the pipe can still hold an earlier injector's replies
+  - a killed injector's sessions stay attached with their document-start CSS, the daemon detaches them (by targetId on start, and any unknown sessionId it hears from)
+- No TCP debug port should ever be open: `lsof -iTCP -sTCP:LISTEN` while Notion runs. Diagnostics reports whether port 9222 is open (an old wrapper).
+- Integration tests use a fake Notion (test/fixtures/fake-notion, an Electron app, in pipe mode when given `--remote-debugging-pipe`). Tests look inside its pages through its own `POST /__eval`, never the pipe. Never point tests at the real Notion app.
 - Changing `/Applications/Notion.app` needs macOS App Management for whichever app starts it (Notiskin, or Electron/Terminal when running from source). Root doesn't help: a command run through the admin password dialog (`osascript ... with administrator privileges`) gets EPERM even from Terminal, checked on macOS 26. So the app patches as the user, which works because Notion.app normally belongs to the user. Unsigned (ad-hoc) builds may lose the permission after an update until Developer ID signing.
 - `sudo npm run patch` is only needed for the watcher: it adds a scoped sudoers rule at `/etc/sudoers.d/notiskin` for silent re-signing. Removing that rule needs root (`sudo npm run unpatch`).
 - A full clean uninstall is a single command: `npm run unpatch`. It removes the wrapper script, restores the Notion binary, removes the LaunchAgent, removes the sudoers rule (when run with sudo), and removes the signing helper. `npm run watch:uninstall` still works independently if only the watcher needs to be removed.
-- Safe mode (`safeMode` in the config) makes `currentPayload()` return nothing, and both the injector and `applyConfig()` go through it. Turning it on reloads the visible page (plugins can't be un-run) and never restarts Notion. Diagnostics text always goes through `redact()` (Notion links, IDs, home folder, user name), keep it that way for anything new added to the report.
+- Safe mode (`safeMode` in the config) makes `currentPayload()` return nothing, and both the injector and `applyConfig()` go through it. Turning it on reloads every Notion tab (plugins can't be un-run) and never restarts Notion. Diagnostics text always goes through `redact()` (Notion links, IDs, home folder, user name), keep it that way for anything new added to the report.
 - Integration tests can run in a cloud container as a normal user under a virtual display: `runuser -u ubuntu -- xvfb-run -a node --test --test-concurrency=1 test/integration/*.test.js` (Electron refuses to run as root).
 - GUI colors only come from the tokens in `src/gui/brand.css`, never hardcoded hex, so light and dark mode both work. The exception is the `.theme-preview` / `.ns-*` block in themes.html, which imitates Notion's own colors on purpose.
 - MutationObserver plugins can self-trigger infinite loops. Scope observers tightly, wrap in try/catch, include loop guards.
@@ -131,6 +141,10 @@ Done (Oct 2026), Phase 1:
 - "Install into Notion" in Settings (PRs #9 and #10): Install, Repair, and Uninstall with no password, checked on a real Mac (install, restart, reopen from the Dock, file owners, uninstall, CLI patch/unpatch). The original plan's single admin password prompt was dropped because App Management blocks it, see the constraint above
 - v0.5.0 published by the workflow, bundle checked free of `.env`. The DMG app installed into Notion on a real Mac: macOS blocked it first, the Settings "Open App Management" button (`x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles`) opened the right page, and after turning on notiskin there Install worked
 - Safe mode and diagnostics (PR #14, plan in `docs/prompts/phase-1-safe-mode-diagnostics.md`), checked on a real Mac: safe mode removes the theme and survives a Notion restart, the notice's Turn off brings it back, and the diagnostics report shows correct statuses with the home folder, user name and Notion links hidden. Phase 1 is complete
+
+Done (Oct 2026), debug port closed (branch `debug-pipe`):
+- Notion runs with `--remote-debugging-pipe` instead of `--remote-debugging-port=9222`, so no other program or user account on the Mac can connect to it. Old wrappers are repaired by the app on start
+- To check on a real Mac: the checklist in the debug-pipe PR (Dock icon, reopen from the Dock, Quit, notion:// links, Notion's own update relaunch, theme after restart, no listening port)
 
 Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin is damaged and can't be opened" on Apple Silicon, and right-click → Open doesn't help. The fix is `xattr -dr com.apple.quarantine /Applications/notiskin.app` (in the README).
 

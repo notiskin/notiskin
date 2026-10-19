@@ -3,7 +3,7 @@ const { dataDir } = require('./helpers');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('child_process');
-const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } = require('fs');
+const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, readdirSync, statSync } = require('fs');
 const { join } = require('path');
 const { tmpdir } = require('os');
 
@@ -51,15 +51,32 @@ function withNotionApp(app, fn) {
   }
 }
 
-test('CLI wrapper is byte-for-byte what earlier versions wrote', () => {
-  assert.equal(
-    patcher.makeWrapperScript('/usr/local/bin/node', '/Users/me/notiskin/dist/cli/index.js'),
-    '#!/bin/sh\n' +
-      '# notiskin-wrapper\n' +
-      'mkdir -p "$HOME/.notiskin/logs"\n' +
-      '"/usr/local/bin/node" "/Users/me/notiskin/dist/cli/index.js" inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &\n' +
-      'exec "$(dirname "$0")/Notion.real" --remote-debugging-port=9222 "$@"\n'
-  );
+// what versions before the DevTools pipe wrote, they opened port 9222 to every program on the Mac
+const LEGACY_CLI_WRAPPER =
+  '#!/bin/sh\n' +
+  '# notiskin-wrapper\n' +
+  'mkdir -p "$HOME/.notiskin/logs"\n' +
+  '"/usr/local/bin/node" "/Users/me/notiskin/dist/cli/index.js" inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &\n' +
+  'exec "$(dirname "$0")/Notion.real" --remote-debugging-port=9222 "$@"\n';
+const LEGACY_APP_WRAPPER =
+  '#!/bin/sh\n' +
+  '# notiskin-wrapper\n' +
+  'mkdir -p "$HOME/.notiskin/logs"\n' +
+  "ELECTRON_RUN_AS_NODE=1 '/Applications/notiskin.app/Contents/MacOS/notiskin' " +
+  "'/Applications/notiskin.app/Contents/Resources/app.asar/dist/cli/index.js' " +
+  'inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &\n' +
+  'exec "$(dirname "$0")/Notion.real" --remote-debugging-port=9222 "$@"\n';
+
+test('the wrapper never opens a debug port', () => {
+  for (const appMode of [false, true]) {
+    const script = patcher.makeWrapperScript('/usr/local/bin/node', '/Users/me/notiskin/dist/cli/index.js', { appMode });
+    assert.ok(script.includes('# notiskin-wrapper'));
+    assert.ok(!script.includes('--remote-debugging-port'));
+    assert.ok(script.includes('--remote-debugging-pipe'));
+    assert.ok(!patcher.isLegacyWrapper(script));
+  }
+  assert.ok(patcher.isLegacyWrapper(LEGACY_CLI_WRAPPER));
+  assert.ok(patcher.isLegacyWrapper(LEGACY_APP_WRAPPER));
 });
 
 test('app wrapper runs the inject line as Node and quotes the paths', () => {
@@ -69,13 +86,19 @@ test('app wrapper runs the inject line as Node and quotes the paths', () => {
     { appMode: true }
   );
   const lines = script.split('\n');
+  // the archive is what exists on disk, sh can't look inside it
   assert.equal(
     lines[3],
-    "ELECTRON_RUN_AS_NODE=1 '/Applications/notiskin.app/Contents/MacOS/notiskin' " +
-      "'/Applications/notiskin.app/Contents/Resources/app.asar/dist/cli/index.js' " +
-      'inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &'
+    "if [ -x '/Applications/notiskin.app/Contents/MacOS/notiskin' ] && " +
+      "[ -e '/Applications/notiskin.app/Contents/Resources/app.asar' ]; then"
   );
-  assert.equal(lines[4], 'exec "$(dirname "$0")/Notion.real" --remote-debugging-port=9222 "$@"');
+  assert.equal(
+    lines[6],
+    "    ELECTRON_RUN_AS_NODE=1 '/Applications/notiskin.app/Contents/MacOS/notiskin' " +
+      "'/Applications/notiskin.app/Contents/Resources/app.asar/dist/cli/index.js' " +
+      'inject "$run" 3<&- 4<&- >> "$HOME/.notiskin/logs/inject.log" 2>&1 &'
+  );
+  assert.equal(lines[7], '    exec "$real" --remote-debugging-pipe "$@"');
   assert.ok(patcher.wrapperInjectTarget(script));
 });
 
@@ -87,61 +110,88 @@ test('shellQuote survives spaces, quotes, and $', () => {
 });
 
 test('wrapperInjectTarget reads back both wrapper styles', () => {
-  for (const value of TRICKY.filter(v => !v.includes('"'))) {
-    const cli = patcher.makeWrapperScript(`/bin/${value}`, `/cli/${value}.js`);
-    assert.deepEqual(patcher.wrapperInjectTarget(cli), { program: `/bin/${value}`, cliScript: `/cli/${value}.js` });
-  }
   for (const value of TRICKY) {
-    const app = patcher.makeWrapperScript(`/bin/${value}`, `/cli/${value}.js`, { appMode: true });
-    assert.deepEqual(patcher.wrapperInjectTarget(app), { program: `/bin/${value}`, cliScript: `/cli/${value}.js` });
+    for (const appMode of [false, true]) {
+      const script = patcher.makeWrapperScript(`/bin/${value}`, `/cli/${value}.js`, { appMode });
+      assert.deepEqual(patcher.wrapperInjectTarget(script), { program: `/bin/${value}`, cliScript: `/cli/${value}.js` });
+    }
   }
   assert.equal(patcher.wrapperInjectTarget('#!/bin/sh\nexec something\n'), null);
+  // old port wrappers aren't read as current ones, they need a repair
+  assert.equal(patcher.wrapperInjectTarget(LEGACY_APP_WRAPPER), null);
 });
 
 // runs the generated wrapper with sh, Notion.real and the inject program are stand-ins that record what they got
-function runWrapper(appMode, { injectExists = true } = {}) {
+// (their arguments, ELECTRON_RUN_AS_NODE, and whether fds 3 and 4 are pipes)
+function runWrapper(appMode, { injectExists = true, expectInject = injectExists, home: homeSetup } = {}) {
   const { macos, notion, real } = fakeNotionApp();
   const home = tempDir("notiskin wrapper home's $x-");
-  const out = join(home, 'out');
-  mkdirSync(out);
-  const record = file => `#!/bin/sh\necho "\${ELECTRON_RUN_AS_NODE:-unset} $*" > ${admin.shellQuote(join(out, file))}\n`;
+  homeSetup?.(home);
+  const out = tempDir('notiskin-wrapper-out-');
+  const record = file =>
+    '#!/bin/sh\n' +
+    'fds=""; [ -p /dev/fd/3 ] && fds="$fds 3"; [ -p /dev/fd/4 ] && fds="$fds 4"\n' +
+    `echo "\${ELECTRON_RUN_AS_NODE:-unset} $*|pipes:$fds" > ${admin.shellQuote(join(out, file))}\n`;
   executable(real, record('notion'));
-  // the CLI wrapper never handled $ or " in paths (kept as is), the app wrapper does
-  const injectDir = appMode ? join(home, "inject dir's $HOME") : join(tempDir('notiskin-inject-'), 'inject dir');
+  const injectDir = join(home, "inject dir's $HOME");
   const injector = join(injectDir, 'run');
+  const cli = join(injectDir, 'index "1".js');
   if (injectExists) {
     mkdirSync(injectDir);
     executable(injector, record('inject'));
+    writeFileSync(cli, '');
   }
-  executable(notion, patcher.makeWrapperScript(injector, '/cli/index.js', { appMode }));
+  executable(notion, patcher.makeWrapperScript(injector, cli, { appMode }));
   execFileSync(notion, ['--flag'], { env: { PATH: process.env.PATH, HOME: home } });
   // the inject line runs in the background
   const deadline = Date.now() + 5000;
-  while (injectExists && !existsSync(join(out, 'inject')) && Date.now() < deadline) execFileSync('sleep', ['0.05']);
+  while (expectInject && !existsSync(join(out, 'inject')) && Date.now() < deadline) execFileSync('sleep', ['0.05']);
+  const runRoot = join(home, '.notiskin', 'run');
+  const runs = existsSync(runRoot) ? readdirSync(runRoot).map(name => join(runRoot, name)) : [];
   return {
     notion: readFileSync(join(out, 'notion'), 'utf-8').trim(),
-    inject: injectExists ? readFileSync(join(out, 'inject'), 'utf-8').trim() : null,
+    inject: existsSync(join(out, 'inject')) ? readFileSync(join(out, 'inject'), 'utf-8').trim() : null,
     log: existsSync(join(home, '.notiskin', 'logs', 'inject.log')),
+    runRoot,
+    runs,
+    cli,
     macos,
   };
 }
 
-test('app wrapper gives ELECTRON_RUN_AS_NODE to the injector only, never to Notion', () => {
-  const run = runWrapper(true);
-  assert.equal(run.inject, '1 /cli/index.js inject');
-  assert.equal(run.notion, 'unset --remote-debugging-port=9222 --flag');
-  assert.ok(run.log);
+const mode = path => (statSync(path).mode & 0o777).toString(8);
+
+for (const appMode of [true, false]) {
+  test(`${appMode ? 'app' : 'CLI'} wrapper gives Notion the pipe on fds 3 and 4 and starts the injector`, () => {
+    const run = runWrapper(appMode);
+    assert.equal(run.notion, 'unset --remote-debugging-pipe --flag|pipes: 3 4');
+    // ELECTRON_RUN_AS_NODE reaches the injector only, and the injector doesn't hold Notion's pipes open
+    assert.equal(run.runs.length, 1);
+    assert.equal(run.inject, `${appMode ? '1' : 'unset'} ${run.cli} inject ${run.runs[0]}|pipes:`);
+    assert.ok(run.log);
+    // only this user can open the pipes
+    assert.equal(mode(run.runRoot), '700');
+    assert.equal(mode(run.runs[0]), '700');
+    assert.ok(statSync(join(run.runs[0], 'in')).isFIFO());
+    assert.equal(mode(join(run.runs[0], 'in')), '600');
+    assert.equal(mode(join(run.runs[0], 'out')), '600');
+  });
+}
+
+test('Notion still starts, with no pipe, when Notiskin was moved or deleted', () => {
+  for (const appMode of [true, false]) {
+    const run = runWrapper(appMode, { injectExists: false });
+    assert.equal(run.notion, 'unset --flag|pipes:');
+    assert.equal(run.inject, null);
+    assert.equal(run.runs.length, 0);
+  }
 });
 
-test('CLI wrapper still starts Notion and the injector', () => {
-  const run = runWrapper(false);
-  assert.equal(run.inject, 'unset /cli/index.js inject');
-  assert.equal(run.notion, 'unset --remote-debugging-port=9222 --flag');
-});
-
-test('Notion still starts when Notiskin was moved or deleted', () => {
-  assert.equal(runWrapper(true, { injectExists: false }).notion, 'unset --remote-debugging-port=9222 --flag');
-  assert.equal(runWrapper(false, { injectExists: false }).notion, 'unset --remote-debugging-port=9222 --flag');
+test("Notion still starts, with no pipe, when the pipe folder can't be made", () => {
+  // ~/.notiskin is a file, so every mkdir fails
+  const run = runWrapper(true, { expectInject: false, home: home => writeFileSync(join(home, '.notiskin'), '') });
+  assert.equal(run.notion, 'unset --flag|pipes:');
+  assert.equal(run.inject, null);
 });
 
 test('status: notion-missing when there is no Notion.app', () => {
@@ -165,9 +215,17 @@ test('status: not-installed, installed, and needs-repair', () => {
     writeFileSync(notion, patcher.makeWrapperScript(program, cli, { appMode: true }));
     assert.equal(patcher.getNotionStatus(), 'installed');
 
-    // CLI-style wrappers from earlier versions count too
     writeFileSync(notion, patcher.makeWrapperScript(program, cli));
     assert.equal(patcher.getNotionStatus(), 'installed');
+    assert.equal(patcher.hasLegacyWrapper(), false);
+
+    // wrappers from before the pipe opened a debug port, they need a repair
+    for (const legacy of [LEGACY_CLI_WRAPPER, LEGACY_APP_WRAPPER]) {
+      writeFileSync(notion, legacy);
+      assert.equal(patcher.getNotionStatus(), 'needs-repair');
+      assert.equal(patcher.hasLegacyWrapper(), true);
+    }
+    writeFileSync(notion, patcher.makeWrapperScript(program, cli));
 
     // Notiskin moved or deleted
     rmSync(cli);
@@ -217,6 +275,13 @@ test('patch, repair a stale wrapper, and unpatch a temp Notion.app', { skip: roo
       assert.equal(patcher.getNotionStatus(), 'needs-repair');
       patcher.patchNotion(program, join(tools, 'index.js'), { appMode: true });
       assert.equal(patcher.getNotionStatus(), 'installed');
+      assert.equal(readFileSync(real, 'utf-8'), original);
+
+      // an old port wrapper is replaced the same way
+      writeFileSync(notion, LEGACY_APP_WRAPPER);
+      patcher.patchNotion(program, join(tools, 'index.js'), { appMode: true });
+      assert.equal(patcher.getNotionStatus(), 'installed');
+      assert.ok(!readFileSync(notion, 'utf-8').includes('--remote-debugging-port'));
       assert.equal(readFileSync(real, 'utf-8'), original);
 
       patcher.unpatchNotion();

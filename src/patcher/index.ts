@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'child_process';
+import { execFileSync } from 'child_process';
 import {
   existsSync,
   copyFileSync,
@@ -14,8 +14,6 @@ import {
 } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import http from 'http';
-import { sleep } from '../utils/sleep';
 import { NOTISKIN_DIR, USER_HOME } from '../utils/constants';
 import { shellQuote } from './admin';
 
@@ -29,12 +27,10 @@ function notionBinaryCandidates(): string[] {
   ];
 }
 
-const STARTUP_TIMEOUT_MS = 30_000;
-
 // size check first, real binary is many MB, don't read it into memory
 export function isWrapperPresent(notionPath: string): boolean {
   try {
-    if (statSync(notionPath).size > 1024) return false;
+    if (statSync(notionPath).size > 16 * 1024) return false;
     return readFileSync(notionPath, 'utf-8').includes('notiskin-wrapper');
   } catch {
     return false;
@@ -77,25 +73,44 @@ export interface WrapperOptions {
   appMode?: boolean;
 }
 
-const INJECT_REDIRECT = ' inject >> "$HOME/.notiskin/logs/inject.log" 2>&1 &';
+// the inject line ends like this, wrapperInjectTarget() finds it by this tail
+const INJECT_TAIL = ' inject "$run" 3<&- 4<&- >> "$HOME/.notiskin/logs/inject.log" 2>&1 &';
 
-// runs as background job so it can poll for CDP while Notion.real starts
-// exec replaces the shell, macOS sees the correct PID
-// if the inject program is gone (Notiskin moved or deleted) only that line fails, Notion still starts
+// inside the packaged app the CLI sits in app.asar, plain sh and Node can't look inside it, so check the archive itself
+function existencePath(path: string): string {
+  const asar = path.indexOf('.asar/');
+  return asar >= 0 ? path.slice(0, asar + '.asar'.length) : path;
+}
+
+// Notion gets DevTools over two FIFOs in ~/.notiskin/run/<pid> (folder 0700, pipes 0600), never a network port.
+// Notion holds both ends of both pipes (3<> and 4<>), so it never sees them close and keeps running whatever
+// happens to the injector. exec keeps the shell's pid, so the folder is named after Notion's own pid.
+// if Notiskin is gone or any step fails, Notion starts exactly as it would without Notiskin.
+// `command exec` matters: a plain exec whose redirect fails would end the script before Notion starts.
 export function makeWrapperScript(nodePath: string, cliScriptPath: string, opts: WrapperOptions = {}): string {
-  // the CLI line is kept byte-for-byte as earlier versions wrote it, so existing installs still match
   // the env var only applies to the inject command, it must never reach Notion.real (Notion is Electron too)
-  const injectCommand = opts.appMode
-    ? `ELECTRON_RUN_AS_NODE=1 ${shellQuote(nodePath)} ${shellQuote(cliScriptPath)}`
-    : `"${nodePath}" "${cliScriptPath}"`;
+  const env = opts.appMode ? 'ELECTRON_RUN_AS_NODE=1 ' : '';
+  const program = shellQuote(nodePath);
   return [
     '#!/bin/sh',
     '# notiskin-wrapper',
-    'mkdir -p "$HOME/.notiskin/logs"',
-    `${injectCommand}${INJECT_REDIRECT}`,
-    'exec "$(dirname "$0")/Notion.real" --remote-debugging-port=9222 "$@"',
+    'real="$(dirname "$0")/Notion.real"',
+    `if [ -x ${program} ] && [ -e ${shellQuote(existencePath(cliScriptPath))} ]; then`,
+    '  run="$HOME/.notiskin/run/$$"',
+    '  if mkdir -p "$HOME/.notiskin/logs" "$HOME/.notiskin/run" && chmod 700 "$HOME/.notiskin/run" && rm -rf "$run" && ' +
+      'mkdir -m 700 "$run" && mkfifo -m 600 "$run/in" "$run/out" && command exec 3<>"$run/in" 4<>"$run/out"; then',
+    `    ${env}${program} ${shellQuote(cliScriptPath)}${INJECT_TAIL}`,
+    '    exec "$real" --remote-debugging-pipe "$@"',
+    '  fi',
+    'fi',
+    'exec "$real" "$@" 3<&- 4<&-',
     '',
   ].join('\n');
+}
+
+// wrappers before the pipe opened a debug port any program on the Mac could use, Repair replaces them
+export function isLegacyWrapper(script: string): boolean {
+  return script.includes('--remote-debugging-port');
 }
 
 // splits the sh words our wrappers use: 'single quoted', "double quoted", and bare words
@@ -128,11 +143,11 @@ export function splitShellWords(text: string): string[] {
 
 // the program and script a wrapper runs for injection, null if it can't be read
 export function wrapperInjectTarget(script: string): { program: string; cliScript: string } | null {
-  const line = script.split('\n').find(l => l.endsWith(INJECT_REDIRECT));
+  const line = script.split('\n').find(l => l.endsWith(INJECT_TAIL));
   if (!line) return null;
   let words: string[];
   try {
-    words = splitShellWords(line.slice(0, -INJECT_REDIRECT.length));
+    words = splitShellWords(line.slice(0, -INJECT_TAIL.length).trimStart());
   } catch {
     return null;
   }
@@ -142,10 +157,8 @@ export function wrapperInjectTarget(script: string): { program: string; cliScrip
   return { program: words[0], cliScript: words[1] };
 }
 
-// inside the packaged app the CLI sits in app.asar, plain Node can't look inside it, so check the archive itself
 function pathExists(path: string): boolean {
-  const asar = path.indexOf('.asar/');
-  return existsSync(asar >= 0 ? path.slice(0, asar + '.asar'.length) : path);
+  return existsSync(existencePath(path));
 }
 
 export type NotionStatus = 'not-installed' | 'installed' | 'needs-repair' | 'notion-missing';
@@ -159,13 +172,25 @@ export function getNotionStatus(): NotionStatus {
     return 'notion-missing';
   }
   if (isWrapperPresent(notionPath)) {
-    const target = wrapperInjectTarget(readFileSync(notionPath, 'utf-8'));
+    const script = readFileSync(notionPath, 'utf-8');
+    if (isLegacyWrapper(script)) return 'needs-repair';
+    const target = wrapperInjectTarget(script);
     // Notiskin was moved or deleted after installing, Notion still starts but nothing gets themed
     if (!target || !pathExists(target.program) || !pathExists(target.cliScript)) return 'needs-repair';
     return 'installed';
   }
   // a Notion update replaced the wrapper with a fresh binary
   return existsSync(`${notionPath}.real`) ? 'needs-repair' : 'not-installed';
+}
+
+// true when Notion has a wrapper from before the pipe, the desktop app repairs these on start
+export function hasLegacyWrapper(): boolean {
+  try {
+    const notionPath = findNotionBinary();
+    return isWrapperPresent(notionPath) && isLegacyWrapper(readFileSync(notionPath, 'utf-8'));
+  } catch {
+    return false;
+  }
 }
 
 interface Owner {
@@ -446,59 +471,5 @@ export function killNotion(): void {
     console.log('[patcher] Notion was running, closed it.');
   } catch {
     // pkill exits with code 1 when no matching process is found, that is fine
-  }
-}
-
-export function launchNotion(port: number): void {
-  const binary = findNotionBinary();
-  // --remote-debugging-port turns on the Chrome DevTools Protocol server
-  const child = spawn(binary, [`--remote-debugging-port=${port}`], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref(); // let this script exit independently of Notion
-}
-
-function probeDebugServer(port: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const req = http.get(`http://127.0.0.1:${port}/json/version`, res => {
-      res.resume();
-      if (res.statusCode === 200) {
-        resolve();
-      } else {
-        reject(new Error(`unexpected status ${res.statusCode}`));
-      }
-    });
-    req.on('error', reject);
-    req.setTimeout(1000, () => {
-      req.destroy();
-      reject(new Error('probe timed out'));
-    });
-  });
-}
-
-export async function waitForCDP(port: number): Promise<void> {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      await probeDebugServer(port);
-      console.log('[patcher] Notion debug server is ready.');
-      return;
-    } catch {
-      await sleep(500);
-    }
-  }
-  throw new Error(
-    `Timed out after ${STARTUP_TIMEOUT_MS / 1000}s waiting for Notion's debug server on port ${port}. ` +
-      'Check that Notion launched correctly.'
-  );
-}
-
-export async function isCDPAvailable(port: number): Promise<boolean> {
-  try {
-    await probeDebugServer(port);
-    return true;
-  } catch {
-    return false;
   }
 }

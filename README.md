@@ -8,9 +8,9 @@ Notiskin is an open source modding tool for the Notion desktop app on macOS. It 
 
 Notion loads its interface live from `notion.so`, so Notiskin doesn't edit Notion's files. Instead it:
 
-1. Starts Notion with `--remote-debugging-port=9222`, which turns on the Chrome DevTools Protocol (CDP).
+1. Starts Notion with `--remote-debugging-pipe`, which turns on the Chrome DevTools Protocol (CDP) over two private pipes in `~/.notiskin/run` that only your user account can open. There is no network port, so other apps and other accounts on the Mac can't reach Notion.
 2. Runs a small background injector for as long as Notion is open. It themes every Notion tab and window, re-applies after reloads (with no flash of the default look), and picks up theme, plugin, and settings changes live. It exits when Notion quits.
-3. Optionally **installs into Notion** (Settings → Notion → Install): the Notion executable is replaced by a tiny wrapper script that always adds the debug port and starts the injector on every launch. The original binary is kept as `Notion.real` and backed up to `~/.notiskin/backup/`. If Notiskin is later moved or deleted, Notion still starts, just without a theme.
+3. Optionally **installs into Notion** (Settings → Notion → Install): the Notion executable is replaced by a tiny wrapper script that sets up the pipe and starts the injector on every launch. The original binary is kept as `Notion.real` and backed up to `~/.notiskin/backup/`. If Notiskin is later moved or deleted, or the injector crashes, Notion keeps working, just without a theme.
 
 Themes and plugins live in `~/.notiskin/themes/*.css` and `~/.notiskin/plugins/*.js`. The active theme and enabled plugins are stored in `~/.notiskin/notiskin.config.json`.
 
@@ -126,7 +126,7 @@ src/cli/          command line entry point
 src/core/         shared theme/plugin logic used by the CLI, the GUI server, and launch-time injection
 src/electron/     desktop app main process
 src/gui/          Express server + HTML pages
-src/injector/     CDP injection (index.ts one-shot, daemon.ts long-running)
+src/injector/     CDP injection (daemon.ts long-running, pipe.ts the DevTools pipe, control.ts its socket)
 src/patcher/      Notion wrapper patching and the auto-repatch watcher
 src/updater/      update checks
 supabase/         marketplace edge functions and database migrations
