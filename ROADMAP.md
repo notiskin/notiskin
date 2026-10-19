@@ -13,13 +13,13 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 - ✅ Release 0.4.0, then remove the v0.1.0–v0.3.0 builds that contain `.env`
 - ✅ Sign in from Settings only, and only show the Review tab to reviewers
 
-## Phase 1: Reliability (weeks 1–4, about 15–20 hours)
+## ✅ Phase 1: Reliability (done October 2026)
 
 - ✅ Long-running injector: themes every tab and window, survives reloads without flashing, applies changes live, exits with Notion
 - ✅ "Install into Notion" button in Settings ([plan](docs/prompts/phase-1-install-button.md)). The app patches Notion with its own bundled runtime, so DMG users keep themes across restarts. No password: macOS App Management blocks the admin-prompt route, so it installs as the user and needs App Management for Notiskin instead
 - ✅ Uninstall button that fully reverses it, and Repair after a Notion update
-- Safe mode: start Notion with all mods off, in case a plugin breaks it
-- Diagnostics in Settings: patch status, injector status, recent log lines, "copy diagnostics" for bug reports
+- ✅ Safe mode: pause every theme and plugin from Settings or `notiskin safe-mode on`, in case a plugin breaks Notion ([plan](docs/prompts/phase-1-safe-mode-diagnostics.md))
+- ✅ Diagnostics in Settings: versions, install status, injector status, recent log lines, "copy diagnostics" for bug reports, with Notion links, IDs and the user name hidden
 
 ## Phase 2: Distribution (weeks 4–6, about 8–10 hours plus Apple's wait)
 

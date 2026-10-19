@@ -124,15 +124,14 @@ Done (Oct 2026): security hardening (commit 7ea8a9d), the long-running injector 
 - Deleting your own pending submission from My Submissions checked in the real app
 - Supabase Auth's Site URL set to `http://localhost:3845`
 
-Done (Oct 2026), Phase 1 so far:
+Done (Oct 2026), Phase 1:
 - "Install into Notion" in Settings (PRs #9 and #10): Install, Repair, and Uninstall with no password, checked on a real Mac (install, restart, reopen from the Dock, file owners, uninstall, CLI patch/unpatch). The original plan's single admin password prompt was dropped because App Management blocks it, see the constraint above
 - v0.5.0 published by the workflow, bundle checked free of `.env`. The DMG app installed into Notion on a real Mac: macOS blocked it first, the Settings "Open App Management" button (`x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles`) opened the right page, and after turning on notiskin there Install worked
+- Safe mode and diagnostics (PR #14, plan in `docs/prompts/phase-1-safe-mode-diagnostics.md`), checked on a real Mac: safe mode removes the theme and survives a Notion restart, the notice's Turn off brings it back, and the diagnostics report shows correct statuses with the home folder, user name and Notion links hidden. Phase 1 is complete
 
 Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin is damaged and can't be opened" on Apple Silicon, and right-click → Open doesn't help. The fix is `xattr -dr com.apple.quarantine /Applications/notiskin.app` (in the README).
 
-Built, waiting for a Mac check: safe mode and diagnostics (`docs/prompts/phase-1-safe-mode-diagnostics.md` has the plan and the checklist).
-
-Next: once those are checked, tick them in ROADMAP.md. Then Phase 2 (app icon, Intel builds, Developer ID signing, first-run walkthrough). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+Next: Phase 2 (app icon, Intel builds, Developer ID signing, first-run walkthrough). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 
