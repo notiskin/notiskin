@@ -11,6 +11,7 @@ const { tmpdir } = require('os');
 process.env.HOME = mkdtempSync(join(tmpdir(), 'notiskin-home-'));
 
 const patcher = require('../dist/patcher/index');
+const { readConfig, writeConfig } = require('../dist/utils/config');
 const admin = require('../dist/patcher/admin');
 
 const TRICKY = [
@@ -401,8 +402,22 @@ test('the patched Notion still accepts Notion-signed updates, and meets its own 
       assert.equal(readFileSync(notion, 'utf-8'), wrapper);
       assert.equal(patcher.hasOldSignature(), false);
 
-      // uninstalling keeps the same requirement, so Notion can still update itself afterwards
+      // on by default: the Notion half also asks for an Electron app. Turning it off re-signs without it
+      assert.ok(designated(real).includes('info[NSPrincipalClass] = AtomApplication'));
+      writeConfig({ ...readConfig(), blockNativeNotion: false });
+      assert.equal(patcher.hasOldSignature(), true, 'a changed setting counts as an old signature');
+      assert.equal(patcher.resignNotion(), 'signed');
+      assert.ok(!designated(real).includes('AtomApplication'));
+      assert.ok(meets(real, designated(real)));
+      assert.equal(patcher.hasOldSignature(), false);
+      writeConfig({ ...readConfig(), blockNativeNotion: true });
+      assert.equal(patcher.resignNotion(), 'signed');
+      assert.ok(designated(real).includes('AtomApplication'));
+
+      // uninstalling holds nothing back, Notion installs every update afterwards
       patcher.unpatchNotion();
+      assert.ok(!designated(app).includes('AtomApplication'));
+      assert.equal(patcher.resignNotion(), 'not-patched');
       assert.ok(designated(app).includes('certificate leaf[subject.OU] = LBQJ96FQ8D'));
       assert.ok(meets(app, designated(app)));
       assert.doesNotThrow(() => codesign('--verify', '--deep', '--strict', app));
@@ -411,6 +426,25 @@ test('the patched Notion still accepts Notion-signed updates, and meets its own 
   } finally {
     for (const [k, fn] of silence) console[k] = fn;
   }
+});
+
+// an update can't be signed by Notion here, so swap Notion's half for one ad hoc test apps can meet and check the
+// Electron part on its own: an app without Electron's principal class is refused while the switch is on
+test('the hold-back requirement refuses an app that is not Electron', { skip: signSkip }, () => {
+  const testable = on => patcher.signingRequirement(on).replace(patcher.NOTION_REQUIREMENT, 'identifier "notion.id"').replace(/^designated => /, '');
+  const appWith = principal => {
+    const { app } = fakeNotionApp();
+    rmSync(join(app, 'Contents', 'Frameworks'), { recursive: true });
+    const plist = infoPlist('notion.id', 'Notion').replace('</dict>', principal ? `<key>NSPrincipalClass</key><string>${principal}</string></dict>` : '</dict>');
+    writeFileSync(join(app, 'Contents', 'Info.plist'), plist);
+    codesign('--force', '--sign', '-', app);
+    return app;
+  };
+  const electron = appWith('AtomApplication');
+  const native = appWith('NSApplication');
+  assert.ok(meets(electron, testable(true)));
+  assert.ok(!meets(native, testable(true)));
+  assert.ok(meets(native, testable(false)));
 });
 
 test('admin command passes the real user and runs the CLI as Node', () => {
