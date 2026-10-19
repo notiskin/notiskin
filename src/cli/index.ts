@@ -3,7 +3,7 @@ import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, statSync, truncateSync } from 'fs';
 import { basename, join, resolve } from 'path';
 import { homedir } from 'os';
-import { patchNotion, unpatchNotion } from '../patcher/index';
+import { patchNotion, resignNotion, unpatchNotion } from '../patcher/index';
 import { readConfig, writeConfig } from '../utils/config';
 import { LOGS_DIR, NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR, INJECTOR_PID_PATH } from '../utils/constants';
 import { acquirePidLock } from '../utils/pidlock';
@@ -39,6 +39,7 @@ const USAGE = `Usage: notiskin <command>
   plugin disable <name>     disable a plugin and apply
   plugin delete <name>      delete an installed plugin
   safe-mode [on|off]        pause all themes and plugins (or show whether they're paused)
+  block-native [on|off]     refuse Notion updates that aren't Electron, like the SwiftUI app (on by default)
   diagnostics               print a report for bug reports (page links, IDs and your username hidden)
   patch                     make Notion load Notiskin on every launch
   unpatch                   fully restore Notion and remove everything patch added
@@ -226,6 +227,26 @@ async function safeModeCommand(args: string[]): Promise<void> {
   if (!applied) console.log('(Notion is not running with Notiskin right now, the change applies next time it starts.)');
 }
 
+// the setting lives in Notion's signature, a patched Notion is re-signed now, an unpatched one at the next patch
+function blockNativeCommand(args: string[]): void {
+  const [sub] = args;
+  const config = readConfig();
+  if (sub === undefined) {
+    console.log(`Holding back non-Electron Notion updates: ${config.blockNativeNotion ? 'on' : 'off'}.`);
+    return;
+  }
+  if (sub !== 'on' && sub !== 'off') throw new UsageError('Usage: notiskin block-native [on|off]');
+  const on = sub === 'on';
+  writeConfig({ ...config, blockNativeNotion: on });
+  console.log(on
+    ? 'Notion updates that aren\'t Electron (like the SwiftUI app) will be refused.'
+    : 'Notion will install every update, including ones Notiskin can\'t theme.');
+  const result = resignNotion();
+  if (result === 'signed') console.log('Notion re-signed, this applies the next time Notion starts.');
+  else if (result === 'not-patched') console.log('Applies the next time Notiskin is installed into Notion.');
+  else console.log('Could not re-sign Notion (App Management?). The desktop app retries when it starts, or run: notiskin patch');
+}
+
 // started by the wrapper script on every Notion launch (with Notion's pipe folder), and by the app and
 // CLI without one when Notion is running but the injector isn't. Runs until Notion quits
 async function inject(runArg?: string): Promise<void> {
@@ -335,6 +356,8 @@ async function main(argv: string[]): Promise<void> {
       return pluginCommand(rest);
     case 'safe-mode':
       return safeModeCommand(rest);
+    case 'block-native':
+      return blockNativeCommand(rest);
     case 'diagnostics':
       console.log(await diagnosticsReport());
       return;

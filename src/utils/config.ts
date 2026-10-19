@@ -12,10 +12,12 @@ export interface NotiskinConfig {
   setupDone: boolean;
   // set by patch, cleared by unpatch. A Notion update removes the wrapper and Notion.real, this is how status still says needs-repair
   notionInstalled: boolean;
+  // refuse a Notion update that isn't Electron (Notion is moving to SwiftUI), on unless turned off
+  blockNativeNotion: boolean;
 }
 
 function defaultConfig(): NotiskinConfig {
-  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false };
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false, blockNativeNotion: true };
 }
 
 function stringArray(value: unknown): string[] {
@@ -32,6 +34,7 @@ export function parseConfig(raw: unknown): NotiskinConfig {
     safeMode: obj.safeMode === true,
     setupDone: obj.setupDone === true,
     notionInstalled: obj.notionInstalled === true,
+    blockNativeNotion: obj.blockNativeNotion !== false,
   };
 }
 

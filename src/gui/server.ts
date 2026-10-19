@@ -404,7 +404,35 @@ app.get('/api/diagnostics', async (_req, res) => {
 
 app.get('/api/notion/status', (_req, res) => {
   if (!requireMac(res)) return;
-  res.json({ status: notionSetup.status(), notionRunning: isNotionRunning() });
+  res.json({ status: notionSetup.status(), notionRunning: isNotionRunning(), blockNative: readConfig().blockNativeNotion });
+});
+
+// the setting lives in Notion's signature, so a patched Notion is re-signed (the same CLI patch as Repair).
+// Saved either way: an unpatched Notion gets it at Install, and if signing fails the app retries on its next start
+app.post('/api/notion/block-native', async (req, res) => {
+  if (!requireMac(res)) return;
+  const on = (req.body as { on?: unknown })?.on;
+  if (typeof on !== 'boolean') return res.status(400).json({ ok: false, error: 'on must be true or false' });
+  writeConfig({ ...readConfig(), blockNativeNotion: on });
+  if (notionSetup.status() !== 'installed') return res.json({ ok: true, blockNative: on, applied: false });
+  if (notionSetupBusy) return res.status(409).json({ ok: false, blockNative: on, error: 'Already working on it.' });
+  notionSetupBusy = true;
+  try {
+    const result = await notionSetup.run('patch');
+    logSetup('patch', `block native Notion ${on ? 'on' : 'off'}: ${result.status}\n${result.output}`);
+    if (result.status === 'ok') return res.json({ ok: true, blockNative: on, applied: true });
+    res.json({
+      ok: false,
+      blockNative: on,
+      error: result.message,
+      reason: setupFailureReason(result.output),
+      appName: appManagementName(),
+    });
+  } catch (err) {
+    res.json({ ok: false, blockNative: on, error: errorMessage(err) });
+  } finally {
+    notionSetupBusy = false;
+  }
 });
 
 // nothing from the request goes into the command, it is built from this process's own paths

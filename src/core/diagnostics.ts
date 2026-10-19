@@ -131,6 +131,7 @@ export async function diagnosticsReport(now = new Date()): Promise<string> {
     `Injector:        ${injectorPid ? `running (pid ${injectorPid})` : 'not running'}${injector?.ok ? `, connected to ${injector.tabs} tab(s)` : ''}`,
     `Port ${OLD_DEBUG_PORT}:       ${oldPort ? 'open (an old Notiskin wrapper or another app, Repair closes ours)' : 'closed'}`,
     `Safe mode:       ${config.safeMode ? 'on' : 'off'}`,
+    `Block native:    ${config.blockNativeNotion ? 'on' : 'off'}`,
     `Theme:           ${config.activeTheme || '(none)'} (${themes.length} installed)`,
     `Plugins on:      ${config.enabledPlugins.join(', ') || '(none)'} (${plugins.length} installed)`,
     `Data folder:     ${NOTISKIN_DIR}`,

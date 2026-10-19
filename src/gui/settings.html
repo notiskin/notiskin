@@ -237,6 +237,13 @@
           </div>
           <button class="btn-install" id="notion-btn" onclick="runNotionAction()" style="display:none"></button>
         </div>
+        <div class="settings-row" id="native-row" style="display:none">
+          <div>
+            <div class="settings-row-label">Hold back a Notion Notiskin can't theme <span id="native-badge" class="update-badge neutral">On</span></div>
+            <div class="settings-row-sub" id="native-sub"></div>
+          </div>
+          <button class="btn-install" id="native-btn" onclick="toggleBlockNative()">Turn off</button>
+        </div>
         <div class="settings-row" id="notion-restart-row" style="display:none">
           <div>
             <div class="settings-row-label">Restart Notion</div>
@@ -531,11 +538,66 @@
         const res = await fetch('/api/notion/status');
         const data = await res.json();
         renderNotion(data.status, data.error);
+        renderBlockNative(data);
         return data;
       } catch {
         renderNotion(null, 'Could not check Notion.');
+        renderBlockNative(null);
         return null;
       }
+    }
+
+    // Notion is moving its Mac app to SwiftUI. While this is on, Notion's updater refuses an update that isn't
+    // Electron, because Notiskin can't theme that and there's no easy way back to the old app
+    let blockNativeOn = true;
+    let nativeBusy = false;
+
+    function renderBlockNative(data) {
+      const row = document.getElementById('native-row');
+      // only useful while Notion is still the Electron app Notiskin themes
+      const relevant = data && typeof data.blockNative === 'boolean' && ['not-installed', 'installed', 'needs-repair'].includes(data.status);
+      row.style.display = relevant ? 'flex' : 'none';
+      if (!relevant || nativeBusy) return;
+      blockNativeOn = data.blockNative;
+      const badge = document.getElementById('native-badge');
+      badge.className = `update-badge ${blockNativeOn ? 'up-to-date' : 'neutral'}`;
+      badge.textContent = blockNativeOn ? 'On' : 'Off';
+      document.getElementById('native-sub').textContent = blockNativeOn
+        ? 'Notion keeps updating, but refuses an update that Notiskin can\'t theme, like the SwiftUI Notion that\'s on its way. Once that\'s installed there\'s no easy way back.'
+        : 'Notion installs every update, including a SwiftUI Notion that Notiskin can\'t theme. Once that\'s installed there\'s no easy way back.';
+      const btn = document.getElementById('native-btn');
+      btn.textContent = blockNativeOn ? 'Turn off' : 'Turn on';
+      btn.disabled = notionBusy;
+    }
+
+    async function toggleBlockNative() {
+      if (nativeBusy || notionBusy) return;
+      const on = !blockNativeOn;
+      const btn = document.getElementById('native-btn');
+      nativeBusy = true;
+      btn.disabled = true;
+      btn.textContent = on ? 'Turning on...' : 'Turning off...';
+      showNotionError('');
+      let data = null;
+      try {
+        const res = await fetch('/api/notion/block-native', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on }),
+        });
+        data = await res.json();
+      } catch {}
+      nativeBusy = false;
+      if (data?.ok) {
+        showNotif(data.applied ? 'Saved, applies after Notion restarts' : 'Saved');
+      } else if (data && typeof data.blockNative === 'boolean') {
+        // saved, but Notion couldn't be re-signed yet. The app retries when it next starts
+        const failure = notionFailure('install', data);
+        showNotionError(`Saved, but Notion wasn't re-signed yet. ${failure.message}`, { settingsButton: failure.settingsButton });
+      } else {
+        showNotif('Could not change this setting');
+      }
+      await loadNotionStatus();
     }
 
     function showRestartOffer(message) {

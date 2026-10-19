@@ -42,7 +42,7 @@ If a plugin breaks Notion, open **Settings → Safe mode → Turn on**. Every th
 
 Notion keeps updating itself while Notiskin is installed. An update replaces the whole Notion app, so Settings shows **Needs repair** afterwards: click **Repair** and restart Notion to bring your theme back. Versions of Notiskin up to 0.5 signed Notion in a way that made it refuse every update. Opening the new version re-signs Notion on its own, but a Notion that's already stuck on an old version needs one manual update: quit Notion, download it again from [notion.com/desktop](https://www.notion.com/desktop), drag it into Applications (choose **Replace**), then click **Install** in Notiskin. Your notes and login aren't affected; if macOS asks about "Notion Safe Storage", click **Always Allow**.
 
-Notion is moving its Mac app to SwiftUI. Notiskin themes Notion's web-based (Electron) app, so if an update brings a native Notion, Settings shows **Not supported yet** and Notiskin leaves Notion alone.
+Notion is moving its Mac app to SwiftUI, and Notiskin can only theme Notion's web-based (Electron) app. **Settings → Notion → Hold back a Notion Notiskin can't theme** is on by default: Notion keeps updating, but its updater refuses an update that isn't Electron, since there's no easy way back once it's installed. Turn it off to take every update (from Terminal: `notiskin block-native off`). It can't stop Notion switching parts of the current app to native from its servers. If a native Notion does get installed, Settings shows **Not supported yet** and Notiskin leaves Notion alone.
 
 ## Command line
 
@@ -60,6 +60,7 @@ npm run plugin -- enable <name>
 npm run plugin -- disable <name>    # reloads Notion's page, JS can't be un-run
 npm run plugin -- delete <name>
 node dist/cli/index.js safe-mode on   # pause all themes and plugins (off to resume)
+node dist/cli/index.js block-native off  # let Notion install updates Notiskin can't theme (on to hold them back)
 node dist/cli/index.js diagnostics    # the same report as Settings → Diagnostics
 ```
 

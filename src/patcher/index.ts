@@ -57,34 +57,42 @@ export const NOTION_REQUIREMENT =
   'and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = LBQJ96FQ8D';
 // the label our ad hoc signature carries
 export const NOTISKIN_SIGNING_ID = 'com.notiskin.patched';
+// Electron's own NSApplication subclass, every Electron app's Info.plist names it, a SwiftUI Notion wouldn't
+const ELECTRON_CLAUSE = 'info[NSPrincipalClass] = "AtomApplication"';
+
 // Notion's updater (Squirrel.Mac) only takes an update that meets the running Notion's designated requirement.
 // Plain ad hoc signing makes that "this exact build", so every update was refused. Real Notion builds meet the
-// first half, and the patched Notion meets the second, which the keychain and privacy permissions need
-export const SIGNING_REQUIREMENT = `designated => (${NOTION_REQUIREMENT}) or identifier "${NOTISKIN_SIGNING_ID}"`;
+// first half, and the patched Notion meets the second, which the keychain and privacy permissions need.
+// With blockNative the first half also asks for an Electron app, so a native Notion update is refused
+export function signingRequirement(blockNative: boolean): string {
+  const notion = blockNative ? `${NOTION_REQUIREMENT} and ${ELECTRON_CLAUSE}` : NOTION_REQUIREMENT;
+  return `designated => (${notion}) or identifier "${NOTISKIN_SIGNING_ID}"`;
+}
 
-function signOne(path: string): void {
-  execFileSync('codesign', ['--force', '--sign', '-', '-i', NOTISKIN_SIGNING_ID, `-r=${SIGNING_REQUIREMENT}`, path], {
+function signOne(path: string, requirement: string): void {
+  execFileSync('codesign', ['--force', '--sign', '-', '-i', NOTISKIN_SIGNING_ID, `-r=${requirement}`, path], {
     stdio: 'pipe',
   });
 }
 
 // only what we changed: Notion.real (while patched), then the app itself. Notion's frameworks and helpers keep Notion's signatures
-function signChanged(notionPath: string): void {
+function signChanged(notionPath: string, requirement: string): void {
   const realPath = `${notionPath}.real`;
-  if (existsSync(realPath)) signOne(realPath);
-  signOne(appBundlePath(notionPath));
+  if (existsSync(realPath)) signOne(realPath, requirement);
+  signOne(appBundlePath(notionPath), requirement);
 }
 
-export function signNotion(notionPath: string): boolean {
+export function signNotion(notionPath: string, blockNative = readConfig().blockNativeNotion): boolean {
+  const requirement = signingRequirement(blockNative);
   try {
-    signChanged(notionPath);
+    signChanged(notionPath, requirement);
     console.log('[patcher] App bundle re-signed (ad-hoc, Notion updates still allowed).');
     return true;
   } catch {
     // something inside isn't validly signed any more, sign everything ad hoc first, then ours on top
     try {
       execFileSync('codesign', ['--force', '--deep', '--sign', '-', appBundlePath(notionPath)], { stdio: 'pipe' });
-      signChanged(notionPath);
+      signChanged(notionPath, requirement);
       console.log('[patcher] App bundle re-signed (ad-hoc, everything inside too).');
       return true;
     } catch {
@@ -98,15 +106,16 @@ export function signNotion(notionPath: string): boolean {
   }
 }
 
-// false for installs signed before Notion updates were allowed, they get re-signed on the next patch
-export function hasNotiskinSignature(notionPath: string): boolean {
+// false for installs signed before Notion updates were allowed, or before the block setting last changed.
+// The next patch re-signs them
+export function hasCurrentSignature(notionPath: string, blockNative = readConfig().blockNativeNotion): boolean {
   const realPath = `${notionPath}.real`;
   try {
     const out = execFileSync('codesign', ['-d', '-r-', existsSync(realPath) ? realPath : notionPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
       encoding: 'utf-8',
     });
-    return out.includes(`identifier "${NOTISKIN_SIGNING_ID}"`);
+    return out.includes(`identifier "${NOTISKIN_SIGNING_ID}"`) && out.includes('info[NSPrincipalClass]') === blockNative;
   } catch {
     return false;
   }
@@ -258,14 +267,30 @@ export function hasLegacyWrapper(): boolean {
   }
 }
 
-// true when Notion is patched but signed the old way, which blocked Notion's own updates. The desktop app re-signs these on start
+// true when Notion is patched but signed the old way (which blocked Notion's own updates), or not yet re-signed
+// after the block setting changed. The desktop app re-signs these on start
 export function hasOldSignature(): boolean {
   try {
     const notionPath = findNotionBinary();
-    return isWrapperPresent(notionPath) && !hasNotiskinSignature(notionPath);
+    return isWrapperPresent(notionPath) && !hasCurrentSignature(notionPath);
   } catch {
     return false;
   }
+}
+
+// re-signs a patched Notion after the block setting changed
+export function resignNotion(): 'signed' | 'not-patched' | 'failed' {
+  let notionPath: string;
+  try {
+    notionPath = findNotionBinary();
+  } catch {
+    return 'not-patched';
+  }
+  if (!isWrapperPresent(notionPath)) return 'not-patched';
+  const owner = bundleOwner(notionPath);
+  const signed = signNotion(notionPath);
+  restoreBundleOwner(notionPath, owner);
+  return signed ? 'signed' : 'failed';
 }
 
 interface Owner {
@@ -330,8 +355,8 @@ export function patchNotion(nodePath: string, cliScriptPath: string, opts: Wrapp
   if (isWrapperPresent(notionPath)) {
     if (readFileSync(notionPath, 'utf-8') === script) {
       console.log('[patcher] Already patched, wrapper is in place.');
-      if (!hasNotiskinSignature(notionPath)) {
-        // signed before Notion updates were allowed, re-sign so the next update installs
+      if (!hasCurrentSignature(notionPath)) {
+        // signed the old way or before the block setting changed, re-sign so the next update is handled right
         signNotion(notionPath);
         restoreBundleOwner(notionPath, owner);
       }
@@ -413,8 +438,8 @@ export function unpatchNotion(): void {
   console.log('[patcher] Restoring original binary...');
   renameSync(realPath, notionPath);
 
-  // same requirement, so Notion can still update itself after an uninstall
-  signNotion(notionPath);
+  // Notion can still update itself after an uninstall, nothing is held back any more
+  signNotion(notionPath, false);
   restoreBundleOwner(notionPath, owner);
   setInstalled(false);
 
