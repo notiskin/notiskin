@@ -323,11 +323,20 @@ app.get('/plugins.html', sendPage('plugins.html'));
 app.get('/review.html', sendPage('review.html'));
 app.get('/settings.html', sendPage('settings.html'));
 
-// the welcome tour, shared by the Themes, Plugins and Settings pages
-app.get('/tour.js', (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.type('js').send(readFileSync(join(pagesDir, 'tour.js'), 'utf-8'));
-});
+// files the pages share: the look (brand.css and its fonts) and the welcome tour. A fixed list,
+// nothing else in the folder is reachable, and read the same way as the pages so it works from app.asar
+const ASSETS: Record<string, string> = {
+  '/brand.css': 'css',
+  '/tour.js': 'js',
+  '/fonts/fraunces.woff2': 'font/woff2',
+  '/fonts/inter.woff2': 'font/woff2',
+};
+for (const [path, type] of Object.entries(ASSETS)) {
+  app.get(path, (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.type(type).send(readFileSync(join(pagesDir, path)));
+  });
+}
 
 app.get('/api/status', (_req, res) => {
   const config = readConfig();
