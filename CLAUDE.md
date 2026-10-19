@@ -39,12 +39,13 @@ src/
   gui/
     server.ts             — Express server; exports startServer() and app
     run.ts                — Dev entry point; calls startServer(true) for standalone mode
-    themes.html / plugins.html / review.html / settings.html — GUI pages
+    themes.html / plugins.html / review.html / settings.html — GUI pages (Settings has the Notion section: Install / Repair / Uninstall)
   injector/index.ts       — One-shot CDP injection (CSS + JS into Notion), plugins run once per page load
   injector/daemon.ts      — Long-running injector: one browser-level CDP connection, themes every Notion tab, re-applies on reload and on file changes, exits when Notion quits
   utils/pidlock.ts        — Single-instance lock (~/.notiskin/injector.pid)
   patcher/
-    index.ts              — Patches Notion's app bundle; exports patchNotion(), unpatchNotion()
+    index.ts              — Patches Notion's app bundle; exports patchNotion(), unpatchNotion(), getNotionStatus(), makeWrapperScript()
+    admin.ts              — osascript admin-prompt runner, unused (App Management blocks it); shellQuote/errorFromOutput are used
     watcher.ts            — FSEvents watcher; detects Notion updates and repatches
   updater/index.ts        — electron-updater wrapper (Electron only)
   types/chrome-remote-interface.d.ts
@@ -72,11 +73,11 @@ test/                     — node:test suites (npm test builds first)
 
 **Electron app (`src/electron/main.ts`):** Starts the Express server, creates a BrowserWindow loading `http://localhost:3845`, quits fully when the window is closed. Single-instance lock prevents duplicate windows. This is what opens when you launch Notiskin from Spotlight or Applications.
 
-**Express server (`src/gui/server.ts`):** Serves `themes.html`, `plugins.html`, `review.html`, and `settings.html`. Exposes REST endpoints for the GUI: theme switching, plugin toggling, marketplace search/install (the server fetches approved code from Supabase by id), submissions, and proxies to the edge functions. Does **not** auto-start on import — call `startServer()` explicitly. `src/gui/run.ts` is a thin dev entry point that calls `startServer(true)` directly.
+**Express server (`src/gui/server.ts`):** Serves `themes.html`, `plugins.html`, `review.html`, and `settings.html`. Exposes REST endpoints for the GUI: theme switching, plugin toggling, marketplace search/install (the server fetches approved code from Supabase by id), submissions, and proxies to the edge functions. `/api/notion/*` (status, install, uninstall, restart, app-management) is macOS only: install/uninstall run the CLI's `patch`/`unpatch` as the current user with `process.execPath` + `ELECTRON_RUN_AS_NODE=1`, one at a time, through the swappable `notionSetup` object (tests mock it). Failures come back with a reason (`app-management` for EPERM, `not-owner` for EACCES). Does **not** auto-start on import — call `startServer()` explicitly. `src/gui/run.ts` is a thin dev entry point that calls `startServer(true)` directly.
 
 **Injector (`src/injector/`):** `index.ts` is the one-shot path the GUI/CLI use for immediate feedback; it targets the visible page (checks `document.visibilityState`). `daemon.ts` is started by `notiskin inject` (the wrapper runs it on every Notion launch, and `ensureInjector()` in core/library.ts starts it whenever a theme is applied). It attaches to every Notion page target via `Target.setDiscoverTargets` + flat sessions, registers a document-start style script so reloads don't flash, re-injects on `Page.loadEventFired`, and re-applies to all tabs when files in ~/.notiskin change. Theme CSS is a `<style id="notiskin-styles">` element; core CSS and `window.notiskin` are only injected when a theme / plugin is active.
 
-**Patcher (`src/patcher/index.ts`):** Replaces the Notion executable with a wrapper shell script that adds `--remote-debugging-port=9222` on every launch and triggers the injector. The original binary is renamed to `Notion.real`. Also manages re-signing with `codesign`. `patchNotion()` and `unpatchNotion()` are the main exports.
+**Patcher (`src/patcher/index.ts`):** Replaces the Notion executable with a wrapper shell script that adds `--remote-debugging-port=9222` on every launch and triggers the injector. The original binary is renamed to `Notion.real`. Also manages re-signing with `codesign`. `patchNotion()` and `unpatchNotion()` are the main exports. The CLI wrapper line is byte-for-byte what older versions wrote; app mode (`{ appMode: true }`, used when the CLI runs on Electron's binary) adds `ELECTRON_RUN_AS_NODE=1` to the inject line only, never to `Notion.real`. Patching again rewrites a wrapper that points somewhere else, which is how Repair fixes a moved Notiskin. When run as root it gives `Notion.app` back to its previous owner, and the CLI gives `dist/` back to `SUDO_USER`. `getNotionStatus()` (not-installed, installed, needs-repair, notion-missing) needs no root. `NOTISKIN_NOTION_APP` overrides the Notion location, for tests only.
 
 **Watcher (`src/patcher/watcher.ts`):** An FSEvents watcher installed as a LaunchAgent. Watches for Notion updates (which overwrite the wrapper), then repatches when Notion is next closed.
 
@@ -88,8 +89,9 @@ test/                     — node:test suites (npm test builds first)
 
 - Notion preloads hidden duplicate pages. The one-shot injector checks `document.visibilityState === 'visible'`; the daemon deliberately themes all Notion pages, hidden ones included, so preloaded tabs are ready when shown.
 - Integration tests use a fake Notion (test/fixtures/fake-notion, an Electron app). Never point tests at the real Notion app.
-- The patcher requires `sudo` for the initial `codesign` call. A scoped sudoers rule at `/etc/sudoers.d/notiskin` enables silent re-signing after that.
-- A full clean uninstall is a single command: `npm run unpatch`. It removes the wrapper script, restores the Notion binary, removes the LaunchAgent, removes the sudoers rule, and removes the signing helper. `npm run watch:uninstall` still works independently if only the watcher needs to be removed.
+- Changing `/Applications/Notion.app` needs macOS App Management for whichever app starts it (Notiskin, or Electron/Terminal when running from source). Root doesn't help: a command run through the admin password dialog (`osascript ... with administrator privileges`) gets EPERM even from Terminal, checked on macOS 26. So the app patches as the user, which works because Notion.app normally belongs to the user. Unsigned (ad-hoc) builds may lose the permission after an update until Developer ID signing.
+- `sudo npm run patch` is only needed for the watcher: it adds a scoped sudoers rule at `/etc/sudoers.d/notiskin` for silent re-signing. Removing that rule needs root (`sudo npm run unpatch`).
+- A full clean uninstall is a single command: `npm run unpatch`. It removes the wrapper script, restores the Notion binary, removes the LaunchAgent, removes the sudoers rule (when run with sudo), and removes the signing helper. `npm run watch:uninstall` still works independently if only the watcher needs to be removed.
 - MutationObserver plugins can self-trigger infinite loops. Scope observers tightly, wrap in try/catch, include loop guards.
 - `onAuthStateChange` alone doesn't catch already-persisted sessions. Always call `getSession()` on page load too.
 - The local server binds 127.0.0.1 and every `/api` call needs the per-launch `X-Notiskin-Token` header (injected into pages by server.ts, added automatically by a fetch wrapper). New pages must be served through `sendPage()`.
@@ -116,12 +118,17 @@ Done (Oct 2026): security hardening (commit 7ea8a9d), the long-running injector 
 - Checked against the real backend: a forged `user_metadata` reviewer gets no access, direct client writes are refused, authorship comes from the GitHub identity, CSS escapes and `image-set` are held for review, and reviewing, rating and installing still work
 - v0.4.0 published by the workflow, bundle checked free of `.env`
 - Sign-in moved to Settings, Review tab only shown to reviewers
+- Deleting your own pending submission from My Submissions checked in the real app
+- Supabase Auth's Site URL set to `http://localhost:3845`
+
+Done (Oct 2026), Phase 1 so far:
+- "Install into Notion" in Settings (PRs #9 and #10): Install, Repair, and Uninstall with no password, checked on a real Mac (install, restart, reopen from the Dock, file owners, uninstall, CLI patch/unpatch). The original plan's single admin password prompt was dropped because App Management blocks it, see the constraint above
 
 Open:
-- Deleting your own pending submission from My Submissions wasn't tried in the real app (the database rule was tested on a scratch copy)
-- Supabase Auth's Site URL is `http://localhost:3000` with an empty redirect allow list. Sign-in works because Supabase accepts redirects to the same hostname, setting the Site URL to `http://localhost:3845` would be tidier
+- The Settings "Open App Management" button (`x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles`) hasn't been seen on a real Mac yet, it only shows when macOS blocks an install
+- The packaged DMG app hasn't installed into Notion yet (only `npm start`), check that once 0.5.0 is built: App Management should name "notiskin"
 
-Next: Phase 1, starting with the "Install into Notion" button. Step-by-step plan: `docs/prompts/phase-1-install-button.md`. The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+Next: release 0.5.0 when Remi asks (step 9 of `docs/prompts/phase-1-install-button.md`), then the rest of Phase 1 in ROADMAP.md (safe mode, diagnostics). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 
