@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { app, BrowserWindow, dialog, shell } from 'electron';
-import { startServer } from '../gui/server';
+import { repairLegacyWrapper, startServer } from '../gui/server';
 import { initUpdater } from '../updater/index';
 import { NOTISKIN_DIR, GUI_PORT } from '../utils/constants';
 
@@ -48,6 +48,9 @@ if (!gotLock) {
       app.quit();
       return;
     }
+
+    // runs in the background, Settings shows the result through the usual Notion status
+    void repairLegacyWrapper();
 
     win = new BrowserWindow({
       width: 1024,

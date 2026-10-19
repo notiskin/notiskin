@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, statSync, truncateSync } from 'fs';
-import { basename, join } from 'path';
+import { basename, join, resolve } from 'path';
 import { homedir } from 'os';
 import { patchNotion, unpatchNotion } from '../patcher/index';
 import { readConfig, writeConfig } from '../utils/config';
-import { CDP_PORT, LOGS_DIR, NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR, INJECTOR_PID_PATH } from '../utils/constants';
+import { LOGS_DIR, NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR, INJECTOR_PID_PATH } from '../utils/constants';
 import { acquirePidLock } from '../utils/pidlock';
 import {
   applyConfig,
@@ -16,6 +16,9 @@ import {
   listThemes,
 } from '../core/library';
 import { startInjectorDaemon } from '../injector/daemon';
+import { findNotionRun, PipeRun, runPid } from '../injector/pipe';
+import { askInjector } from '../injector/control';
+import { sleep } from '../utils/sleep';
 import { diagnosticsReport } from '../core/diagnostics';
 
 const PLUGIN_WARNING = `
@@ -223,20 +226,47 @@ async function safeModeCommand(args: string[]): Promise<void> {
   if (!applied) console.log('(Notion is not running with Notiskin right now, the change applies next time it starts.)');
 }
 
-// started by the wrapper script on every Notion launch (and by apply), runs until Notion quits
-async function inject(): Promise<void> {
-  const release = acquirePidLock(INJECTOR_PID_PATH);
-  if (!release) {
-    console.log('[inject] Injector is already running.');
+// started by the wrapper script on every Notion launch (with Notion's pipe folder), and by the app and
+// CLI without one when Notion is running but the injector isn't. Runs until Notion quits
+async function inject(runArg?: string): Promise<void> {
+  const stamp = (msg: string) => console.log(`[${new Date().toISOString()}] [inject] ${msg}`);
+  let run: PipeRun | null = null;
+  if (runArg) {
+    const pid = runPid(resolve(runArg));
+    if (pid) run = { dir: resolve(runArg), pid };
+  } else {
+    run = findNotionRun();
+  }
+  if (!run) {
+    stamp('Notion is not running with Notiskin. If Notion was started by an older Notiskin, repair it in Settings or run: notiskin patch');
     return;
   }
+
+  let release = acquirePidLock(INJECTOR_PID_PATH);
+  if (!release) {
+    const status = await askInjector({ cmd: 'status' }, 2000);
+    if (status?.pid === run.pid) {
+      console.log('[inject] Injector is already running.');
+      return;
+    }
+    // the one holding the lock serves a Notion that just quit, it notices within a second
+    for (let i = 0; i < 40 && !release; i++) {
+      await sleep(250);
+      release = acquirePidLock(INJECTOR_PID_PATH);
+    }
+    if (!release) {
+      console.log('[inject] Another injector is still running.');
+      return;
+    }
+  }
   capLog(join(LOGS_DIR, 'inject.log'));
-  const stamp = (msg: string) => console.log(`[${new Date().toISOString()}] [inject] ${msg}`);
 
   const daemon = await startInjectorDaemon({
-    port: CDP_PORT,
+    run,
     loadPayload: () => currentPayload(readConfig(), stamp),
     watchPaths: [NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR],
+    controlSocket: true,
+    cleanUpRun: true,
     log: stamp,
   });
   stamp(`Watching ${daemon.attachedTargets().length} Notion tab(s).`);
@@ -302,7 +332,7 @@ async function main(argv: string[]): Promise<void> {
       console.log(await diagnosticsReport());
       return;
     case 'inject':
-      return inject();
+      return inject(rest[0]);
     case 'patch':
       // inside the desktop app this runs on Electron's binary, so the wrapper has to set ELECTRON_RUN_AS_NODE too
       return asRootCommand(() =>
