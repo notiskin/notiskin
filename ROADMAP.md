@@ -16,8 +16,8 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 ## Phase 1: Reliability (weeks 1–4, about 15–20 hours)
 
 - ✅ Long-running injector: themes every tab and window, survives reloads without flashing, applies changes live, exits with Notion
-- "Install into Notion" button in the app ([plan](docs/prompts/phase-1-install-button.md)). Today only the CLI can patch, and the patch points at a local repo checkout and Node install, so people using the DMG can't keep themes across restarts. The app should patch using its own bundled runtime, with one admin password prompt
-- Uninstall button that fully reverses it
+- ✅ "Install into Notion" button in Settings ([plan](docs/prompts/phase-1-install-button.md)). The app patches Notion with its own bundled runtime, so DMG users keep themes across restarts. No password: macOS App Management blocks the admin-prompt route, so it installs as the user and needs App Management for Notiskin instead
+- ✅ Uninstall button that fully reverses it, and Repair after a Notion update
 - Safe mode: start Notion with all mods off, in case a plugin breaks it
 - Diagnostics in Settings: patch status, injector status, recent log lines, "copy diagnostics" for bug reports
 
@@ -60,4 +60,5 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 ## Known limitations
 
 - Disabling a plugin removes it from the current tab right away. Other open tabs drop it on their next reload.
+- Installing into Notion needs App Management for Notiskin. Until releases are signed with a Developer ID, macOS may forget that permission after a Notiskin update (remove Notiskin from the list and add it again).
 - The long-running injector has been tested against a fake Notion (an Electron app in `test/fixtures/fake-notion`), not yet against the real Notion's tabs.

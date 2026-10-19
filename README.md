@@ -10,13 +10,17 @@ Notion loads its interface live from `notion.so`, so Notiskin doesn't edit Notio
 
 1. Starts Notion with `--remote-debugging-port=9222`, which turns on the Chrome DevTools Protocol (CDP).
 2. Runs a small background injector for as long as Notion is open. It themes every Notion tab and window, re-applies after reloads (with no flash of the default look), and picks up theme, plugin, and settings changes live. It exits when Notion quits.
-3. Optionally **patches** Notion: the Notion executable is replaced by a tiny wrapper script that always adds the debug port and re-applies your theme on every launch. The original binary is kept as `Notion.real` and backed up to `~/.notiskin/backup/`.
+3. Optionally **installs into Notion** (Settings → Notion → Install): the Notion executable is replaced by a tiny wrapper script that always adds the debug port and starts the injector on every launch. The original binary is kept as `Notion.real` and backed up to `~/.notiskin/backup/`. If Notiskin is later moved or deleted, Notion still starts, just without a theme.
 
 Themes and plugins live in `~/.notiskin/themes/*.css` and `~/.notiskin/plugins/*.js`. The active theme and enabled plugins are stored in `~/.notiskin/notiskin.config.json`.
 
 ## Install
 
 Download the latest `.dmg` from [Releases](https://github.com/notiskin/notiskin/releases/latest). The app isn't signed with an Apple Developer ID yet, so on first launch right-click it and choose **Open**.
+
+To keep your theme every time Notion starts, open **Settings → Notion** and click **Install**, then restart Notion when it offers. No password is needed. After a Notion update the status shows **Needs repair**: click **Repair**. **Uninstall** puts Notion back exactly as it was.
+
+macOS may block the install under **System Settings → Privacy & Security → App Management**, which controls which apps may change other apps. If it does, Notiskin says so and has a button to that page: turn on Notiskin and try again. Until Notiskin is signed with a Developer ID, macOS may forget that permission after a Notiskin update; if Notiskin is already switched on and still blocked, remove it with **−** and add it again.
 
 ## Desktop app
 
@@ -39,15 +43,18 @@ npm run plugin -- disable <name>    # reloads Notion's page, JS can't be un-run
 npm run plugin -- delete <name>
 ```
 
-### Patching Notion (optional, touches /Applications/Notion.app)
+### Patching Notion from the command line (alternative to the app's Install button, touches /Applications/Notion.app)
 
 ```bash
-sudo npm run patch          # wrapper + passwordless re-signing rule for codesign only
+npm run patch               # wrapper, works without sudo when you own Notion.app (the usual case)
+sudo npm run patch          # same, plus a passwordless re-signing rule the watcher uses
 npm run watch:install       # LaunchAgent that repatches after Notion auto-updates
-npm run unpatch             # restores everything: binary, signature, LaunchAgent, sudoers rule, helper
+npm run unpatch             # restores everything: binary, signature, LaunchAgent, helper
 ```
 
-`sudo` is needed once so the app bundle can be re-signed after the executable is swapped. The sudoers rule it installs (`/etc/sudoers.d/notiskin`) only allows that one exact `codesign` command.
+Terminal needs App Management (System Settings → Privacy & Security) to change Notion. `sudo` is only needed for the watcher: the sudoers rule it installs (`/etc/sudoers.d/notiskin`) only allows that one exact `codesign` command, so the watcher can re-sign Notion after an update without asking. Removing that rule needs root too: `sudo npm run unpatch`, or `sudo rm /etc/sudoers.d/notiskin`.
+
+An admin password can't get past App Management: macOS checks which app asks, not which user, and a command run through the admin password dialog loses track of the app that started it. That's why the app installs as you instead of asking for a password.
 
 ## Writing a theme
 
@@ -93,10 +100,10 @@ npm start                   # run the desktop app
 npm run lint
 npm run typecheck
 npm test
-npm run test:integration    # runs the injector against a fake Notion made with Electron
+npm run test:integration    # runs the injector and the patcher against a fake Notion made with Electron
 ```
 
-Set `NOTISKIN_DIR=/some/folder` to use a throwaway data folder instead of `~/.notiskin`.
+Set `NOTISKIN_DIR=/some/folder` to use a throwaway data folder instead of `~/.notiskin`. Tests also set `NOTISKIN_NOTION_APP` to patch a copy of the fake Notion in a temp folder, never `/Applications`. macOS App Management doesn't guard that temp folder, so only a real Mac can check the App Management behaviour.
 
 ### Project layout
 

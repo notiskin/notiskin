@@ -2,6 +2,8 @@
 
 Paste-ready brief for a Claude Code session (cloud or local). Cloud sessions can't run macOS, Electron, or the real Notion, so the final check is always the owner's.
 
+> **Outcome (Oct 2026), read this before reusing the plan:** built in PRs #9 and #10. The "one admin password prompt" design below did not survive testing on a real Mac: macOS App Management refuses changes to `Notion.app` from a `do shell script ... with administrator privileges` shell (EPERM, even from Terminal, which has App Management). The app now runs `patch`/`unpatch` as the user with no password, and the only permission needed is App Management for Notiskin. `src/patcher/admin.ts` keeps the osascript code, unused. Everything else (app-mode wrapper, status, Repair, ownership fix, endpoints, Settings section, tests) was built as described.
+
 ---
 
 You're working in a clone of github.com/notiskin/notiskin (public repo). Read `CLAUDE.md`, `README.md`, and `ROADMAP.md` first. The owner, Remi, prefers short plain-English explanations: say what each step does before doing it, and point out where something could break.
