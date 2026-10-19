@@ -77,16 +77,22 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "${productName}-${version}-${arch}-mac.${ext}"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "directories": {
       "output": "release"
@@ -96,6 +102,10 @@
       "!dist/**/*.map",
       "!dist/**/*.d.ts",
       "src/gui/**/*.html",
+      "src/gui/**/*.js",
+      "src/gui/**/*.css",
+      "src/gui/fonts/*.woff2",
+      "src/gui/fonts/*.txt",
       "package.json"
     ],
     "afterPack": "scripts/check-bundle.js"

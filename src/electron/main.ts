@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
 import { repairLegacyWrapper, startServer } from '../gui/server';
 import { initUpdater } from '../updater/index';
 import { NOTISKIN_DIR, GUI_PORT } from '../utils/constants';
@@ -39,6 +39,10 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // packaged builds get the icon from the bundle, running from source shows build/icon.png in the Dock
+    if (!app.isPackaged && process.platform === 'darwin') {
+      try { app.dock?.setIcon(join(app.getAppPath(), 'build', 'icon.png')); } catch {}
+    }
     try {
       await startServer(false, app.getAppPath());
     } catch (err: unknown) {
@@ -57,6 +61,8 @@ if (!gotLock) {
       height: 768,
       title: 'notiskin',
       show: false,
+      // matches --bg in brand.css, so resizing and loading never flash a different color
+      backgroundColor: nativeTheme.shouldUseDarkColors ? '#1A1714' : '#F6F1E7',
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
