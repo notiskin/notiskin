@@ -103,6 +103,7 @@
       "!dist/**/*.map",
       "!dist/**/*.d.ts",
       "src/gui/**/*.html",
+      "src/gui/**/*.js",
       "package.json"
     ],
     "afterPack": "scripts/check-bundle.js"

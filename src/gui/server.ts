@@ -323,6 +323,12 @@ app.get('/plugins.html', sendPage('plugins.html'));
 app.get('/review.html', sendPage('review.html'));
 app.get('/settings.html', sendPage('settings.html'));
 
+// the welcome tour, shared by the Themes, Plugins and Settings pages
+app.get('/tour.js', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.type('js').send(readFileSync(join(pagesDir, 'tour.js'), 'utf-8'));
+});
+
 app.get('/api/status', (_req, res) => {
   const config = readConfig();
   res.json({
@@ -331,6 +337,21 @@ app.get('/api/status', (_req, res) => {
     enabledPlugins: config.enabledPlugins,
     safeMode: config.safeMode,
   });
+});
+
+// the tour starts on its own only for new users: never finished or skipped, and Notion not installed yet,
+// so people who set Notiskin up before the tour existed aren't interrupted (they can replay it from Settings)
+app.get('/api/setup', (_req, res) => {
+  let installed = false;
+  if (notionSetup.platform() === 'darwin') {
+    try { installed = notionSetup.status() === 'installed'; } catch {}
+  }
+  res.json({ showTour: !readConfig().setupDone && !installed });
+});
+
+app.post('/api/setup-done', (_req, res) => {
+  writeConfig({ ...readConfig(), setupDone: true });
+  res.json({ ok: true });
 });
 
 // pauses every theme and plugin; turning it on reloads Notion's page because plugins can't be un-run

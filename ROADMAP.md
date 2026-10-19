@@ -26,7 +26,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 - App icon (it's still the default Electron one)
 - ✅ Intel Mac builds: separate downloads for Apple Silicon and Intel
 - Apple Developer ID signing and notarization ($99/year): removes "damaged app" warnings and makes auto-update work
-- First-run walkthrough
+- ✅ First-run walkthrough: a short tour of every page that ends at Install into Notion, replayable from Settings → Help
 
 ## Phase 3: Marketplace v2 (weeks 6–10, about 25–30 hours)
 
