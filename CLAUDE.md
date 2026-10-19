@@ -123,12 +123,11 @@ Done (Oct 2026): security hardening (commit 7ea8a9d), the long-running injector 
 
 Done (Oct 2026), Phase 1 so far:
 - "Install into Notion" in Settings (PRs #9 and #10): Install, Repair, and Uninstall with no password, checked on a real Mac (install, restart, reopen from the Dock, file owners, uninstall, CLI patch/unpatch). The original plan's single admin password prompt was dropped because App Management blocks it, see the constraint above
+- v0.5.0 published by the workflow, bundle checked free of `.env`. The DMG app installed into Notion on a real Mac: macOS blocked it first, the Settings "Open App Management" button (`x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles`) opened the right page, and after turning on notiskin there Install worked
 
-Open:
-- The Settings "Open App Management" button (`x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles`) hasn't been seen on a real Mac yet, it only shows when macOS blocks an install
-- The packaged DMG app hasn't installed into Notion yet (only `npm start`), check that once 0.5.0 is built: App Management should name "notiskin"
+Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin is damaged and can't be opened" on Apple Silicon, and right-click → Open doesn't help. The fix is `xattr -dr com.apple.quarantine /Applications/notiskin.app` (in the README).
 
-Next: release 0.5.0 when Remi asks (step 9 of `docs/prompts/phase-1-install-button.md`), then the rest of Phase 1 in ROADMAP.md (safe mode, diagnostics). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+Next: the rest of Phase 1 in ROADMAP.md (safe mode, diagnostics). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 
