@@ -45,7 +45,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
-    "chrome-remote-interface": "^0.34.0",
     "dotenv": "^17.4.2",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9",

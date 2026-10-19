@@ -2,7 +2,7 @@ require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName } = require('../dist/gui/server');
+const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName, repairLegacyWrapper } = require('../dist/gui/server');
 
 let server;
 let port;
@@ -119,10 +119,11 @@ test('sanitizeSearch strips PostgREST filter syntax', () => {
 });
 
 // the Install into Notion endpoints, with the platform and the CLI run mocked
-function mockNotionSetup({ platform = 'darwin', status = 'not-installed', run, restart } = {}) {
+function mockNotionSetup({ platform = 'darwin', status = 'not-installed', legacy = false, run, restart } = {}) {
   const calls = [];
   notionSetup.platform = () => platform;
   notionSetup.status = () => status;
+  notionSetup.legacy = () => legacy;
   notionSetup.run = async action => {
     calls.push(action);
     return run ? run(action) : { status: 'ok', output: '' };
@@ -221,6 +222,26 @@ test('only one install or uninstall runs at a time', async () => {
   assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.ok, false);
   mockNotionSetup();
   assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.ok, true);
+});
+
+test('the app repairs an old port wrapper on start, and leaves everything else alone', async () => {
+  let calls = mockNotionSetup({ legacy: true, status: 'needs-repair' });
+  assert.equal(await repairLegacyWrapper(), true);
+  assert.deepEqual(calls, ['patch'], 'repairs, never restarts Notion');
+
+  // a failed repair leaves Settings' Repair button to the user
+  calls = mockNotionSetup({ legacy: true, status: 'needs-repair', run: () => ({ status: 'error', message: 'EPERM', output: 'EPERM' }) });
+  assert.equal(await repairLegacyWrapper(), false);
+  assert.deepEqual(calls, ['patch']);
+  calls = mockNotionSetup({ legacy: true, run: () => { throw new Error('boom'); } });
+  assert.equal(await repairLegacyWrapper(), false);
+
+  for (const setup of [{ legacy: false, status: 'installed' }, { legacy: false, status: 'needs-repair' }, { legacy: true, platform: 'linux' }]) {
+    calls = mockNotionSetup(setup);
+    assert.equal(await repairLegacyWrapper(), false);
+    assert.deepEqual(calls, [], JSON.stringify(setup));
+  }
+  mockNotionSetup();
 });
 
 test('failure reasons are read from the CLI output', () => {

@@ -34,7 +34,7 @@ import {
   writeItem,
   ItemType,
 } from '../core/library';
-import { appBundlePath, findNotionBinary, getNotionStatus, NotionStatus } from '../patcher/index';
+import { appBundlePath, findNotionBinary, getNotionStatus, hasLegacyWrapper, NotionStatus } from '../patcher/index';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
 
@@ -205,6 +205,8 @@ function runCli(action: AdminAction): Promise<SetupResult> {
 export const notionSetup = {
   platform: (): NodeJS.Platform => process.platform,
   status: (): NotionStatus => getNotionStatus(),
+  // wrappers from before the DevTools pipe, which opened a debug port
+  legacy: (): boolean => hasLegacyWrapper(),
   // in the desktop app execPath is Electron (run as Node by the env var), under `npm run gui` it is Node itself
   run: (action: AdminAction): Promise<SetupResult> => runCli(action),
   // open the bundle like the Dock does, so the wrapper runs and starts the injector
@@ -258,6 +260,24 @@ async function runNotionSetup(action: AdminAction, res: Response): Promise<void>
   } catch (err) {
     logSetup(action, errorMessage(err));
     res.json({ ok: false, error: errorMessage(err) });
+  } finally {
+    notionSetupBusy = false;
+  }
+}
+
+// older versions opened a debug port any program on the Mac could use. The app replaces that wrapper on start,
+// the same as clicking Repair, and the port is gone the next time Notion starts. If it fails (App Management
+// was turned off, say), Settings still shows Repair. Never restarts Notion
+export async function repairLegacyWrapper(): Promise<boolean> {
+  if (notionSetup.platform() !== 'darwin' || notionSetupBusy || !notionSetup.legacy()) return false;
+  notionSetupBusy = true;
+  try {
+    const result = await notionSetup.run('patch');
+    logSetup('patch', `automatic repair of an old wrapper: ${result.status}\n${result.output}`);
+    return result.status === 'ok';
+  } catch (err) {
+    logSetup('patch', `automatic repair of an old wrapper failed: ${errorMessage(err)}`);
+    return false;
   } finally {
     notionSetupBusy = false;
   }

@@ -11,8 +11,10 @@ export const PLUGINS_DIR = join(NOTISKIN_DIR, 'plugins');
 export const CONFIG_PATH = join(NOTISKIN_DIR, 'notiskin.config.json');
 export const LOGS_DIR = join(NOTISKIN_DIR, 'logs');
 export const INJECTOR_PID_PATH = join(NOTISKIN_DIR, 'injector.pid');
+// 0700, holds Notion's DevTools pipes (one folder per Notion pid) and the injector's control socket
+export const RUN_DIR = join(NOTISKIN_DIR, 'run');
+export const CONTROL_SOCKET = join(RUN_DIR, 'injector.sock');
 
-export const CDP_PORT = 9222;
 export const GUI_PORT = 3845;
 export const GUI_HOST = '127.0.0.1';
 

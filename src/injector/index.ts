@@ -1,7 +1,5 @@
-import CDP = require('chrome-remote-interface');
-import { sleep } from '../utils/sleep';
-
-const FIND_PAGE_TIMEOUT_MS = 30_000;
+// what gets injected into a Notion page: core CSS, the theme, window.notiskin, and plugins
+// the daemon (daemon.ts) decides when and where, over Notion's DevTools pipe
 
 const CORE_CSS = `
 :root {
@@ -107,12 +105,6 @@ if (!window.notiskin) {
 }
 `;
 
-interface CdpTarget {
-  id: string;
-  type: string;
-  url: string;
-}
-
 interface EvaluateResult {
   result: { value: unknown };
   exceptionDetails?: {
@@ -124,53 +116,6 @@ interface EvaluateResult {
 export interface PluginEntry {
   name: string;
   content: string;
-}
-
-async function findVisiblePage(port: number): Promise<CdpTarget> {
-  const deadline = Date.now() + FIND_PAGE_TIMEOUT_MS;
-
-  while (Date.now() < deadline) {
-    let targets: CdpTarget[];
-    try {
-      targets = (await CDP.List({ port })) as CdpTarget[];
-    } catch {
-      await sleep(1000);
-      continue;
-    }
-
-    const notionPages = targets.filter(
-      t => t.type === 'page' && t.url.startsWith('https://')
-    );
-
-    for (const target of notionPages) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let client: any;
-      let isVisible = false;
-      try {
-        client = await CDP({ target: target.id, port });
-        const result = (await client.send('Runtime.evaluate', {
-          expression: 'document.visibilityState',
-        })) as EvaluateResult;
-        isVisible = result.result.value === 'visible';
-      } catch {
-        // Can't connect to or evaluate this target, skip it
-      } finally {
-        if (client) {
-          try {
-            await client.close();
-          } catch {}
-        }
-      }
-      if (isVisible) return target;
-    }
-
-    await sleep(1000);
-  }
-
-  throw new Error(
-    `Could not find the visible Notion page after ${FIND_PAGE_TIMEOUT_MS / 1000}s. ` +
-      'Is Notion open and fully loaded in the foreground?'
-  );
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -317,72 +262,5 @@ export async function injectEverything(cssContent: string, plugins: PluginEntry[
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[injector] Plugin '${plugin.name}' failed: ${msg}`);
     }
-  }
-}
-
-export async function applyAll(
-  cssContent: string,
-  plugins: PluginEntry[],
-  port: number
-): Promise<void> {
-  console.log('[injector] Waiting for the visible Notion page...');
-  const target = await findVisiblePage(port);
-  console.log(`[injector] Found: ${target.url}`);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client: any = await CDP({ target: target.id, port });
-  try {
-    await client.send('Page.enable');
-    const readyResult = (await client.send('Runtime.evaluate', {
-      expression: 'document.readyState',
-    })) as EvaluateResult;
-    if (readyResult.result.value !== 'complete') {
-      await Promise.race([
-        new Promise<void>(resolve => client.on('Page.loadEventFired', resolve)),
-        new Promise<void>(resolve => setTimeout(resolve, 10_000)),
-      ]);
-    }
-
-    await injectEverything(cssContent, plugins, client);
-  } finally {
-    try {
-      await client.close();
-    } catch {}
-  }
-}
-
-export async function injectCSS(cssContent: string, port: number): Promise<void> {
-  await applyAll(cssContent, [], port);
-}
-
-export async function reloadAndReapply(
-  cssContent: string,
-  plugins: PluginEntry[],
-  port: number
-): Promise<void> {
-  console.log('[injector] Waiting for the visible Notion page...');
-  const target = await findVisiblePage(port);
-  console.log(`[injector] Found: ${target.url}`);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client: any = await CDP({ target: target.id, port });
-  try {
-    await client.send('Page.enable');
-
-    const loadPromise = Promise.race([
-      new Promise<void>(resolve => client.on('Page.loadEventFired', () => resolve())),
-      sleep(20_000),
-    ]);
-
-    await client.send('Page.reload');
-    console.log('[injector] Reloading Notion page...');
-    await loadPromise;
-    await sleep(500);
-
-    await injectEverything(cssContent, plugins, client);
-  } finally {
-    try {
-      await client.close();
-    } catch {}
   }
 }
