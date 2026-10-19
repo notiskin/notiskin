@@ -61,6 +61,7 @@ interface Session {
 }
 
 const NOTION_HOST = /(^|\.)notion\.(so|com)$/;
+const CONTROL_REPLY_MS = 20_000;
 
 export function isNotionUrl(url: string): boolean {
   try {
@@ -157,8 +158,10 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
   // a tab often starts as about:blank and only then navigates to Notion
   browser.on('Target.targetInfoChanged', ({ targetInfo }: { targetInfo: TargetInfo }) => void consider(targetInfo));
   browser.on('Target.targetDestroyed', ({ targetId }: { targetId: string }) => forget(targetId));
-  browser.on('Target.detachedFromTarget', ({ targetId }: { targetId?: string }) => {
-    if (targetId) forget(targetId);
+  // only when it's our own session: detaching an old injector's session from the same tab must not drop ours
+  browser.on('Target.detachedFromTarget', ({ sessionId }: { sessionId?: string }) => {
+    const session = sessionId ? findBySessionId(sessionId) : undefined;
+    if (session) forget(session.targetId);
   });
   browser.on('Page.loadEventFired', (_params: unknown, sessionId?: string) => {
     const session = sessionId ? findBySessionId(sessionId) : undefined;
@@ -194,14 +197,14 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
   async function handleControl(req: ControlRequest): Promise<ControlReply> {
     const base = { ok: true, tabs: sessions.size, pid: opts.run.pid, runDir: opts.run.dir };
     if (req.cmd === 'status') return base;
-    if (req.cmd === 'apply') {
+    if (req.cmd === 'apply' || req.cmd === 'reload') {
       clearTimeout(debounce);
-      await reapplyAll();
-      return { ...base, tabs: sessions.size };
-    }
-    if (req.cmd === 'reload') {
-      clearTimeout(debounce);
-      await reloadAll();
+      // the app waits on this answer, so it comes within a set time even if a tab is slow to respond
+      const finished = await Promise.race([
+        (req.cmd === 'reload' ? reloadAll() : reapplyAll()).then(() => true),
+        sleep(CONTROL_REPLY_MS).then(() => false),
+      ]);
+      if (!finished) return { ...base, ok: false, error: 'Notion is taking too long to respond, try again in a moment.' };
       return { ...base, tabs: sessions.size };
     }
     return { ok: false, error: 'unknown command' };

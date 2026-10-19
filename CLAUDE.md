@@ -93,7 +93,9 @@ test/                     — node:test suites (npm test builds first)
 - The DevTools pipe (checked on Electron 41.3.0, Notion 7.22's version, and 42): Chromium quits when its pipe closes, so Notion holds both ends of both FIFOs itself (`3<>` / `4<>`). The injector can crash, be killed or be deleted and Notion carries on; a new injector reconnects mid-session. Keep these:
   - `command exec 3<>...` in the wrapper, a plain `exec` whose redirect fails ends the script before Notion starts
   - the injector's `3<&- 4<&-`, it must not hold Notion's pipes
-  - macOS never reports end-of-file on a FIFO to Node, so `PipeConnection` notices Notion quitting by polling its pid
+  - never read or write the FIFOs with `net.Socket`: macOS's kqueue misses FIFO data (a reply over the 8 KB pipe buffer stalled the reader for good on a real Mac) and never reports their end-of-file. `PipeConnection` uses blocking `fs.read`/`fs.write` on the thread pool, and also polls Notion's pid
+  - `notiskin inject` keeps its pid lock until the process exits (it calls `process.exit` after stopping), a second injector reading the same pipe steals replies
+  - `Target.detachedFromTarget` only drops the session it names; detaching an old injector's session must not drop the daemon's own session for that tab
   - command ids start at a random number and unknown replies are ignored, the pipe can still hold an earlier injector's replies
   - a killed injector's sessions stay attached with their document-start CSS, the daemon detaches them (by targetId on start, and any unknown sessionId it hears from)
 - No TCP debug port should ever be open: `lsof -iTCP -sTCP:LISTEN` while Notion runs. Diagnostics reports whether port 9222 is open (an old wrapper).
