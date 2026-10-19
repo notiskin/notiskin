@@ -61,6 +61,13 @@ function tcpListeners(pid) {
   }
 }
 
+// the whole bundle checks out, and its requirement still lets a Notion-signed update in (see signNotion)
+function assertSignedForUpdates() {
+  execFileSync('codesign', ['--verify', '--deep', '--strict', notionApp], { stdio: 'ignore' });
+  const requirements = execFileSync('codesign', ['-d', '-r-', notionApp], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+  assert.ok(requirements.includes('certificate leaf[subject.OU] = LBQJ96FQ8D'), requirements);
+}
+
 let fake;
 
 after(() => {
@@ -92,6 +99,14 @@ test('install, launch through the wrapper, and uninstall a fake Notion', async t
   const original = `#!/bin/sh\nexec '${electronPath}' '${fakeMain}' "$@"\n`;
   writeFileSync(notion, original);
   chmodSync(notion, 0o755);
+  // signed like a real app, so the launch below runs with the signature the patcher gives it
+  writeFileSync(
+    join(notionApp, 'Contents', 'Info.plist'),
+    '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>' +
+      '<key>CFBundleIdentifier</key><string>notion.id</string><key>CFBundleExecutable</key><string>Notion</string>' +
+      '<key>CFBundlePackageType</key><string>APPL</string></dict></plist>\n'
+  );
+  execFileSync('codesign', ['--force', '--sign', '-', notionApp], { stdio: 'ignore' });
 
   // stands in for the CLI's inject command: talks to Notion over the pipe it was given, then exits
   const tools = join(root, 'Notiskin tools');
@@ -113,6 +128,7 @@ PipeConnection.open({ dir, pid: runPid(dir) }).then(async cdp => {
   assert.equal(patcher.getNotionStatus(), 'not-installed');
   patcher.patchNotion(process.execPath, stubCli, { appMode: true });
   assert.equal(patcher.getNotionStatus(), 'installed');
+  assertSignedForUpdates();
 
   // if ELECTRON_RUN_AS_NODE leaked into Notion.real, the fake would start as plain Node and never answer
   const pagePort = await freePort();
@@ -151,4 +167,5 @@ PipeConnection.open({ dir, pid: runPid(dir) }).then(async cdp => {
   assert.equal(patcher.getNotionStatus(), 'not-installed');
   assert.ok(readFileSync(notion).equals(Buffer.from(original)), 'the original binary is back byte-for-byte');
   assert.ok(!existsSync(`${notion}.real`));
+  assertSignedForUpdates();
 });
