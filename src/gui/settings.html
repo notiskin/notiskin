@@ -4,13 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Notiskin – Settings</title>
+  <link rel="stylesheet" href="/brand.css">
+  <script src="/tour.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      background: #111;
-      color: #e0e0e0;
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
     }
 
@@ -19,8 +21,8 @@
     .sidebar {
       width: 180px;
       min-height: 100vh;
-      background: #0d0d0d;
-      border-right: 1px solid #1e1e1e;
+      background: var(--sidebar);
+      border-right: 1px solid var(--border);
       padding: 32px 0;
       position: fixed;
       top: 0; left: 0;
@@ -28,24 +30,18 @@
       flex-direction: column;
       gap: 32px;
     }
-    .sidebar-logo {
-      font-size: 15px;
-      font-weight: 700;
-      color: #e0e0e0;
-      padding: 0 20px;
-      letter-spacing: -0.2px;
-    }
+    .sidebar-logo { padding: 0 20px; }
     .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
     .sidebar-link {
       font-size: 13px;
-      color: #555;
+      color: var(--text-3);
       text-decoration: none;
       padding: 7px 20px;
       border-left: 2px solid transparent;
       transition: color 0.15s;
     }
-    .sidebar-link:hover { color: #aaa; }
-    .sidebar-link.active { color: #e0e0e0; border-left-color: #6366f1; }
+    .sidebar-link:hover { color: var(--text-2); }
+    .sidebar-link.active { color: var(--text); border-left-color: var(--accent); }
 
     .main-content {
       margin-left: 180px;
@@ -80,12 +76,12 @@
       pointer-events: none;
     }
     .notif {
-      background: #1c1c1c;
-      border: 1px solid #333;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 10px 16px;
       font-size: 13px;
-      color: #e0e0e0;
+      color: var(--text);
       white-space: nowrap;
       transform: translateX(calc(100% + 24px));
       opacity: 0;
@@ -97,21 +93,14 @@
       margin-bottom: 36px;
     }
 
-    .settings-section h2 {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #888;
-      margin-bottom: 16px;
-    }
+    .settings-section h2 { font-family: var(--font-display); font-size: 20px; font-weight: 520; letter-spacing: -0.01em; color: var(--text); margin-bottom: 14px; }
 
     .settings-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 12px 0;
-      border-bottom: 1px solid #1e1e1e;
+      border-bottom: 1px solid var(--border);
     }
 
     .settings-row:last-child {
@@ -120,12 +109,12 @@
 
     .settings-row-label {
       font-size: 13px;
-      color: #e0e0e0;
+      color: var(--text);
     }
 
     .settings-row-sub {
       font-size: 11px;
-      color: #666;
+      color: var(--text-3);
       margin-top: 2px;
     }
 
@@ -137,20 +126,20 @@
       font-weight: 500;
     }
 
-    .update-badge.up-to-date  { background: #1a2e1a; color: #4caf50; }
-    .update-badge.available   { background: #2a2510; color: #f5c518; }
-    .update-badge.downloading { background: #1a2030; color: #64b5f6; }
-    .update-badge.ready       { background: #1a2030; color: #64b5f6; }
-    .update-badge.error       { background: #2e1a1a; color: #e57373; }
-    .update-badge.neutral     { background: #1e1e1e; color: #999; }
+    .update-badge.up-to-date  { background: var(--success-soft); color: var(--success); }
+    .update-badge.available   { background: var(--warning-soft); color: var(--warning); }
+    .update-badge.downloading { background: var(--info-soft); color: var(--info); }
+    .update-badge.ready       { background: var(--info-soft); color: var(--info); }
+    .update-badge.error       { background: var(--danger-soft); color: var(--danger); }
+    .update-badge.neutral     { background: var(--surface); color: var(--text-2); }
 
     .diagnostics-report {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
       line-height: 1.5;
-      color: #bbb;
-      background: #0d0d0d;
-      border: 1px solid #1e1e1e;
+      color: var(--text-2);
+      background: var(--sidebar);
+      border: 1px solid var(--border);
       border-radius: 6px;
       padding: 12px;
       margin-top: 12px;
@@ -162,7 +151,7 @@
 
     .settings-row-error {
       font-size: 11px;
-      color: #e57373;
+      color: var(--danger);
       margin-top: 4px;
     }
 
@@ -170,25 +159,25 @@
       font-size: 12px;
       padding: 5px 14px;
       border-radius: 6px;
-      border: 1px solid #333;
-      background: #1c1c1c;
-      color: #e0e0e0;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
       cursor: pointer;
     }
 
-    .btn-install:hover { background: #252525; }
+    .btn-install:hover { background: var(--surface-hover); }
 
     .btn-cache {
       font-size: 12px;
       padding: 5px 14px;
       border-radius: 6px;
-      border: 1px solid #2a2a2a;
+      border: 1px solid var(--border);
       background: transparent;
-      color: #888;
+      color: var(--text-3);
       cursor: pointer;
     }
 
-    .btn-cache:hover { color: #e0e0e0; border-color: #444; }
+    .btn-cache:hover { color: var(--text); border-color: var(--border-strong); }
 
     .account-badge {
       display: inline-block;
@@ -196,8 +185,8 @@
       padding: 1px 7px;
       margin-left: 6px;
       border-radius: 999px;
-      background: #1e1b3a;
-      color: #a5b4fc;
+      background: var(--accent-soft);
+      color: var(--accent-text);
       vertical-align: 1px;
     }
   </style>
@@ -206,7 +195,7 @@
   <div class="app-layout">
 
     <aside class="sidebar">
-      <div class="sidebar-logo">Notiskin</div>
+      <div class="sidebar-logo"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 2.5h7.5l7 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2z" fill="var(--surface)" stroke="var(--text)" stroke-width="1.6" stroke-linejoin="round"/><path d="M12.5 2.5v5.5a1.5 1.5 0 0 0 1.5 1.5h5.5z" fill="var(--accent)" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 15h6" stroke="var(--text)" stroke-width="1.6" stroke-linecap="round"/></svg>notiskin</div>
       <div id="update-banner" style="
         display: none;
         align-items: center;
@@ -214,14 +203,14 @@
         gap: 8px;
         padding: 8px 12px;
         margin: -16px 12px 0;
-        background: #1a2030;
-        border: 1px solid #2a3a50;
+        background: var(--info-soft);
+        border: 1px solid var(--info-border);
         border-radius: 6px;
         font-size: 11px;
-        color: #64b5f6;
+        color: var(--info);
       ">
         <span id="banner-text"></span>
-        <a href="/settings.html" style="color: #64b5f6; text-decoration: underline; white-space: nowrap;">Install</a>
+        <a href="/settings.html" style="color: var(--info); text-decoration: underline; white-space: nowrap;">Install</a>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
@@ -311,6 +300,17 @@
           </div>
         </div>
         <pre class="diagnostics-report" id="diag-report" style="display:none"></pre>
+      </div>
+
+      <div class="settings-section">
+        <h2>Help</h2>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Welcome tour</div>
+            <div class="settings-row-sub">A quick walk through themes, plugins, and these settings</div>
+          </div>
+          <button class="btn-install" onclick="window.notiskinTour?.start()">Take the tour</button>
+        </div>
       </div>
 
       <div class="settings-section">
