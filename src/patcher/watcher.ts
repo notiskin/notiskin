@@ -86,8 +86,14 @@ function main(): void {
     }
   };
   let busy = false;
+  let saidUnsupported = false;
   const check = async (): Promise<void> => {
-    if (busy || getNotionStatus() !== 'needs-repair') return;
+    const status = getNotionStatus();
+    if (status === 'unsupported' && !saidUnsupported) {
+      console.log("[watcher] This Notion isn't built on Electron, Notiskin can't theme it yet. Leaving it alone.");
+    }
+    saidUnsupported = status === 'unsupported';
+    if (busy || status !== 'needs-repair') return;
     busy = true;
     try {
       await repatch();

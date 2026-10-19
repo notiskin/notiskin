@@ -42,6 +42,8 @@ If a plugin breaks Notion, open **Settings → Safe mode → Turn on**. Every th
 
 Notion keeps updating itself while Notiskin is installed. An update replaces the whole Notion app, so Settings shows **Needs repair** afterwards: click **Repair** and restart Notion to bring your theme back. Versions of Notiskin up to 0.5 signed Notion in a way that made it refuse every update. Opening the new version re-signs Notion on its own, but a Notion that's already stuck on an old version needs one manual update: quit Notion, download it again from [notion.com/desktop](https://www.notion.com/desktop), drag it into Applications (choose **Replace**), then click **Install** in Notiskin. Your notes and login aren't affected; if macOS asks about "Notion Safe Storage", click **Always Allow**.
 
+Notion is moving its Mac app to SwiftUI. Notiskin themes Notion's web-based (Electron) app, so if an update brings a native Notion, Settings shows **Not supported yet** and Notiskin leaves Notion alone.
+
 ## Command line
 
 ```bash
