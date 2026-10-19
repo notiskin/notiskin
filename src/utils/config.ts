@@ -8,10 +8,12 @@ export interface NotiskinConfig {
   acknowledgedPlugins: string[];
   // pauses every theme and plugin without forgetting which ones are chosen
   safeMode: boolean;
+  // true once the welcome tour is finished or skipped, so it never starts on its own again
+  setupDone: boolean;
 }
 
 function defaultConfig(): NotiskinConfig {
-  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false };
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false };
 }
 
 function stringArray(value: unknown): string[] {
@@ -26,6 +28,7 @@ export function parseConfig(raw: unknown): NotiskinConfig {
     enabledPlugins: [...new Set(stringArray(obj.enabledPlugins))],
     acknowledgedPlugins: [...new Set(stringArray(obj.acknowledgedPlugins))],
     safeMode: obj.safeMode === true,
+    setupDone: obj.setupDone === true,
   };
 }
 
