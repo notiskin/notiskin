@@ -34,7 +34,8 @@ See `.env.example` for the template.
 ```
 src/
   cli/index.ts            — CLI entry point (npm bin target, also the launch-time `inject` command)
-  core/library.ts         — Shared theme/plugin logic (paths, name validation, apply). CLI + server both use it
+  core/library.ts         — Shared theme/plugin logic (paths, name validation, apply, currentPayload). CLI + server both use it
+  core/diagnostics.ts     — Redacted bug-report text for Settings → Diagnostics and `notiskin diagnostics`
   electron/main.ts        — Electron main process entry point
   gui/
     server.ts             — Express server; exports startServer() and app
@@ -69,7 +70,7 @@ test/                     — node:test suites (npm test builds first)
 
 ## How each piece fits together
 
-**CLI (`src/cli/index.ts`):** The npm bin target. Commands: `patch`, `unpatch`, `themes`, `theme <name>`, `plugins`, `plugin enable/disable <name>`, `apply`, `watch:install`, `watch:uninstall`. These work independently of the Electron app.
+**CLI (`src/cli/index.ts`):** The npm bin target. Commands: `patch`, `unpatch`, `themes`, `theme <name>`, `plugins`, `plugin enable/disable <name>`, `apply`, `safe-mode [on|off]`, `diagnostics`, `watch:install`, `watch:uninstall`. These work independently of the Electron app.
 
 **Electron app (`src/electron/main.ts`):** Starts the Express server, creates a BrowserWindow loading `http://localhost:3845`, quits fully when the window is closed. Single-instance lock prevents duplicate windows. This is what opens when you launch Notiskin from Spotlight or Applications.
 
@@ -92,6 +93,8 @@ test/                     — node:test suites (npm test builds first)
 - Changing `/Applications/Notion.app` needs macOS App Management for whichever app starts it (Notiskin, or Electron/Terminal when running from source). Root doesn't help: a command run through the admin password dialog (`osascript ... with administrator privileges`) gets EPERM even from Terminal, checked on macOS 26. So the app patches as the user, which works because Notion.app normally belongs to the user. Unsigned (ad-hoc) builds may lose the permission after an update until Developer ID signing.
 - `sudo npm run patch` is only needed for the watcher: it adds a scoped sudoers rule at `/etc/sudoers.d/notiskin` for silent re-signing. Removing that rule needs root (`sudo npm run unpatch`).
 - A full clean uninstall is a single command: `npm run unpatch`. It removes the wrapper script, restores the Notion binary, removes the LaunchAgent, removes the sudoers rule (when run with sudo), and removes the signing helper. `npm run watch:uninstall` still works independently if only the watcher needs to be removed.
+- Safe mode (`safeMode` in the config) makes `currentPayload()` return nothing, and both the injector and `applyConfig()` go through it. Turning it on reloads the visible page (plugins can't be un-run) and never restarts Notion. Diagnostics text always goes through `redact()` (Notion links, IDs, home folder, user name), keep it that way for anything new added to the report.
+- Integration tests can run in a cloud container as a normal user under a virtual display: `runuser -u ubuntu -- xvfb-run -a node --test --test-concurrency=1 test/integration/*.test.js` (Electron refuses to run as root).
 - MutationObserver plugins can self-trigger infinite loops. Scope observers tightly, wrap in try/catch, include loop guards.
 - `onAuthStateChange` alone doesn't catch already-persisted sessions. Always call `getSession()` on page load too.
 - The local server binds 127.0.0.1 and every `/api` call needs the per-launch `X-Notiskin-Token` header (injected into pages by server.ts, added automatically by a fetch wrapper). New pages must be served through `sendPage()`.
@@ -127,7 +130,9 @@ Done (Oct 2026), Phase 1 so far:
 
 Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin is damaged and can't be opened" on Apple Silicon, and right-click → Open doesn't help. The fix is `xattr -dr com.apple.quarantine /Applications/notiskin.app` (in the README).
 
-Next: the rest of Phase 1 in ROADMAP.md (safe mode, diagnostics). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+Built, waiting for a Mac check: safe mode and diagnostics (`docs/prompts/phase-1-safe-mode-diagnostics.md` has the plan and the checklist).
+
+Next: once those are checked, tick them in ROADMAP.md. Then Phase 2 (app icon, Intel builds, Developer ID signing, first-run walkthrough). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 

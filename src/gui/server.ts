@@ -36,6 +36,7 @@ import {
 } from '../core/library';
 import { appBundlePath, findNotionBinary, getNotionStatus, NotionStatus } from '../patcher/index';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
+import { diagnosticsReport } from '../core/diagnostics';
 
 let pagesDir = join(__dirname, '..', '..', 'src', 'gui');
 
@@ -328,7 +329,26 @@ app.get('/api/status', (_req, res) => {
     notionRunning: isNotionRunning(),
     activeTheme: config.activeTheme,
     enabledPlugins: config.enabledPlugins,
+    safeMode: config.safeMode,
   });
+});
+
+// pauses every theme and plugin; turning it on reloads Notion's page because plugins can't be un-run
+app.post('/api/safe-mode', async (req, res) => {
+  const on = (req.body as { on?: unknown })?.on;
+  if (typeof on !== 'boolean') return res.status(400).json({ ok: false, error: 'on must be true or false' });
+  writeConfig({ ...readConfig(), safeMode: on });
+  try {
+    const applied = await serialized(() => applyConfig({ reload: on }));
+    res.json({ ok: true, safeMode: on, applied });
+  } catch (err) {
+    // the setting is saved either way, Notion picks it up when it next starts
+    res.json({ ok: true, safeMode: on, applied: false, error: errorMessage(err) });
+  }
+});
+
+app.get('/api/diagnostics', async (_req, res) => {
+  res.json({ report: await diagnosticsReport() });
 });
 
 app.get('/api/notion/status', (_req, res) => {
@@ -364,6 +384,7 @@ app.get('/api/state', (_req, res) => {
   const config = readConfig();
   res.json({
     activeTheme: config.activeTheme || null,
+    safeMode: config.safeMode,
     themes: listThemes().map(name => ({ name, active: name === config.activeTheme })),
     plugins: listPlugins().map(name => ({ name, active: config.enabledPlugins.includes(name) })),
   });

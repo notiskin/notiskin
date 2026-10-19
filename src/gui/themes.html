@@ -615,6 +615,11 @@
 
     <div class="main-content">
 
+      <div id="safe-mode-notice" style="display:none; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; margin-bottom:20px; background:#2a2510; border:1px solid #4a4020; border-radius:8px; font-size:13px; color:#f5c518;">
+        <span>Safe mode is on. Themes and plugins are paused, your choices are saved for when you turn it off.</span>
+        <button onclick="turnOffSafeMode()" style="background:#3a3418; color:#f5c518; border:1px solid #4a4020;">Turn off</button>
+      </div>
+
       <div class="tabs">
         <button class="tab-btn active" data-tab="installed" onclick="switchTab('installed')">Installed</button>
         <button class="tab-btn" data-tab="browse" onclick="switchTab('browse')">Browse</button>
@@ -1400,5 +1405,28 @@
   </script>
 
   <div id="notif-stack"></div>
+  <script>
+    // shown on Themes and Plugins while safe mode is on, so a theme that won't load isn't a mystery
+    async function refreshSafeModeNotice() {
+      try {
+        const status = await fetch('/api/status').then(r => r.json());
+        document.getElementById('safe-mode-notice').style.display = status.safeMode ? 'flex' : 'none';
+      } catch {}
+    }
+
+    async function turnOffSafeMode() {
+      try {
+        const res = await fetch('/api/safe-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on: false }),
+        });
+        if ((await res.json()).ok) showNotif('Safe mode off');
+      } catch {}
+      refreshSafeModeNotice();
+    }
+
+    refreshSafeModeNotice();
+  </script>
 </body>
 </html>

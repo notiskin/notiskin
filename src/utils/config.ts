@@ -6,10 +6,12 @@ export interface NotiskinConfig {
   activeTheme: string;
   enabledPlugins: string[];
   acknowledgedPlugins: string[];
+  // pauses every theme and plugin without forgetting which ones are chosen
+  safeMode: boolean;
 }
 
 function defaultConfig(): NotiskinConfig {
-  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [] };
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false };
 }
 
 function stringArray(value: unknown): string[] {
@@ -23,6 +25,7 @@ export function parseConfig(raw: unknown): NotiskinConfig {
     activeTheme: typeof obj.activeTheme === 'string' ? obj.activeTheme : '',
     enabledPlugins: [...new Set(stringArray(obj.enabledPlugins))],
     acknowledgedPlugins: [...new Set(stringArray(obj.acknowledgedPlugins))],
+    safeMode: obj.safeMode === true,
   };
 }
 
