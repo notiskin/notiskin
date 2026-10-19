@@ -271,11 +271,18 @@ async function inject(runArg?: string): Promise<void> {
   });
   stamp(`Watching ${daemon.attachedTargets().length} Notion tab(s).`);
 
-  const stop = () => void daemon.stop();
+  // the lock is only given up when this process exits (acquirePidLock releases it on exit), so a new injector
+  // can never start while this one still has Notion's pipe open, two readers would steal each other's replies
+  let stopping: Promise<void> | undefined;
+  const stop = () => {
+    stopping ??= daemon.stop().catch(() => {});
+  };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   await daemon.done;
-  release();
+  // tidying up after a stop (detaching from tabs) gets a few seconds at most
+  if (stopping) await Promise.race([stopping, sleep(3000)]);
+  process.exit(0);
 }
 
 // `sudo npm run patch` rebuilds dist/ as root first, hand it back so the next plain `npm run ...` can rebuild it

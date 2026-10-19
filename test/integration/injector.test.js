@@ -14,7 +14,8 @@ const { startInjectorDaemon } = require('../../dist/injector/daemon');
 const { askInjector } = require('../../dist/injector/control');
 const { findNotionRun } = require('../../dist/injector/pipe');
 const { diagnosticsReport } = require('../../dist/core/diagnostics');
-const { RUN_DIR, CONTROL_SOCKET } = require('../../dist/utils/constants');
+const { RUN_DIR, CONTROL_SOCKET, INJECTOR_PID_PATH } = require('../../dist/utils/constants');
+const { pidLockHolder } = require('../../dist/utils/pidlock');
 
 let electronPath = null;
 try { electronPath = require('electron'); } catch {}
@@ -201,6 +202,26 @@ test('editing the theme file updates every tab live', { skip }, async () => {
   await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'live update');
 });
 
+test('big themes and replies far bigger than the pipe buffer go through', { skip }, async () => {
+  const big = ':root { --ns-bg: #fedcba; }\n/* ' + 'x'.repeat(300_000) + ' */';
+  lib.writeItem('theme', 'Test', big);
+  await everyPage(s => (s.theme ?? '').length === big.length, 'the big theme');
+
+  // several replies at once, each many times the 8 KB a macOS FIFO holds
+  const { targetInfos } = await daemon.cdp.send('Target.getTargets');
+  const page = targetInfos.find(t => t.type === 'page' && isFakePage(t.url));
+  const { sessionId } = await daemon.cdp.send('Target.attachToTarget', { targetId: page.targetId, flatten: true });
+  const sizes = [20_000, 100_000, 250_000, 50_000, 400_000];
+  const replies = await Promise.all(
+    sizes.map(n => daemon.cdp.send('Runtime.evaluate', { expression: `"y".repeat(${n})`, returnByValue: true }, sessionId))
+  );
+  assert.deepEqual(replies.map(r => r.result.value.length), sizes);
+  await daemon.cdp.send('Target.detachFromTarget', { sessionId });
+
+  lib.writeItem('theme', 'Test', ':root { --ns-bg: #abcdef; }');
+  await everyPage(s => /#abcdef/.test(s.theme ?? '') && s.theme.length < 100, 'the small theme back');
+});
+
 test('the CLI and app apply through the injector, and a reload drops a disabled plugin', { skip }, async () => {
   assert.equal((await askInjector({ cmd: 'status' })).tabs, 2);
   assert.equal(await lib.applyConfig(), true);
@@ -263,6 +284,11 @@ test('Notion keeps running when the injector is killed, and a new one takes over
   await evalAll('location.reload()');
   await everyPage(s => s.styledAtStart && s.theme, 'reload');
   for (const s of await states()) assert.match(s.styleAtStart, /#0f0f0f/, 'the killed injector left no old theme behind');
+  // detaching the old sessions must not have cost the new injector its own
+  lib.writeItem('theme', 'Test', ':root { --ns-bg: #0a0a0a; }');
+  await everyPage(s => /#0a0a0a/.test(s.theme ?? ''), 'a theme change after the takeover');
+  lib.writeItem('theme', 'Test', ':root { --ns-bg: #abcdef; }');
+  await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'the theme back');
 });
 
 test('applying with no injector running starts one', { skip }, async () => {
@@ -278,6 +304,25 @@ test('applying with no injector running starts one', { skip }, async () => {
   const report = await diagnosticsReport();
   assert.match(report, /DevTools pipe: {3}open/);
   assert.match(report, /Injector: {8}running \(pid \d+\), connected/);
+});
+
+test('a stopped injector keeps its lock until it has exited, then a theme switch starts a new one', { skip }, async () => {
+  const pid = pidLockHolder(INJECTOR_PID_PATH);
+  assert.ok(pid, 'the injector started by applyConfig holds the lock');
+  // what `pkill -f "index.js inject"` does
+  process.kill(pid, 'SIGTERM');
+  // while that process is still alive, nobody else may take the lock and open the pipe
+  await waitFor(() => {
+    if (alive(pid)) assert.equal(pidLockHolder(INJECTOR_PID_PATH), pid);
+    return !alive(pid);
+  }, 'the injector to exit', 10_000);
+  assert.equal(pidLockHolder(INJECTOR_PID_PATH), null);
+  assert.ok(alive(fake.pid), 'Notion is still running');
+
+  assert.equal(await lib.applyConfig(), true);
+  const status = await askInjector({ cmd: 'status' });
+  assert.equal(status.pid, fake.pid);
+  assert.notEqual(pidLockHolder(INJECTOR_PID_PATH), pid);
 });
 
 test('the injector exits and cleans up when Notion quits', { skip }, async () => {
