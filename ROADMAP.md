@@ -24,7 +24,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 ## Phase 2: Distribution (weeks 4–6, about 8–10 hours plus Apple's wait)
 
 - ✅ New look: "paper and ink" (warm paper, ink, vermilion, Fraunces), light and dark following macOS
-- App icon (it's still the default Electron one)
+- ✅ App icon: an ink rounded square with a cream page peeling back to vermilion, also the sidebar logo
 - ✅ Intel Mac builds: separate downloads for Apple Silicon and Intel
 - Apple Developer ID signing and notarization ($99/year): removes "damaged app" warnings and makes auto-update work
 - ✅ First-run walkthrough: a short tour of every page that ends at Install into Notion, replayable from Settings → Help
