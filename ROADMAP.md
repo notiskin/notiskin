@@ -24,7 +24,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 ## Phase 2: Distribution (weeks 4–6, about 8–10 hours plus Apple's wait)
 
 - App icon (it's still the default Electron one)
-- Intel Mac builds (only Apple Silicon today)
+- ✅ Intel Mac builds: separate downloads for Apple Silicon and Intel
 - Apple Developer ID signing and notarization ($99/year): removes "damaged app" warnings and makes auto-update work
 - First-run walkthrough
 
