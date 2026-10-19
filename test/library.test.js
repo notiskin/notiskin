@@ -39,7 +39,7 @@ test('write, list, and delete items keeps config in sync', () => {
   assert.ok(lib.deleteItem('plugin', 'hello'));
   assert.ok(lib.deleteItem('theme', 'Dark'));
   assert.ok(!lib.deleteItem('theme', 'Dark'));
-  assert.deepEqual(readConfig(), { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [] });
+  assert.deepEqual(readConfig(), { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false });
   assert.ok(!existsSync(join(dataDir, 'themes', 'Dark.css')));
 });
 
@@ -57,4 +57,30 @@ test('missing enabled plugins are skipped with a warning', () => {
 
 test('oversized items are refused', () => {
   assert.throws(() => lib.writeItem('plugin', 'big', 'x'.repeat(600 * 1024)), /too large/);
+});
+
+test('safe mode sends Notion nothing but keeps the choices', () => {
+  lib.writeItem('theme', 'Safe', ':root { --ns-bg: #111; }');
+  lib.writeItem('plugin', 'safe-plugin', 'void 0');
+  const config = { activeTheme: 'Safe', enabledPlugins: ['safe-plugin'], acknowledgedPlugins: ['safe-plugin'], safeMode: false };
+  const normal = lib.currentPayload(config);
+  assert.match(normal.css, /#111/);
+  assert.deepEqual(normal.plugins.map(p => p.name), ['safe-plugin']);
+  assert.deepEqual(lib.currentPayload({ ...config, safeMode: true }), { css: '', plugins: [] });
+  lib.deleteItem('theme', 'Safe');
+  lib.deleteItem('plugin', 'safe-plugin');
+});
+
+test('notiskin safe-mode turns it on and off without starting Notion', () => {
+  const { execFileSync } = require('child_process');
+  const cli = args => execFileSync(process.execPath, [join(__dirname, '..', 'dist', 'cli', 'index.js'), ...args], {
+    encoding: 'utf-8',
+    env: { ...process.env, NOTISKIN_DIR: dataDir },
+  });
+  assert.match(cli(['safe-mode']), /Safe mode is off/);
+  assert.match(cli(['safe-mode', 'on']), /paused/);
+  assert.equal(readConfig().safeMode, true);
+  assert.match(cli(['safe-mode', 'off']), /back/);
+  assert.equal(readConfig().safeMode, false);
+  assert.throws(() => cli(['safe-mode', 'maybe']), /Usage: notiskin safe-mode/);
 });

@@ -94,10 +94,8 @@ before(async () => {
   daemon = await startInjectorDaemon({
     port: cdpPort,
     isTargetUrl: url => url.startsWith(`http://127.0.0.1:${pagePort}`),
-    loadPayload: () => {
-      const config = readConfig();
-      return { css: lib.activeThemeCss(config), plugins: lib.loadEnabledPlugins(config) };
-    },
+    // the same payload function the real `notiskin inject` uses, so safe mode is covered too
+    loadPayload: () => lib.currentPayload(readConfig()),
     watchPaths: [dataDir, join(dataDir, 'themes'), join(dataDir, 'plugins')],
     log: msg => logs.push(msg),
   });
@@ -158,6 +156,20 @@ test('editing the theme file updates every tab live', { skip }, async () => {
   lib.writeItem('theme', 'Test', ':root { --ns-bg: #abcdef; }');
   for (const page of await pages()) {
     await waitFor(async () => /#abcdef/.test((await pageState(page)).theme ?? ''), `live update in ${page.id}`);
+  }
+});
+
+test('safe mode removes the theme from every tab, turning it off brings it back', { skip }, async () => {
+  writeConfig({ ...readConfig(), safeMode: true });
+  for (const page of await pages()) {
+    await waitFor(async () => {
+      const s = await pageState(page);
+      return s.theme === null && s.core === false;
+    }, `safe mode in ${page.id}`);
+  }
+  writeConfig({ ...readConfig(), safeMode: false });
+  for (const page of await pages()) {
+    await waitFor(async () => /#abcdef/.test((await pageState(page)).theme ?? ''), `theme back in ${page.id}`);
   }
 });
 
