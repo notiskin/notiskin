@@ -1,0 +1,153 @@
+/* Notiskin's look, "paper and ink": warm paper, ink text, one vermilion accent. Every page and the tour
+   read these variables, so colors change here only. Dark mode follows the Mac's appearance setting. */
+
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/fraunces.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter.woff2') format('woff2-variations');
+}
+
+:root {
+  color-scheme: light;
+
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --bg: #F6F1E7;
+  --sidebar: #EDE6D8;
+  --surface: #FFFDF8;
+  --surface-hover: #F3EDE1;
+  --border: #E2D9C8;
+  --border-strong: #CFC4AF;
+
+  --text: #1F1B16;
+  --text-2: #5E564A;
+  --text-3: #8A8172;
+
+  --accent: #E4572E;
+  --accent-hover: #CC4720;
+  --accent-text: #B83F1C;
+  --accent-soft: #FBE6DD;
+  --on-accent: #FFFFFF;
+
+  /* the dark "ink" button, for the one main action on a page */
+  --ink: #1F1B16;
+  --ink-hover: #3A332A;
+  --on-ink: #F6F1E7;
+
+  --danger: #B42318;
+  --danger-soft: #FBE7E3;
+  --danger-border: #F0C1B8;
+  --success: #2F7D4F;
+  --success-soft: #E4F1E7;
+  --success-border: #B9DCC3;
+  --warning: #8A5D00;
+  --warning-soft: #FBF1D6;
+  --warning-border: #EBD39A;
+  --info: #2C5E8A;
+  --info-soft: #E3EDF6;
+  --info-border: #B9CFE4;
+
+  /* the app icon's own colors, the same in light and dark like the icon itself */
+  --logo-ink: #1F1B16;
+  --logo-paper: #F6F1E7;
+  --logo-fold: #E6DCC8;
+  --logo-accent: #E4572E;
+  --logo-edge: transparent;
+
+  --overlay: rgba(31, 27, 22, 0.45);
+  --shadow: 0 1px 2px rgba(31, 27, 22, 0.06), 0 8px 24px rgba(31, 27, 22, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #1A1714;
+    --sidebar: #141210;
+    --surface: #221E1A;
+    --surface-hover: #2A2520;
+    --border: #352F28;
+    --border-strong: #4A4238;
+
+    --text: #EFE8DB;
+    --text-2: #B5AC9C;
+    --text-3: #857C6E;
+
+    --accent: #F06A43;
+    --accent-hover: #F47E5C;
+    --accent-text: #F4896A;
+    --accent-soft: #3A2119;
+    --on-accent: #1A1714;
+
+    --ink: #EFE8DB;
+    --ink-hover: #FFFFFF;
+    --on-ink: #1A1714;
+
+    --danger: #F2836B;
+    --danger-soft: #3A1D18;
+    --danger-border: #5E2B22;
+    --success: #6CC08B;
+    --success-soft: #1C2E22;
+    --success-border: #2E4D38;
+    --warning: #E8B44C;
+    --warning-soft: #332810;
+    --warning-border: #5A4618;
+    --info: #8DB8DE;
+    --info-soft: #18242F;
+    --info-border: #2C4256;
+
+    /* the ink logo square needs a faint edge on the dark sidebar */
+    --logo-edge: rgba(239, 232, 219, 0.22);
+
+    --overlay: rgba(0, 0, 0, 0.6);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* pages crossfade into each other instead of flashing (Chromium's cross-page view transitions) */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+}
+
+/* shared by every page: the wordmark, headings in the display serif, and accessible focus */
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, .display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-weight: 560;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.sidebar-logo svg { width: 24px; height: 24px; flex-shrink: 0; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+::selection { background: var(--accent-soft); color: var(--text); }

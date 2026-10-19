@@ -58,18 +58,30 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      # only goes public once every file is there, the app's updater reads latest-mac.yml
+      # only goes public once every file is there, the app's updater reads latest-mac.yml.
+      # the expected files are whatever electron-builder made in release/, so new platforms need no edit here
       - name: Publish the release
         run: |
+          # one download per chip, a silently skipped arch would leave those users without updates
+          for file in "notiskin-${VERSION}-arm64.dmg" "notiskin-${VERSION}-x64.dmg"; do
+            if [ ! -f "release/${file}" ]; then
+              echo "The build didn't make ${file}, leaving ${TAG} as a draft."
+              exit 1
+            fi
+          done
           assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          for file in latest-mac.yml \
-            "notiskin-${VERSION}-arm64.dmg" "notiskin-${VERSION}-arm64.dmg.blockmap" \
-            "notiskin-${VERSION}-arm64-mac.zip" "notiskin-${VERSION}-arm64-mac.zip.blockmap"; do
+          for path in release/latest*.yml release/*.dmg release/*.zip release/*.blockmap; do
+            [ -f "$path" ] || continue
+            file="$(basename "$path")"
             if ! printf '%s\n' "$assets" | grep -qxF "$file"; then
               echo "Missing ${file}, leaving ${TAG} as a draft."
               exit 1
             fi
           done
+          if [ ! -f release/latest-mac.yml ]; then
+            echo "The build didn't make latest-mac.yml, leaving ${TAG} as a draft."
+            exit 1
+          fi
           gh release edit "$TAG" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
