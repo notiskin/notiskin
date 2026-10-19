@@ -112,8 +112,11 @@ test('install, launch through the wrapper, and uninstall a fake Notion', async t
     stdio: 'ignore',
   });
   await patcher.waitForCDP(WRAPPER_PORT);
-  const targets = await getJson(`http://127.0.0.1:${WRAPPER_PORT}/json/list`);
-  assert.ok(targets.some(t => t.title === 'fake notion'), 'the debug port should belong to the fake Notion');
+  // the debug port opens before the fake Notion's page has loaded, so wait for its title to show up
+  await waitFor(
+    async () => (await getJson(`http://127.0.0.1:${WRAPPER_PORT}/json/list`)).some(t => t.title === 'fake notion'),
+    'the fake Notion page on the debug port'
+  );
   await waitFor(() => existsSync(marker), 'the inject line');
   assert.equal(readFileSync(marker, 'utf-8'), 'inject 1');
   assert.ok(existsSync(join(home, '.notiskin', 'logs')), 'logs go to the home folder the wrapper was given');

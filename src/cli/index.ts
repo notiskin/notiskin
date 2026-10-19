@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, statSync, truncateSync } from 'fs';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { homedir } from 'os';
 import { patchNotion, unpatchNotion } from '../patcher/index';
 import { readConfig, writeConfig } from '../utils/config';
@@ -232,6 +232,26 @@ async function inject(): Promise<void> {
   release();
 }
 
+// `sudo npm run patch` rebuilds dist/ as root first, hand it back so the next plain `npm run ...` can rebuild it
+function restoreDistOwner(): void {
+  const sudoUser = process.env.SUDO_USER;
+  const dist = join(__dirname, '..');
+  if (process.getuid?.() !== 0 || !sudoUser || dist.includes('.asar') || basename(dist) !== 'dist') return;
+  try {
+    execFileSync('chown', ['-R', sudoUser, dist], { stdio: 'ignore' });
+  } catch {
+    console.warn(`[patcher] Could not give ${dist} back to ${sudoUser}, run: sudo chown -R ${sudoUser} "${dist}"`);
+  }
+}
+
+function asRootCommand(fn: () => void): void {
+  try {
+    fn();
+  } finally {
+    restoreDistOwner();
+  }
+}
+
 // the injector now lives as long as Notion, keep its log from growing forever
 function capLog(path: string, maxBytes = 1024 * 1024): void {
   try {
@@ -264,9 +284,11 @@ async function main(argv: string[]): Promise<void> {
       return inject();
     case 'patch':
       // inside the desktop app this runs on Electron's binary, so the wrapper has to set ELECTRON_RUN_AS_NODE too
-      return patchNotion(process.execPath, join(__dirname, 'index.js'), { appMode: Boolean(process.versions.electron) });
+      return asRootCommand(() =>
+        patchNotion(process.execPath, join(__dirname, 'index.js'), { appMode: Boolean(process.versions.electron) })
+      );
     case 'unpatch':
-      return unpatchNotion();
+      return asRootCommand(unpatchNotion);
     case 'watch:install':
       return installWatcher();
     case 'watch:uninstall':
