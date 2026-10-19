@@ -30,7 +30,7 @@ macOS may block the install under **System Settings → Privacy & Security → A
 
 ## Desktop app
 
-The app has tabs for themes, plugins, the marketplace (browse, install, rate, publish), and settings. It runs a small server on `127.0.0.1:3845` that only the app's own window can use: every API call needs a secret token that is generated fresh each launch, and requests from other websites are rejected.
+The app has tabs for themes, plugins, the marketplace (browse, install, rate, publish), and settings. The first time you open it, a short tour points out where everything is; replay it from **Settings → Help**. It runs a small server on `127.0.0.1:3845` that only the app's own window can use: every API call needs a secret token that is generated fresh each launch, and requests from other websites are rejected.
 
 ### Safe mode and diagnostics
 

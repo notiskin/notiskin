@@ -18,6 +18,12 @@ export default tseslint.config(
     },
   },
   {
+    // plain browser scripts served next to the GUI pages
+    files: ['src/gui/**/*.js'],
+    languageOptions: { globals: globals.browser, sourceType: 'script' },
+    rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
+  },
+  {
     files: ['test/**/*.js', 'scripts/**/*.js', 'publish.js', '*.mjs'],
     languageOptions: { globals: globals.node, sourceType: 'commonjs' },
     rules: {
