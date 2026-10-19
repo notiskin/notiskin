@@ -205,7 +205,16 @@ function pathExists(path: string): boolean {
   return existsSync(existencePath(path));
 }
 
-export type NotionStatus = 'not-installed' | 'installed' | 'needs-repair' | 'notion-missing';
+export type NotionStatus = 'not-installed' | 'installed' | 'needs-repair' | 'notion-missing' | 'unsupported';
+
+// Notiskin themes Notion's web page through Chromium's DevTools, which only an Electron Notion has.
+// Notion is moving its Mac app to SwiftUI (announced at WWDC 2026), a native Notion is left alone until Notiskin supports it
+export function isElectronNotion(notionPath: string): boolean {
+  return existsSync(join(appBundlePath(notionPath), 'Contents', 'Frameworks', 'Electron Framework.framework'));
+}
+
+export const UNSUPPORTED_MESSAGE =
+  "This version of Notion isn't built on Electron, so Notiskin can't theme it yet. Notion was left unchanged.";
 
 // read-only, works without root
 export function getNotionStatus(): NotionStatus {
@@ -215,6 +224,7 @@ export function getNotionStatus(): NotionStatus {
   } catch {
     return 'notion-missing';
   }
+  if (!isElectronNotion(notionPath)) return 'unsupported';
   if (isWrapperPresent(notionPath)) {
     const script = readFileSync(notionPath, 'utf-8');
     if (isLegacyWrapper(script)) return 'needs-repair';
@@ -308,6 +318,8 @@ function rewriteWrapper(notionPath: string, script: string, owner: Owner): void 
 
 export function patchNotion(nodePath: string, cliScriptPath: string, opts: WrapperOptions = {}): void {
   const notionPath = findNotionBinary();
+  // checked before anything is touched, a native Notion wouldn't open the DevTools pipe the wrapper expects
+  if (!isElectronNotion(notionPath)) throw new Error(UNSUPPORTED_MESSAGE);
   const realPath = `${notionPath}.real`;
   const backupDir = join(NOTISKIN_DIR, 'backup');
   const backupPath = join(backupDir, 'Notion.original');

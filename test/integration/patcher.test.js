@@ -1,6 +1,6 @@
 // patches a copy of the fake Notion in a temp folder, launches it through the wrapper, then unpatches it
 // never touches /Applications or the real Notion
-require('../helpers');
+const { infoPlist, makeElectronFramework } = require('../helpers');
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn, execFileSync } = require('child_process');
@@ -94,18 +94,15 @@ test('install, launch through the wrapper, and uninstall a fake Notion', async t
   // Notion.app/Contents/MacOS/Notion starts the fake Notion, it plays the part of the real binary
   const macos = join(notionApp, 'Contents', 'MacOS');
   mkdirSync(macos, { recursive: true });
+  // an Electron Notion has this, a native one doesn't. Signed on its own, like Notion's
+  makeElectronFramework(join(notionApp, 'Contents', 'Frameworks'));
   const notion = join(macos, 'Notion');
   const fakeMain = join(__dirname, '..', 'fixtures', 'fake-notion', 'main.js');
   const original = `#!/bin/sh\nexec '${electronPath}' '${fakeMain}' "$@"\n`;
   writeFileSync(notion, original);
   chmodSync(notion, 0o755);
   // signed like a real app, so the launch below runs with the signature the patcher gives it
-  writeFileSync(
-    join(notionApp, 'Contents', 'Info.plist'),
-    '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>' +
-      '<key>CFBundleIdentifier</key><string>notion.id</string><key>CFBundleExecutable</key><string>Notion</string>' +
-      '<key>CFBundlePackageType</key><string>APPL</string></dict></plist>\n'
-  );
+  writeFileSync(join(notionApp, 'Contents', 'Info.plist'), infoPlist('notion.id', 'Notion'));
   execFileSync('codesign', ['--force', '--sign', '-', notionApp], { stdio: 'ignore' });
 
   // stands in for the CLI's inject command: talks to Notion over the pipe it was given, then exits
