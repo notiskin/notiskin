@@ -3,14 +3,33 @@
 import { execFile } from 'child_process';
 import { closeSync, existsSync, fstatSync, openSync, readSync } from 'fs';
 import { join } from 'path';
+import net from 'net';
 import { release, userInfo } from 'os';
-import { CDP_PORT, INJECTOR_PID_PATH, LOGS_DIR, NOTISKIN_DIR, USER_HOME } from '../utils/constants';
+import { INJECTOR_PID_PATH, LOGS_DIR, NOTISKIN_DIR, USER_HOME } from '../utils/constants';
 import { readConfig } from '../utils/config';
 import { pidLockHolder } from '../utils/pidlock';
-import { appBundlePath, findNotionBinary, getNotionStatus, isCDPAvailable } from '../patcher/index';
+import { appBundlePath, findNotionBinary, getNotionStatus } from '../patcher/index';
+import { askInjector } from '../injector/control';
+import { findNotionRun } from '../injector/pipe';
 import { isNotionRunning, listPlugins, listThemes } from './library';
 
 const LOG_LINES = 40;
+// what Notiskin versions before the DevTools pipe opened, it should always be closed now
+const OLD_DEBUG_PORT = 9222;
+
+// connects only, never sends anything
+function portOpen(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    const done = (open: boolean) => {
+      socket.destroy();
+      resolve(open);
+    };
+    socket.setTimeout(1000, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
+}
 
 function run(file: string, args: string[]): Promise<string | null> {
   return new Promise(resolve => {
@@ -91,7 +110,12 @@ export async function diagnosticsReport(now = new Date()): Promise<string> {
   const plugins = listPlugins();
   const injectorPid = pidLockHolder(INJECTOR_PID_PATH);
   const runtime = process.versions.electron ? `Electron ${process.versions.electron}` : `Node ${process.versions.node}`;
-  const [system, notion, debugPort] = await Promise.all([systemVersion(), notionVersion(), isCDPAvailable(CDP_PORT)]);
+  const [system, notion, oldPort, injector] = await Promise.all([
+    systemVersion(),
+    notionVersion(),
+    portOpen(OLD_DEBUG_PORT),
+    askInjector({ cmd: 'status' }, 3000),
+  ]);
   const logPath = join(LOGS_DIR, 'inject.log');
   const log = tailFile(logPath);
 
@@ -103,8 +127,9 @@ export async function diagnosticsReport(now = new Date()): Promise<string> {
     `Notion version:  ${notion ?? 'unknown'}`,
     `Installed:       ${getNotionStatus()}`,
     `Notion running:  ${yesNo(isNotionRunning())}`,
-    `Debug port ${CDP_PORT}: ${debugPort ? 'answering' : 'not answering'}`,
-    `Injector:        ${injectorPid ? `running (pid ${injectorPid})` : 'not running'}`,
+    `DevTools pipe:   ${findNotionRun() ? 'open' : 'not open'}`,
+    `Injector:        ${injectorPid ? `running (pid ${injectorPid})` : 'not running'}${injector?.ok ? `, connected to ${injector.tabs} tab(s)` : ''}`,
+    `Port ${OLD_DEBUG_PORT}:       ${oldPort ? 'open (an old Notiskin wrapper or another app, Repair closes ours)' : 'closed'}`,
     `Safe mode:       ${config.safeMode ? 'on' : 'off'}`,
     `Theme:           ${config.activeTheme || '(none)'} (${themes.length} installed)`,
     `Plugins on:      ${config.enabledPlugins.join(', ') || '(none)'} (${plugins.length} installed)`,

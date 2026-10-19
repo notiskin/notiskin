@@ -1,14 +1,16 @@
-// stand-in for Notion: an Electron app with the debug port open, serving a page that uses Notion's class names
+// stand-in for Notion: an Electron app serving a page that uses Notion's class names
+// DevTools comes over the pipe on fds 3 and 4 when started with --remote-debugging-pipe, like the wrapper does
+// only the injector may use that pipe, so tests look inside the pages through POST /__eval here instead
 const { app, BrowserWindow } = require('electron');
 const http = require('http');
 
-const { CDP_PORT, PAGE_PORT, USER_DATA } = process.env;
+const { PAGE_PORT, USER_DATA } = process.env;
 app.setPath('userData', USER_DATA);
-app.commandLine.appendSwitch('remote-debugging-port', CDP_PORT);
 
-// the inline script records whether the theme was already present before the page's own code ran
+// the inline script records what theme was already present before the page's own code ran
 const html = '<!doctype html><html><head><title>fake notion</title>' +
-  '<script>window.__styledAtStart = !!document.getElementById("notiskin-styles")</script></head>' +
+  '<script>window.__styleAtStart = document.getElementById("notiskin-styles")?.textContent ?? null;' +
+  'window.__styledAtStart = window.__styleAtStart !== null</script></head>' +
   '<body><div class="notion-app-inner"><div class="notion-frame">hello</div></div></body></html>';
 
 function openWindow(win) {
@@ -17,9 +19,32 @@ function openWindow(win) {
   win.webContents.on('did-create-window', child => openWindow(child));
 }
 
+// runs the request body as JS in every window, answers [{ id, url, value }]
+async function evalEverywhere(expression) {
+  return Promise.all(
+    BrowserWindow.getAllWindows().map(async win => {
+      const url = win.webContents.getURL();
+      try {
+        return { id: win.id, url, value: await win.webContents.executeJavaScript(expression) };
+      } catch (err) {
+        return { id: win.id, url, error: String(err) };
+      }
+    })
+  );
+}
+
 app.whenReady().then(() => {
   http
-    .createServer((_req, res) => {
+    .createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/__eval') {
+        let body = '';
+        req.on('data', c => (body += c));
+        req.on('end', async () => {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(await evalEverywhere(body)));
+        });
+        return;
+      }
       res.setHeader('Content-Type', 'text/html');
       res.end(html);
     })

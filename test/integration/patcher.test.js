@@ -3,12 +3,11 @@
 require('../helpers');
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } = require('fs');
 const { join } = require('path');
 const { tmpdir } = require('os');
 const net = require('net');
-const http = require('http');
 
 // unpatch looks for a LaunchAgent in the home folder, keep it away from the real one
 const home = mkdtempSync(join(tmpdir(), 'notiskin-home-'));
@@ -22,35 +21,12 @@ const patcher = require('../../dist/patcher/index');
 let electronPath = null;
 try { electronPath = require('electron'); } catch {}
 
-// the wrapper always uses port 9222, so a running real Notion would answer instead of the fake one
-const WRAPPER_PORT = 9222;
-
-function portInUse(port) {
-  return new Promise(resolve => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(true));
-    srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(false)));
-  });
-}
-
 function freePort() {
   return new Promise(resolve => {
     const srv = net.createServer().listen(0, '127.0.0.1', () => {
       const { port } = srv.address();
       srv.close(() => resolve(port));
     });
-  });
-}
-
-function getJson(url) {
-  return new Promise((resolve, reject) => {
-    http.get(url, res => {
-      let data = '';
-      res.on('data', c => (data += c));
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch (err) { reject(err); }
-      });
-    }).on('error', reject);
   });
 }
 
@@ -65,18 +41,48 @@ async function waitFor(fn, what, timeoutMs = 30_000) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
+const alive = pid => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const args = pid => execFileSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf-8' });
+
+function tcpListeners(pid) {
+  try {
+    const out = execFileSync('lsof', ['-a', '-p', String(pid), '-iTCP', '-sTCP:LISTEN', '-nP'], { encoding: 'utf-8' });
+    return out.split('\n').slice(1).filter(Boolean).map(line => line.match(/:(\d+) \(LISTEN\)/)?.[1]);
+  } catch {
+    return [];
+  }
+}
+
 let fake;
 
 after(() => {
-  fake?.kill();
+  fake?.kill('SIGKILL');
   rmSync(root, { recursive: true, force: true });
   rmSync(home, { recursive: true, force: true });
 });
 
+function launch(pagePort) {
+  return spawn(join(notionApp, 'Contents', 'MacOS', 'Notion'), [], {
+    env: {
+      ...process.env,
+      PAGE_PORT: String(pagePort),
+      USER_DATA: mkdtempSync(join(root, 'userdata-')),
+    },
+    stdio: 'ignore',
+  });
+}
+
 test('install, launch through the wrapper, and uninstall a fake Notion', async t => {
   if (process.platform !== 'darwin') return t.skip('needs macOS');
   if (!electronPath) return t.skip('Electron binary not installed');
-  if (await portInUse(WRAPPER_PORT)) return t.skip(`port ${WRAPPER_PORT} is in use (is the real Notion running?)`);
 
   // Notion.app/Contents/MacOS/Notion starts the fake Notion, it plays the part of the real binary
   const macos = join(notionApp, 'Contents', 'MacOS');
@@ -87,42 +93,58 @@ test('install, launch through the wrapper, and uninstall a fake Notion', async t
   writeFileSync(notion, original);
   chmodSync(notion, 0o755);
 
-  // stands in for the CLI's inject command, proves the wrapper ran it without starting a real injector
+  // stands in for the CLI's inject command: talks to Notion over the pipe it was given, then exits
   const tools = join(root, 'Notiskin tools');
   mkdirSync(tools);
   const marker = join(root, 'inject-ran');
   const stubCli = join(tools, 'inject.js');
   writeFileSync(
     stubCli,
-    `require('fs').writeFileSync(${JSON.stringify(marker)}, process.argv.slice(2).join(' ') + ' ' + process.env.ELECTRON_RUN_AS_NODE)\n`
+    `const { PipeConnection, runPid } = require(${JSON.stringify(join(__dirname, '..', '..', 'dist', 'injector', 'pipe'))});
+const dir = process.argv[3];
+PipeConnection.open({ dir, pid: runPid(dir) }).then(async cdp => {
+  const { product } = await cdp.send('Browser.getVersion');
+  require('fs').writeFileSync(${JSON.stringify(marker)}, [process.argv[2], dir, process.env.ELECTRON_RUN_AS_NODE, product].join('|'));
+  await cdp.close();
+});
+`
   );
 
   assert.equal(patcher.getNotionStatus(), 'not-installed');
   patcher.patchNotion(process.execPath, stubCli, { appMode: true });
   assert.equal(patcher.getNotionStatus(), 'installed');
 
-  // if ELECTRON_RUN_AS_NODE leaked into Notion.real, the fake would start as plain Node and never open the port
-  fake = spawn(notion, [], {
-    env: {
-      ...process.env,
-      CDP_PORT: String(WRAPPER_PORT),
-      PAGE_PORT: String(await freePort()),
-      USER_DATA: mkdtempSync(join(root, 'userdata-')),
-    },
-    stdio: 'ignore',
-  });
-  await patcher.waitForCDP(WRAPPER_PORT);
-  // the debug port opens before the fake Notion's page has loaded, so wait for its title to show up
-  await waitFor(
-    async () => (await getJson(`http://127.0.0.1:${WRAPPER_PORT}/json/list`)).some(t => t.title === 'fake notion'),
-    'the fake Notion page on the debug port'
-  );
-  await waitFor(() => existsSync(marker), 'the inject line');
-  assert.equal(readFileSync(marker, 'utf-8'), 'inject 1');
+  // if ELECTRON_RUN_AS_NODE leaked into Notion.real, the fake would start as plain Node and never answer
+  const pagePort = await freePort();
+  fake = launch(pagePort);
+  await waitFor(() => existsSync(marker), 'the injector to reach Notion over the pipe');
+  const [command, runDir, runAsNode, product] = readFileSync(marker, 'utf-8').split('|');
+  assert.equal(command, 'inject');
+  assert.equal(runDir, join(home, '.notiskin', 'run', String(fake.pid)), 'the pipe folder is named after Notion');
+  assert.equal(runAsNode, '1');
+  assert.match(product, /^Chrome\//);
   assert.ok(existsSync(join(home, '.notiskin', 'logs')), 'logs go to the home folder the wrapper was given');
+  assert.match(args(fake.pid), /--remote-debugging-pipe/);
+  assert.doesNotMatch(args(fake.pid), /--remote-debugging-port/);
+
+  // the injector has exited, Notion carries on, and the only port open is the fake page's own
+  await new Promise(r => setTimeout(r, 1500));
+  assert.ok(alive(fake.pid), 'Notion keeps running after the injector is gone');
+  assert.deepEqual(tcpListeners(fake.pid), [String(pagePort)]);
 
   fake.kill();
-  await waitFor(async () => !(await portInUse(WRAPPER_PORT)), 'the fake Notion to quit', 15_000);
+  await waitFor(() => !alive(fake.pid), 'the fake Notion to quit', 15_000);
+
+  // Notiskin deleted: Notion still starts, with no pipe and no debugging at all
+  rmSync(tools, { recursive: true });
+  assert.equal(patcher.getNotionStatus(), 'needs-repair');
+  const port2 = await freePort();
+  fake = launch(port2);
+  await waitFor(() => tcpListeners(fake.pid).includes(String(port2)), 'the fake Notion to start without Notiskin');
+  assert.doesNotMatch(args(fake.pid), /--remote-debugging/);
+  assert.ok(!existsSync(join(home, '.notiskin', 'run', String(fake.pid))));
+  fake.kill();
+  await waitFor(() => !alive(fake.pid), 'the fake Notion to quit', 15_000);
   fake = null;
 
   patcher.unpatchNotion();

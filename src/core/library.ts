@@ -1,12 +1,25 @@
 // shared theme/plugin logic, the CLI, the GUI server, and the launch-time inject all go through here
 // so they can't drift apart on where files live or how they get applied
 import { execFileSync, spawn } from 'child_process';
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, renameSync, openSync, closeSync } from 'fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  mkdtempSync,
+  unlinkSync,
+  renameSync,
+  openSync,
+  closeSync,
+} from 'fs';
 import { join } from 'path';
-import { THEMES_DIR, PLUGINS_DIR, CDP_PORT, MAX_ITEM_BYTES, LOGS_DIR } from '../utils/constants';
+import { THEMES_DIR, PLUGINS_DIR, MAX_ITEM_BYTES, LOGS_DIR, RUN_DIR } from '../utils/constants';
 import { readConfig, writeConfig, NotiskinConfig } from '../utils/config';
-import { launchNotion, waitForCDP, isCDPAvailable } from '../patcher/index';
-import { applyAll, reloadAndReapply, PluginEntry } from '../injector/index';
+import { appBundlePath, findNotionBinary, hasLegacyWrapper, isWrapperPresent } from '../patcher/index';
+import { PluginEntry } from '../injector/index';
+import { ensureRunDir, findNotionRun } from '../injector/pipe';
+import { askInjector, ControlReply, ControlRequest } from '../injector/control';
 import { sleep } from '../utils/sleep';
 
 export type ItemType = 'theme' | 'plugin';
@@ -163,38 +176,92 @@ export function ensureInjector(): void {
   }
 }
 
+// an unpatched Notion gets the same pipes the wrapper would give it, for this run only
+function spawnWithPipe(binary: string): void {
+  ensureRunDir();
+  // named after Notion's pid once it has one, mkdtemp makes it 0700
+  const dir = mkdtempSync(join(RUN_DIR, 'launch-'));
+  execFileSync('mkfifo', ['-m', '600', join(dir, 'in'), join(dir, 'out')]);
+  // read+write so Notion holds both ends itself and the pipe never closes under it
+  const inFd = openSync(join(dir, 'in'), 'r+');
+  const outFd = openSync(join(dir, 'out'), 'r+');
+  try {
+    const child = spawn(binary, ['--remote-debugging-pipe'], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore', inFd, outFd],
+    });
+    child.unref();
+    if (!child.pid) throw new Error('Notion did not start.');
+    renameSync(dir, join(RUN_DIR, String(child.pid)));
+  } finally {
+    closeSync(inFd);
+    closeSync(outFd);
+  }
+}
+
+// a patched Notion opens like it does from the Dock, the wrapper sets up the pipe and starts the injector
+export function launchNotion(): void {
+  const binary = findNotionBinary();
+  if (isWrapperPresent(binary)) {
+    execFileSync('open', [appBundlePath(binary)], { stdio: 'ignore' });
+    return;
+  }
+  spawnWithPipe(binary);
+  ensureInjector();
+}
+
+async function waitForInjector(req: ControlRequest, timeoutMs: number): Promise<ControlReply | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const reply = await askInjector(req);
+    if (reply) return reply;
+    await sleep(300);
+  }
+  return null;
+}
+
+export const REPAIR_MESSAGE =
+  'Notion still has the wrapper from an older Notiskin. Repair it in Notiskin\'s Settings, or run: notiskin patch';
+
 export interface ApplyOptions {
-  // relaunch Notion with the debug port if it isn't already reachable
+  // relaunch Notion with Notiskin if the injector can't reach it
   restartIfNeeded?: boolean;
-  // reload the page first, needed to remove a plugin since JS can't be un-run
+  // reload Notion's tabs too, needed to remove a plugin since JS can't be un-run
   reload?: boolean;
   log?: (msg: string) => void;
 }
 
-// applies the saved config to Notion, returns false if Notion wasn't reachable and restart wasn't allowed
+// asks the injector to apply the saved config, returns false if Notion wasn't reachable and restart wasn't allowed
+// the injector reads the files itself, it's the only thing that talks to Notion
 export async function applyConfig(opts: ApplyOptions = {}): Promise<boolean> {
   const log = opts.log ?? (() => {});
   const config = readConfig();
-  const { css, plugins } = currentPayload(config, log);
+  // only for the warnings about missing plugin files
+  currentPayload(config, log);
+  const req: ControlRequest = { cmd: opts.reload ? 'reload' : 'apply' };
 
-  if (!(await isCDPAvailable(CDP_PORT))) {
+  let reply = await askInjector(req);
+  if (!reply && findNotionRun()) {
+    // Notion has its pipe but the injector isn't running (it crashed, or was never started), start one
+    ensureInjector();
+    reply = await waitForInjector(req, 15_000);
+  }
+
+  if (!reply) {
     // in safe mode there's nothing to inject, so restarting Notion would only close its windows
     if (!opts.restartIfNeeded || config.safeMode) return false;
-    log('Restarting Notion with remote debugging enabled...');
+    if (hasLegacyWrapper()) throw new Error(REPAIR_MESSAGE);
+    log('Restarting Notion with Notiskin...');
     await quitNotion();
-    launchNotion(CDP_PORT);
-    await waitForCDP(CDP_PORT);
-    ensureInjector();
-    await applyAll(css, plugins, CDP_PORT);
-    return true;
+    launchNotion();
+    reply = await waitForInjector({ cmd: 'apply' }, 30_000);
+    if (!reply) {
+      throw new Error(
+        'Notion started, but Notiskin could not connect to it. Try Repair in Notiskin\'s Settings, or run: notiskin patch'
+      );
+    }
   }
 
-  ensureInjector();
-
-  if (opts.reload) {
-    await reloadAndReapply(css, plugins, CDP_PORT);
-  } else {
-    await applyAll(css, plugins, CDP_PORT);
-  }
+  if (!reply.ok) throw new Error(reply.error ?? 'The injector could not apply your settings.');
   return true;
 }
