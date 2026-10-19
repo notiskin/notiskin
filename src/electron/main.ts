@@ -39,6 +39,10 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // packaged builds get the icon from the bundle, running from source shows build/icon.png in the Dock
+    if (!app.isPackaged && process.platform === 'darwin') {
+      try { app.dock?.setIcon(join(app.getAppPath(), 'build', 'icon.png')); } catch {}
+    }
     try {
       await startServer(false, app.getAppPath());
     } catch (err: unknown) {

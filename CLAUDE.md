@@ -137,8 +137,9 @@ Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin
 Phase 2 in progress:
 - Intel builds done (the Release workflow checks both chips were built and every built file is attached)
 - Welcome tour done: a card points at each control across Themes, Plugins and Settings, ending at Install into Notion. It starts on its own only when `setupDone` isn't set and Notion isn't installed (`GET /api/setup`), so existing users aren't interrupted. Finishing or skipping calls `POST /api/setup-done`; Settings → Help replays it. Progress is in sessionStorage, so a half-finished tour restarts next launch
-- New look, "paper and ink": warm paper, ink text, one vermilion accent, Fraunces headings, lowercase "notiskin" wordmark with a folded-page mark (a placeholder until the app icon exists). Main buttons are ink, vermilion is for selection, tabs, toggles and focus (white on vermilion is below 4.5:1 contrast)
-- Still to do: app icon (being made from a ChatGPT prompt, goes in `build/icon.png`), Developer ID signing (on hold until the Apple account is sorted) The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+- New look, "paper and ink": warm paper, ink text, one vermilion accent, Fraunces headings, lowercase "notiskin" wordmark next to a small copy of the app icon (its colors are fixed `--logo-*` tokens). Main buttons are ink, vermilion is for selection, tabs, toggles and focus (white on vermilion is below 4.5:1 contrast)
+- App icon done: `build/icon.png` (1024px on Apple's grid, 824px body), electron-builder turns it into icon.icns; `npm start` shows it in the Dock. Cut from a ChatGPT image with a superellipse mask fitted to the artwork's corners
+- Still to do: Developer ID signing (on hold until the Apple account is sorted) The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 
