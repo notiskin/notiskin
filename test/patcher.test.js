@@ -269,3 +269,30 @@ test('errors from the CLI come back in plain words', () => {
   );
   assert.equal(admin.errorFromOutput('0:1: execution error: something odd (1)'), 'something odd');
 });
+
+test('the server runs the real CLI as the user to install and uninstall', { skip: rootSkip }, async () => {
+  const { notionSetup, setupFailureReason } = require('../dist/gui/server');
+  const original = 'x'.repeat(4096);
+  const { app, macos, notion } = fakeNotionApp({ binary: original });
+  process.env.NOTISKIN_NOTION_APP = app;
+  try {
+    const install = await notionSetup.run('patch');
+    assert.equal(install.status, 'ok', install.output);
+    assert.equal(patcher.getNotionStatus(), 'installed');
+
+    const uninstall = await notionSetup.run('unpatch');
+    assert.equal(uninstall.status, 'ok', uninstall.output);
+    assert.equal(patcher.getNotionStatus(), 'not-installed');
+    assert.equal(readFileSync(notion, 'utf-8'), original);
+
+    // a Notion.app the user can't write to, like one owned by another account
+    chmodSync(macos, 0o555);
+    const refused = await notionSetup.run('patch');
+    assert.equal(refused.status, 'error');
+    assert.equal(setupFailureReason(refused.output), 'not-owner');
+    assert.equal(readFileSync(notion, 'utf-8'), original);
+  } finally {
+    chmodSync(macos, 0o755);
+    delete process.env.NOTISKIN_NOTION_APP;
+  }
+});

@@ -228,6 +228,7 @@
             <div class="settings-row-label">Load themes when Notion starts <span id="notion-badge" class="update-badge neutral">Checking...</span></div>
             <div class="settings-row-sub" id="notion-sub"></div>
             <div class="settings-row-error" id="notion-error" style="display:none"></div>
+            <button class="btn-cache" id="notion-settings-btn" onclick="openAppManagement()" style="display:none; margin-top: 8px">Open App Management</button>
           </div>
           <button class="btn-install" id="notion-btn" onclick="runNotionAction()" style="display:none"></button>
         </div>
@@ -404,15 +405,15 @@
     const NOTION_STATES = {
       'not-installed': {
         badge: 'Not installed', tone: 'neutral', button: 'Install', action: 'install',
-        sub: 'Install so your theme loads every time Notion starts. macOS will ask for your password, then Notion needs a restart.',
+        sub: 'Install so your theme loads every time Notion starts. Notion needs a restart afterwards.',
       },
       'installed': {
         badge: 'Installed', tone: 'up-to-date', button: 'Uninstall', action: 'uninstall',
-        sub: 'Your theme loads every time Notion starts. Uninstalling asks for your password.',
+        sub: 'Your theme loads every time Notion starts.',
       },
       'needs-repair': {
         badge: 'Needs repair', tone: 'available', button: 'Repair', action: 'install',
-        sub: 'A Notion update or moving Notiskin switched this off. Repair asks for your password, then Notion needs a restart.',
+        sub: 'A Notion update or moving Notiskin switched this off. Repair it, then restart Notion.',
       },
       'notion-missing': {
         badge: 'Notion not found', tone: 'error', button: null,
@@ -420,14 +421,42 @@
       },
     };
     const LOG_HINT = 'Details are in ~/.notiskin/logs/inject.log';
+    // error text often ends in a full stop already, avoid "Notion.app.."
+    const asClause = text => (text || 'something went wrong').replace(/[.\s]+$/, '');
 
     let notionState = null;
     let notionBusy = false;
 
-    function showNotionError(message) {
+    function showNotionError(message, { settingsButton = false } = {}) {
       const el = document.getElementById('notion-error');
       el.textContent = message || '';
       el.style.display = message ? '' : 'none';
+      document.getElementById('notion-settings-btn').style.display = message && settingsButton ? '' : 'none';
+    }
+
+    // plain words for why an install or uninstall failed
+    function notionFailure(action, data) {
+      const verb = action === 'install' ? 'install into' : 'uninstall from';
+      if (data?.reason === 'app-management') {
+        const name = data.appName || 'Notiskin';
+        return {
+          message: `macOS blocked ${name} from changing Notion. Turn on ${name} under Privacy & Security → App Management, then try again. ` +
+            `If it's already on, remove it with − and add it again.`,
+          settingsButton: true,
+        };
+      }
+      if (data?.reason === 'not-owner') {
+        return { message: `Notion belongs to another account on this Mac, so Notiskin can't change it. Reinstall Notion by dragging it into Applications, then try again.` };
+      }
+      return { message: `Couldn't ${verb} Notion: ${asClause(data?.error)}. ${LOG_HINT}` };
+    }
+
+    async function openAppManagement() {
+      try {
+        const res = await fetch('/api/notion/app-management', { method: 'POST' });
+        if ((await res.json()).ok) return;
+      } catch {}
+      showNotif('Open System Settings → Privacy & Security → App Management');
     }
 
     function renderNotion(status, unavailableReason) {
@@ -478,7 +507,7 @@
       const btn = document.getElementById('notion-btn');
       notionBusy = true;
       btn.disabled = true;
-      btn.textContent = 'Waiting for password...';
+      btn.textContent = { install: notionState.button === 'Repair' ? 'Repairing...' : 'Installing...', uninstall: 'Uninstalling...' }[action];
       showNotionError('');
       hideRestartOffer();
       let data = null;
@@ -488,11 +517,9 @@
       } catch {}
       notionBusy = false;
 
-      if (data?.cancelled) {
-        showNotif('Cancelled');
-      } else if (!data?.ok) {
-        const verb = action === 'install' ? 'install into' : 'uninstall from';
-        showNotionError(`Couldn't ${verb} Notion: ${data?.error || 'something went wrong'}. ${LOG_HINT}`);
+      if (!data?.ok) {
+        const failure = notionFailure(action, data);
+        showNotionError(failure.message, { settingsButton: failure.settingsButton });
       } else {
         showNotif(action === 'install' ? 'Installed into Notion' : 'Removed from Notion');
       }
@@ -525,7 +552,7 @@
         hideRestartOffer();
         showNotif('Notion restarted');
       } else {
-        showNotionError(`Couldn't restart Notion: ${data?.error || 'something went wrong'}. Quit and reopen it yourself.`);
+        showNotionError(`Couldn't restart Notion: ${asClause(data?.error)}. Quit and reopen it yourself.`);
       }
     }
 
