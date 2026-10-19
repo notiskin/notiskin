@@ -270,6 +270,11 @@ test('the hold-back switch is saved, and re-signs Notion only when it is install
   mockNotionSetup();
 });
 
+test('the Supabase script is served wherever Notiskin lives, dot folders included', async () => {
+  const res = await request('GET', '/vendor/supabase.js', { headers: authed() });
+  assert.equal(res.status, 200);
+});
+
 test('failure reasons are read from the CLI output', () => {
   assert.equal(setupFailureReason("Error: EPERM: operation not permitted, rename 'a' -> 'b'"), 'app-management');
   assert.equal(setupFailureReason('Error: Failed to write wrapper, original restored. EPERM: operation not permitted'), 'app-management');

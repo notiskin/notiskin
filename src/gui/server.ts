@@ -336,7 +336,9 @@ const debugLogLimiter = rateLimit({
 // served from the installed package instead of a CDN, so the version is pinned by package-lock
 const SUPABASE_UMD = require.resolve('@supabase/supabase-js/dist/umd/supabase.js');
 app.get('/vendor/supabase.js', (_req, res) => {
-  res.type('application/javascript').sendFile(SUPABASE_UMD);
+  // a fixed path, never from the request. Running from a folder like .claude/worktrees would otherwise 404,
+  // because send refuses any path with a dot folder in it
+  res.type('application/javascript').sendFile(SUPABASE_UMD, { dotfiles: 'allow' });
 });
 
 app.get('/', sendPage('themes.html'));
