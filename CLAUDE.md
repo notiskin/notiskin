@@ -17,7 +17,7 @@ Reference projects: Spicetify, BetterDiscord, Vencord. MIT licensed. Hosted at g
 - **Injection mechanism:** Chrome DevTools Protocol via `chrome-remote-interface`
 - **Marketplace backend:** Supabase (Postgres + Auth + Storage)
 - **Auth:** GitHub OAuth via Supabase
-- **Packaging:** electron-builder (produces `.app` bundle, currently unsigned)
+- **Packaging:** electron-builder (separate Apple Silicon `arm64` and Intel `x64` dmg/zip, currently unsigned). File names carry the chip and `-mac` so future Windows/Linux builds don't clash; electron-updater picks the right zip by chip
 - **Config file:** `~/.notiskin/notiskin.config.json`
 - **Themes/plugins:** `~/.notiskin/themes/*.css`, `~/.notiskin/plugins/*.js` (CLI and GUI share these)
 
@@ -131,7 +131,7 @@ Done (Oct 2026), Phase 1:
 
 Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin is damaged and can't be opened" on Apple Silicon, and right-click → Open doesn't help. The fix is `xattr -dr com.apple.quarantine /Applications/notiskin.app` (in the README).
 
-Next: Phase 2 (app icon, Intel builds, Developer ID signing, first-run walkthrough). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+Phase 2 in progress: Intel builds done (the Release workflow checks both chips were built and every built file is attached). Still to do: app icon, first-run walkthrough, Developer ID signing (on hold until the Apple account is sorted). The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 

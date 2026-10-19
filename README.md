@@ -16,7 +16,7 @@ Themes and plugins live in `~/.notiskin/themes/*.css` and `~/.notiskin/plugins/*
 
 ## Install
 
-Download the latest `.dmg` from [Releases](https://github.com/notiskin/notiskin/releases/latest) and drag Notiskin into Applications. The app isn't signed with an Apple Developer ID yet, so macOS says it "is damaged and can't be opened" (it isn't). Click **Cancel**, not "Move to Bin", then run this once in Terminal and open it normally:
+Download the latest `.dmg` from [Releases](https://github.com/notiskin/notiskin/releases/latest) and drag Notiskin into Applications: `-arm64.dmg` for Apple Silicon Macs (M1 and later), `-x64.dmg` for Intel Macs. Not sure which you have? Apple menu → About This Mac: "Chip: Apple M…" is Apple Silicon, "Processor: Intel" is Intel. The app isn't signed with an Apple Developer ID yet, so macOS says it "is damaged and can't be opened" (it isn't). Click **Cancel**, not "Move to Bin", then run this once in Terminal and open it normally:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/notiskin.app
