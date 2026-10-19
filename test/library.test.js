@@ -39,7 +39,7 @@ test('write, list, and delete items keeps config in sync', () => {
   assert.ok(lib.deleteItem('plugin', 'hello'));
   assert.ok(lib.deleteItem('theme', 'Dark'));
   assert.ok(!lib.deleteItem('theme', 'Dark'));
-  assert.deepEqual(readConfig(), { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false });
+  assert.deepEqual(readConfig(), { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false });
   assert.ok(!existsSync(join(dataDir, 'themes', 'Dark.css')));
 });
 

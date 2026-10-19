@@ -10,10 +10,12 @@ export interface NotiskinConfig {
   safeMode: boolean;
   // true once the welcome tour is finished or skipped, so it never starts on its own again
   setupDone: boolean;
+  // set by patch, cleared by unpatch. A Notion update removes the wrapper and Notion.real, this is how status still says needs-repair
+  notionInstalled: boolean;
 }
 
 function defaultConfig(): NotiskinConfig {
-  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false };
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false };
 }
 
 function stringArray(value: unknown): string[] {
@@ -29,6 +31,7 @@ export function parseConfig(raw: unknown): NotiskinConfig {
     acknowledgedPlugins: [...new Set(stringArray(obj.acknowledgedPlugins))],
     safeMode: obj.safeMode === true,
     setupDone: obj.setupDone === true,
+    notionInstalled: obj.notionInstalled === true,
   };
 }
 

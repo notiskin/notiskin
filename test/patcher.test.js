@@ -284,10 +284,124 @@ test('patch, repair a stale wrapper, and unpatch a temp Notion.app', { skip: roo
       assert.ok(!readFileSync(notion, 'utf-8').includes('--remote-debugging-port'));
       assert.equal(readFileSync(real, 'utf-8'), original);
 
+      // Notion's updater swaps in a whole new Notion.app: no wrapper and no Notion.real, but it still needs a repair
+      rmSync(real);
+      writeFileSync(notion, original);
+      assert.equal(patcher.getNotionStatus(), 'needs-repair');
+      patcher.patchNotion(program, join(tools, 'index.js'), { appMode: true });
+      assert.equal(patcher.getNotionStatus(), 'installed');
+
       patcher.unpatchNotion();
       assert.equal(patcher.getNotionStatus(), 'not-installed');
       assert.equal(readFileSync(notion, 'utf-8'), original);
       assert.ok(!existsSync(real));
+    });
+  } finally {
+    for (const [k, fn] of silence) console[k] = fn;
+  }
+});
+
+function codesign(...args) {
+  return execFileSync('codesign', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+// codesign -dv writes to stderr
+function signatureInfo(path) {
+  return execFileSync('sh', ['-c', 'codesign -dvvv "$1" 2>&1', 'sh', path], { encoding: 'utf-8' });
+}
+
+function designated(path) {
+  // a script app also lists a host requirement, only the designated one matters
+  return codesign('-d', '-r-', path).match(/^(?:# )?designated => (.*)$/m)[1];
+}
+
+function meets(path, requirement) {
+  try {
+    codesign('--verify', `-R=${requirement}`, path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function infoPlist(id, executable) {
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' +
+    `<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${id}</string>` +
+    `<key>CFBundleExecutable</key><string>${executable}</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>\n`;
+}
+
+// a signed Notion.app look-alike: a real program as Notion, and a helper app inside signed on its own,
+// standing in for Notion's frameworks and helpers. Notion itself is never used
+function signedNotionApp(program) {
+  const { app, macos, notion, real } = fakeNotionApp();
+  writeFileSync(join(app, 'Contents', 'Info.plist'), infoPlist('notion.id', 'Notion'));
+  execFileSync('cp', [program, notion]);
+  const helper = join(app, 'Contents', 'Frameworks', 'Notion Helper.app');
+  mkdirSync(join(helper, 'Contents', 'MacOS'), { recursive: true });
+  writeFileSync(join(helper, 'Contents', 'Info.plist'), infoPlist('notion.id.helper', 'Notion Helper'));
+  execFileSync('cp', [program, join(helper, 'Contents', 'MacOS', 'Notion Helper')]);
+  codesign('--force', '--sign', '-', helper);
+  codesign('--force', '--sign', '-', app);
+  return { app, macos, notion, real, helper };
+}
+
+const signSkip = rootSkip || (process.platform !== 'darwin' && 'needs macOS codesign');
+
+test('the patched Notion still accepts Notion-signed updates, and meets its own requirement', { skip: signSkip }, t => {
+  // a tiny real program, the patched Notion has to be something macOS will actually run
+  const build = tempDir('notiskin-cc-');
+  const program = join(build, 'notion');
+  try {
+    execFileSync('cc', ['-x', 'c', '-o', program, '-'], { input: 'int main(void) { return 0; }\n', stdio: ['pipe', 'ignore', 'ignore'] });
+  } catch {
+    return t.skip('no C compiler');
+  }
+  const { app, notion, real, helper } = signedNotionApp(program);
+  const helperBefore = signatureInfo(helper).match(/CDHash=\w+/)[0];
+  const silence = ['log', 'warn'].map(k => [k, console[k]]);
+  for (const [k] of silence) console[k] = () => {};
+  try {
+    withNotionApp(app, () => {
+      // the plain ad hoc signing older versions did, which made Notion refuse every update
+      codesign('--force', '--deep', '--sign', '-', app);
+      assert.match(designated(app), /^cdhash /);
+
+      patcher.patchNotion(join(build, 'gone'), join(build, 'gone.js'));
+      assert.equal(patcher.getNotionStatus(), 'needs-repair'); // the made-up CLI paths don't exist
+      for (const path of [real, app]) {
+        const requirement = designated(path);
+        // a real Notion update is signed by Notion's team and passes the first half
+        assert.ok(requirement.includes('certificate leaf[subject.OU] = LBQJ96FQ8D'), requirement);
+        assert.ok(requirement.includes('identifier "notion.id"'), requirement);
+        // the keychain and privacy permissions need the patched Notion to meet its own requirement
+        assert.ok(meets(path, requirement), `${path} meets its own requirement`);
+      }
+      assert.doesNotThrow(() => codesign('--verify', '--deep', '--strict', app));
+      assert.equal(patcher.hasOldSignature(), false);
+
+      // an update that isn't Notion's (plain ad hoc) is still turned away
+      const other = signedNotionApp(program);
+      assert.ok(!meets(other.app, designated(real)));
+
+      // the wrapper starts the re-signed program, and the helper inside was left alone
+      execFileSync(notion, [], { stdio: 'ignore' });
+      assert.equal(signatureInfo(helper).match(/CDHash=\w+/)[0], helperBefore);
+
+      // an install signed the old way gets re-signed by the next patch, the wrapper itself unchanged
+      codesign('--force', '--deep', '--sign', '-', app);
+      assert.equal(patcher.hasOldSignature(), true);
+      const wrapper = readFileSync(notion, 'utf-8');
+      patcher.patchNotion(join(build, 'gone'), join(build, 'gone.js'));
+      assert.equal(readFileSync(notion, 'utf-8'), wrapper);
+      assert.equal(patcher.hasOldSignature(), false);
+
+      // uninstalling keeps the same requirement, so Notion can still update itself afterwards
+      patcher.unpatchNotion();
+      assert.ok(designated(app).includes('certificate leaf[subject.OU] = LBQJ96FQ8D'));
+      assert.ok(meets(app, designated(app)));
+      assert.doesNotThrow(() => codesign('--verify', '--deep', '--strict', app));
+      execFileSync(notion, [], { stdio: 'ignore' });
     });
   } finally {
     for (const [k, fn] of silence) console[k] = fn;
