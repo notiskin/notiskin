@@ -314,6 +314,17 @@
       </div>
 
       <div class="settings-section">
+        <h2>Help</h2>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Welcome tour</div>
+            <div class="settings-row-sub">A quick walk through themes, plugins, and these settings</div>
+          </div>
+          <button class="btn-install" onclick="window.notiskinTour?.start()">Take the tour</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h2>Data</h2>
 
         <div class="settings-row">
@@ -766,5 +777,6 @@
     loadUpdateStatus();
     setInterval(loadUpdateStatus, 30000);
   </script>
+  <script src="/tour.js" defer></script>
 </body>
 </html>
