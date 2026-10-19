@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
 import { startServer } from '../gui/server';
 import { initUpdater } from '../updater/index';
 import { NOTISKIN_DIR, GUI_PORT } from '../utils/constants';
@@ -54,6 +54,8 @@ if (!gotLock) {
       height: 768,
       title: 'notiskin',
       show: false,
+      // matches --bg in brand.css, so resizing and loading never flash a different color
+      backgroundColor: nativeTheme.shouldUseDarkColors ? '#1A1714' : '#F6F1E7',
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,

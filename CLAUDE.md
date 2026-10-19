@@ -42,6 +42,7 @@ src/
     run.ts                — Dev entry point; calls startServer(true) for standalone mode
     themes.html / plugins.html / review.html / settings.html — GUI pages (Settings has the Notion section: Install / Repair / Uninstall)
     tour.js               — Welcome tour shared by Themes, Plugins and Settings (served at /tour.js, packaged via build.files)
+    brand.css, fonts/     — The "paper and ink" look: color tokens (light + dark, follows macOS), Fraunces + Inter bundled (SIL OFL). Served from a fixed list in server.ts
   injector/index.ts       — One-shot CDP injection (CSS + JS into Notion), plugins run once per page load
   injector/daemon.ts      — Long-running injector: one browser-level CDP connection, themes every Notion tab, re-applies on reload and on file changes, exits when Notion quits
   utils/pidlock.ts        — Single-instance lock (~/.notiskin/injector.pid)
@@ -96,6 +97,7 @@ test/                     — node:test suites (npm test builds first)
 - A full clean uninstall is a single command: `npm run unpatch`. It removes the wrapper script, restores the Notion binary, removes the LaunchAgent, removes the sudoers rule (when run with sudo), and removes the signing helper. `npm run watch:uninstall` still works independently if only the watcher needs to be removed.
 - Safe mode (`safeMode` in the config) makes `currentPayload()` return nothing, and both the injector and `applyConfig()` go through it. Turning it on reloads the visible page (plugins can't be un-run) and never restarts Notion. Diagnostics text always goes through `redact()` (Notion links, IDs, home folder, user name), keep it that way for anything new added to the report.
 - Integration tests can run in a cloud container as a normal user under a virtual display: `runuser -u ubuntu -- xvfb-run -a node --test --test-concurrency=1 test/integration/*.test.js` (Electron refuses to run as root).
+- GUI colors only come from the tokens in `src/gui/brand.css`, never hardcoded hex, so light and dark mode both work. The exception is the `.theme-preview` / `.ns-*` block in themes.html, which imitates Notion's own colors on purpose.
 - MutationObserver plugins can self-trigger infinite loops. Scope observers tightly, wrap in try/catch, include loop guards.
 - `onAuthStateChange` alone doesn't catch already-persisted sessions. Always call `getSession()` on page load too.
 - The local server binds 127.0.0.1 and every `/api` call needs the per-launch `X-Notiskin-Token` header (injected into pages by server.ts, added automatically by a fetch wrapper). New pages must be served through `sendPage()`.
@@ -135,7 +137,8 @@ Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin
 Phase 2 in progress:
 - Intel builds done (the Release workflow checks both chips were built and every built file is attached)
 - Welcome tour done: a card points at each control across Themes, Plugins and Settings, ending at Install into Notion. It starts on its own only when `setupDone` isn't set and Notion isn't installed (`GET /api/setup`), so existing users aren't interrupted. Finishing or skipping calls `POST /api/setup-done`; Settings → Help replays it. Progress is in sessionStorage, so a half-finished tour restarts next launch
-- Still to do: app icon, Developer ID signing (on hold until the Apple account is sorted) The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
+- New look, "paper and ink": warm paper, ink text, one vermilion accent, Fraunces headings, lowercase "notiskin" wordmark with a folded-page mark (a placeholder until the app icon exists). Main buttons are ink, vermilion is for selection, tabs, toggles and focus (white on vermilion is below 4.5:1 contrast)
+- Still to do: app icon (being made from a ChatGPT prompt, goes in `build/icon.png`), Developer ID signing (on hold until the Apple account is sorted) The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
 
