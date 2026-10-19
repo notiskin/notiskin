@@ -16,7 +16,13 @@ Themes and plugins live in `~/.notiskin/themes/*.css` and `~/.notiskin/plugins/*
 
 ## Install
 
-Download the latest `.dmg` from [Releases](https://github.com/notiskin/notiskin/releases/latest). The app isn't signed with an Apple Developer ID yet, so on first launch right-click it and choose **Open**.
+Download the latest `.dmg` from [Releases](https://github.com/notiskin/notiskin/releases/latest) and drag Notiskin into Applications. The app isn't signed with an Apple Developer ID yet, so macOS says it "is damaged and can't be opened" (it isn't). Click **Cancel**, not "Move to Bin", then run this once in Terminal and open it normally:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/notiskin.app
+```
+
+That removes the "downloaded from the internet" mark, which tells macOS you trust the app. Only do this for apps you trust.
 
 To keep your theme every time Notion starts, open **Settings → Notion** and click **Install**, then restart Notion when it offers. No password is needed. After a Notion update the status shows **Needs repair**: click **Repair**. **Uninstall** puts Notion back exactly as it was.
 
