@@ -104,6 +104,9 @@
       "!dist/**/*.d.ts",
       "src/gui/**/*.html",
       "src/gui/**/*.js",
+      "src/gui/**/*.css",
+      "src/gui/fonts/*.woff2",
+      "src/gui/fonts/*.txt",
       "package.json"
     ],
     "afterPack": "scripts/check-bundle.js"

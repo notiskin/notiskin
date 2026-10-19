@@ -256,6 +256,23 @@ test('safe mode can be switched from the app, and only with a real true or false
   assert.equal(readConfig().safeMode, false);
 });
 
+test('the shared stylesheet and its fonts are served, and nothing else from the folder', async () => {
+  const css = await request('GET', '/brand.css');
+  assert.equal(css.status, 200);
+  assert.match(css.headers['content-type'], /css/);
+  assert.match(css.text, /--accent/);
+  for (const font of ['/fonts/fraunces.woff2', '/fonts/inter.woff2']) {
+    const res = await request('GET', font);
+    assert.equal(res.status, 200, font);
+    assert.equal(res.headers['content-type'], 'font/woff2');
+  }
+  assert.equal((await request('GET', '/fonts/LICENSE-inter.txt')).status, 404);
+  assert.equal((await request('GET', '/server.ts')).status, 404);
+  for (const page of ['/', '/plugins.html', '/settings.html', '/review.html']) {
+    assert.match((await request('GET', page)).text, /<link rel="stylesheet" href="\/brand\.css">/, page);
+  }
+});
+
 test('the tour script is served to the pages that load it', async () => {
   const res = await request('GET', '/tour.js');
   assert.equal(res.status, 200);
