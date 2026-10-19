@@ -82,7 +82,7 @@ test('API calls from another website are refused even with a token', async () =>
 test('API calls with the token from the app origin work', async () => {
   const res = await request('GET', '/api/state', { headers: authed({ Origin: 'http://localhost:3845' }) });
   assert.equal(res.status, 200);
-  assert.deepEqual(res.json, { activeTheme: null, themes: [], plugins: [] });
+  assert.deepEqual(res.json, { activeTheme: null, safeMode: false, themes: [], plugins: [] });
 });
 
 test('path traversal names are rejected', async () => {
@@ -234,4 +234,32 @@ test('the App Management hint names the app macOS checks', () => {
   assert.equal(appManagementName('/Applications/notiskin.app/Contents/MacOS/notiskin', true), 'Notiskin');
   assert.equal(appManagementName('/Users/me/notiskin/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', true), 'Electron');
   assert.equal(appManagementName('/usr/local/bin/node', false), 'Terminal');
+});
+
+test('safe mode can be switched from the app, and only with a real true or false', async () => {
+  const { readConfig } = require('../dist/utils/config');
+  for (const body of [{}, { on: 'yes' }, { on: 1 }]) {
+    const res = await request('POST', '/api/safe-mode', { headers: authed(), body });
+    assert.equal(res.status, 400, JSON.stringify(body));
+  }
+  assert.equal((await request('POST', '/api/safe-mode', { body: { on: true } })).status, 403);
+
+  // no Notion runs in tests, so nothing gets applied, but the setting is saved
+  const on = await request('POST', '/api/safe-mode', { headers: authed(), body: { on: true } });
+  assert.equal(on.json.ok, true);
+  assert.equal(on.json.safeMode, true);
+  assert.equal(readConfig().safeMode, true);
+  assert.equal((await request('GET', '/api/status', { headers: authed() })).json.safeMode, true);
+
+  const off = await request('POST', '/api/safe-mode', { headers: authed(), body: { on: false } });
+  assert.equal(off.json.safeMode, false);
+  assert.equal(readConfig().safeMode, false);
+});
+
+test('diagnostics need the token and come back as a report', async () => {
+  assert.equal((await request('GET', '/api/diagnostics')).status, 403);
+  const res = await request('GET', '/api/diagnostics', { headers: authed() });
+  assert.equal(res.status, 200);
+  assert.match(res.json.report, /^Notiskin diagnostics/);
+  assert.match(res.json.report, /Safe mode:\s+off/);
 });
