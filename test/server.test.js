@@ -280,7 +280,7 @@ test('the tour script is served to the pages that load it', async () => {
   assert.equal(res.headers['cache-control'], 'no-store');
   assert.match(res.text, /notiskinTour/);
   for (const page of ['/', '/plugins.html', '/settings.html']) {
-    assert.match((await request('GET', page)).text, /<script src="\/tour\.js" defer><\/script>/, page);
+    assert.match((await request('GET', page)).text, /<script src="\/tour\.js"><\/script>/, page);
   }
 });
 

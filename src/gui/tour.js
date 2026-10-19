@@ -31,12 +31,14 @@
     {
       page: '/',
       target: '.tab-btn[data-tab="browse"]',
+      fit: 'content',
       title: 'Browse',
       text: 'Themes other people made. Installing one adds it to Your themes, it doesn\'t switch to it.',
     },
     {
       page: '/',
       target: '.tab-btn[data-tab="publish"]',
+      fit: 'content',
       title: 'Publish and Submissions',
       text: 'Share a theme you made. A reviewer checks every submission before anyone can install it, and Submissions shows where yours are.',
     },
@@ -90,8 +92,14 @@
   let current = -1;
   // while a step change is still gliding, layout updates keep animating instead of snapping
   let movingUntil = 0;
+  // presses that arrive while a step is still moving are ignored, so each click is exactly one step
+  let lockedUntil = 0;
+  let leaving = false;
+  let shown = false;
   let frame = 0;
   let observer = null;
+  let targetSize = null;
+  let targetContent = null;
   let swapTimer = 0;
 
   function saved() {
@@ -118,13 +126,23 @@
   }
 
   function go(index) {
+    lockedUntil = performance.now() + 380;
     if (STEPS[index].page !== location.pathname) {
       save(index, snapshot());
+      leaving = true;
       location.href = STEPS[index].page;
       return;
     }
     save(index);
     show(index);
+  }
+
+  function move(delta) {
+    if (leaving || current < 0 || performance.now() < lockedUntil) return;
+    const to = current + delta;
+    if (to < 0) return;
+    if (to >= STEPS.length) finish();
+    else go(to);
   }
 
   function finish() {
@@ -138,11 +156,14 @@
     document.removeEventListener('scroll', schedule, true);
     window.removeEventListener('resize', schedule);
     observer?.disconnect();
+    targetSize?.disconnect();
+    targetContent?.disconnect();
     cancelAnimationFrame(frame);
     clearTimeout(swapTimer);
     const old = root;
     root = null;
     current = -1;
+    shown = false;
     if (!old) return;
     old.classList.remove('open');
     setTimeout(() => old.remove(), reduceMotion() ? 0 : 220);
@@ -150,13 +171,8 @@
 
   function onKey(e) {
     if (e.key === 'Escape') { e.preventDefault(); finish(); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); next(); }
-    else if (e.key === 'ArrowLeft' && current > 0) { e.preventDefault(); go(current - 1); }
-  }
-
-  function next() {
-    if (current >= STEPS.length - 1) finish();
-    else go(current + 1);
+    else if (e.key === 'ArrowRight') { e.preventDefault(); move(1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); }
   }
 
   function elementOf(step) {
@@ -198,7 +214,7 @@
     const style = document.createElement('style');
     const move = `${MOVE_MS}ms ${EASE}`;
     style.textContent = `
-      #notiskin-tour { position: fixed; inset: 0; z-index: 10000; font-family: inherit; opacity: 0; transition: opacity 220ms ease; }
+      #notiskin-tour { position: fixed; inset: 0; z-index: 10000; font-family: var(--font-body); -webkit-font-smoothing: antialiased; opacity: 0; transition: opacity 220ms ease; }
       #notiskin-tour.open { opacity: 1; }
       #notiskin-tour .tour-blocker { position: absolute; inset: 0; }
       #notiskin-tour .tour-spot {
@@ -262,7 +278,8 @@
     `;
     card.querySelector('.tour-close').addEventListener('click', finish);
     root.append(style, blocker, spot, card);
-    document.body.appendChild(root);
+    // on <html>, not <body>: when a step continues on a new page this runs from <head>, before the body exists
+    document.documentElement.appendChild(root);
 
     // start where the previous page left off (no fade, the tour was already showing), or as a dot in the middle
     const start = from || { x: innerWidth / 2, y: innerHeight / 2, w: 0, h: 0, r: 12 };
@@ -279,9 +296,21 @@
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('scroll', schedule, true);
     window.addEventListener('resize', schedule);
-    // lists load after the page does, keep the box on its target as the layout settles
-    observer = new ResizeObserver(schedule);
-    observer.observe(document.body);
+  }
+
+  // lists load after the page does: follow the page's layout and the target's own contents as they settle
+  function watch(el) {
+    if (!observer) {
+      observer = new ResizeObserver(schedule);
+      observer.observe(document.body);
+    }
+    targetSize?.disconnect();
+    targetContent?.disconnect();
+    if (!el) return;
+    targetSize = new ResizeObserver(schedule);
+    targetSize.observe(el);
+    targetContent = new MutationObserver(schedule);
+    targetContent.observe(el, { childList: true, subtree: true, characterData: true });
   }
 
   function schedule() {
@@ -297,8 +326,8 @@
     card.querySelector('.tour-count').textContent = `${index + 1} of ${STEPS.length}`;
     const footer = card.querySelector('.tour-footer');
     footer.querySelectorAll('button').forEach(b => b.remove());
-    if (index > 0) footer.append(button('Back', 'tour-back', () => go(index - 1)));
-    const nextBtn = button(step.next || 'Next', 'tour-next', next);
+    if (index > 0) footer.append(button('Back', 'tour-back', () => move(-1)));
+    const nextBtn = button(step.next || 'Next', 'tour-next', () => move(1));
     footer.append(nextBtn);
     nextBtn.focus({ preventScroll: true });
   }
@@ -306,13 +335,15 @@
   function show(index, from) {
     const step = STEPS[index];
     try { step.before?.(); } catch {}
-    const first = !root;
-    if (first) build(from);
+    const first = !shown;
+    if (!root) build(from);
+    shown = true;
     current = index;
     movingUntil = performance.now() + MOVE_MS + 300;
     clearTimeout(swapTimer);
 
     const el = elementOf(step);
+    watch(el);
     if (el) {
       const r = el.getBoundingClientRect();
       if (r.top < 16 || r.bottom > innerHeight - 16) {
@@ -390,6 +421,15 @@
     card.style.top = `${Math.min(Math.max(y, 16), vh - ch - 16)}px`;
   }
 
+  // a step that continues on this page: draw the dimming and card at once, where the last page left them,
+  // so the page change never shows the app undimmed. They glide to the new target once the page is ready
+  const resume = saved();
+  if (resume && STEPS[resume.step].page === location.pathname && resume.from) {
+    build(resume.from);
+    current = resume.step;
+    fill(resume.step);
+  }
+
   async function init() {
     const state = saved();
     if (state && STEPS[state.step].page === location.pathname) {
@@ -402,6 +442,14 @@
       const res = await fetch('/api/setup');
       if (res.ok && (await res.json()).showTour) go(0);
     } catch {}
+  }
+
+  // the page crossfade (brand.css) is skipped when the window is hidden, which is fine, not an error to report
+  for (const type of ['pageswap', 'pagereveal']) {
+    addEventListener(type, e => {
+      e.viewTransition?.ready.catch(() => {});
+      e.viewTransition?.finished.catch(() => {});
+    });
   }
 
   window.notiskinTour = { start: () => go(0) };
