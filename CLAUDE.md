@@ -163,6 +163,7 @@ Phase 2 in progress:
 - Watcher off by default (branch watcher-switch): it ran in the background for everyone in 0.7.0. Now only with Settings → "Repair automatically after Notion updates" on, and the next version removes 0.7.0's watcher on start. Checked in the browser against this branch's server with Notion mocked: the switch, its text, the tour step
 - v0.7.1 published by the workflow (both chips, bundle checked free of `.env`): the watcher is off unless "Repair automatically after Notion updates" is turned on, and starting 0.7.1 removes the watcher 0.7.0 set up
 - Update section says what's true (branch honest-updates): 0.6.0 said "Ready to install" for an update it couldn't install and its sidebar Install link went nowhere. Now Update available / "Notiskin X is out" with Download and how to install by hand, a Checking state, Check now, and no background download. Checked with a packaged build labelled 0.7.0 against the real 0.7.1 release: it found 0.7.1, downloaded nothing, Check now worked, the banner showed on every page
+- v0.7.2 published by the workflow (both chips, bundle checked free of `.env`): the update section says "Notiskin X is out" with a Download link instead of promising an install, Check now, no background download
 - Still to do: Developer ID signing (on hold until the Apple account is sorted) The Phase 0 plan is kept for reference in `docs/prompts/phase-0-security-cleanup.md`.
 
 ---
