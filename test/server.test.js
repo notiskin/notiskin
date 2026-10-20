@@ -144,6 +144,7 @@ const NOTION_ROUTES = [
   ['POST', '/api/notion/uninstall'],
   ['POST', '/api/notion/restart'],
   ['POST', '/api/notion/app-management'],
+  ['POST', '/api/notion/block-native'],
 ];
 
 test('Notion setup endpoints need the session token', async () => {
@@ -242,6 +243,36 @@ test('the app repairs an old port wrapper on start, and leaves everything else a
     assert.deepEqual(calls, [], JSON.stringify(setup));
   }
   mockNotionSetup();
+});
+
+test('the hold-back switch is saved, and re-signs Notion only when it is installed', async () => {
+  const { readConfig } = require('../dist/utils/config');
+  let calls = mockNotionSetup({ status: 'not-installed' });
+  assert.equal((await request('POST', '/api/notion/block-native', { headers: authed(), body: { on: 'yes' } })).status, 400);
+  let res = await request('POST', '/api/notion/block-native', { headers: authed(), body: { on: false } });
+  assert.deepEqual(res.json, { ok: true, blockNative: false, applied: false });
+  assert.equal(readConfig().blockNativeNotion, false);
+  assert.deepEqual(calls, [], 'nothing to re-sign yet, Install picks the setting up');
+
+  calls = mockNotionSetup({ status: 'installed' });
+  res = await request('POST', '/api/notion/block-native', { headers: authed(), body: { on: true } });
+  assert.deepEqual(res.json, { ok: true, blockNative: true, applied: true });
+  assert.deepEqual(calls, ['patch']);
+  const status = await request('GET', '/api/notion/status', { headers: authed() });
+  assert.equal(status.json.blockNative, true);
+
+  // saved even when macOS blocks the re-sign, Settings explains and the app retries on its next start
+  mockNotionSetup({ status: 'installed', run: () => ({ status: 'error', message: 'EPERM', output: 'Error: EPERM: operation not permitted' }) });
+  res = await request('POST', '/api/notion/block-native', { headers: authed(), body: { on: false } });
+  assert.equal(res.json.ok, false);
+  assert.equal(res.json.reason, 'app-management');
+  assert.equal(readConfig().blockNativeNotion, false);
+  mockNotionSetup();
+});
+
+test('the Supabase script is served wherever Notiskin lives, dot folders included', async () => {
+  const res = await request('GET', '/vendor/supabase.js', { headers: authed() });
+  assert.equal(res.status, 200);
 });
 
 test('failure reasons are read from the CLI output', () => {

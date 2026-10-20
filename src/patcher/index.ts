@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import {
   existsSync,
   copyFileSync,
@@ -8,13 +8,11 @@ import {
   mkdirSync,
   renameSync,
   unlinkSync,
-  chmodSync,
   rmSync,
-  mkdtempSync,
 } from 'fs';
 import { join, dirname } from 'path';
-import { tmpdir } from 'os';
 import { NOTISKIN_DIR, USER_HOME } from '../utils/constants';
+import { readConfig, writeConfig } from '../utils/config';
 import { shellQuote } from './admin';
 
 function notionBinaryCandidates(): string[] {
@@ -53,18 +51,115 @@ export function appBundlePath(notionPath: string): string {
   return dirname(dirname(dirname(notionPath)));
 }
 
-function resignBundle(notionPath: string): void {
+// Notion's own designated requirement: Developer ID, Notion Labs team LBQJ96FQ8D (as `codesign -d -r-` prints it)
+export const NOTION_REQUIREMENT =
+  'identifier "notion.id" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ ' +
+  'and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = LBQJ96FQ8D';
+// the label our ad hoc signature carries
+export const NOTISKIN_SIGNING_ID = 'com.notiskin.patched';
+// Electron's own NSApplication subclass, every Electron app's Info.plist names it, a SwiftUI Notion wouldn't
+const ELECTRON_CLAUSE = 'info[NSPrincipalClass] = "AtomApplication"';
+
+// Notion's updater (Squirrel.Mac) only takes an update that meets the running Notion's designated requirement.
+// Plain ad hoc signing makes that "this exact build", so every update was refused. Real Notion builds meet the
+// first half, and the patched Notion meets the second, which the keychain and privacy permissions need.
+// With blockNative the first half also asks for an Electron app, so a native Notion update is refused
+export function signingRequirement(blockNative: boolean): string {
+  const notion = blockNative ? `${NOTION_REQUIREMENT} and ${ELECTRON_CLAUSE}` : NOTION_REQUIREMENT;
+  return `designated => (${notion}) or identifier "${NOTISKIN_SIGNING_ID}"`;
+}
+
+function signOne(path: string, requirement: string): void {
+  execFileSync('codesign', ['--force', '--sign', '-', '-i', NOTISKIN_SIGNING_ID, `-r=${requirement}`, path], {
+    stdio: 'pipe',
+  });
+}
+
+function teamOf(path: string): string | null {
+  // codesign -dv writes to stderr
+  const out = spawnSync('codesign', ['-dv', path], { encoding: 'utf-8' }).stderr ?? '';
+  const team = /^TeamIdentifier=(.+)$/m.exec(out)?.[1];
+  return team && team !== 'not set' ? team : null;
+}
+
+function squirrelPaths(bundle: string): { shipIt: string; squirrel: string; libraries: string[] } {
+  const frameworks = join(bundle, 'Contents', 'Frameworks');
+  const squirrel = join(frameworks, 'Squirrel.framework');
+  return {
+    shipIt: join(squirrel, 'Versions', 'A', 'Resources', 'ShipIt'),
+    squirrel,
+    libraries: [squirrel, join(frameworks, 'Mantle.framework'), join(frameworks, 'ReactiveObjC.framework')],
+  };
+}
+
+// ShipIt is Notion's installer, it swaps in an update after Notion quits. Older versions signed everything inside
+// ad hoc with --deep, which skips ShipIt (it sits in Squirrel.framework's Resources), so ShipIt kept Notion's team and
+// macOS refused to load the now ad hoc Mantle into it: updates were accepted, then never installed
+export function shipItMismatch(notionPath: string): boolean {
+  const { shipIt, libraries } = squirrelPaths(appBundlePath(notionPath));
+  if (!existsSync(shipIt)) return false;
+  const team = teamOf(shipIt);
+  return libraries.some(lib => existsSync(lib) && teamOf(lib) !== team);
+}
+
+// sign ShipIt ad hoc like the libraries around it, then the framework it sits in, whose seal covers it
+function matchShipIt(notionPath: string): void {
+  if (!shipItMismatch(notionPath)) return;
+  const { shipIt, squirrel } = squirrelPaths(appBundlePath(notionPath));
+  execFileSync('codesign', ['--force', '--sign', '-', shipIt], { stdio: 'pipe' });
+  execFileSync('codesign', ['--force', '--sign', '-', squirrel], { stdio: 'pipe' });
+}
+
+// only what we changed: Notion.real (while patched), then the app itself. Notion's frameworks and helpers keep Notion's
+// signatures, apart from ShipIt in a bundle older versions signed with --deep
+function signChanged(notionPath: string, requirement: string): void {
+  const realPath = `${notionPath}.real`;
+  matchShipIt(notionPath);
+  if (existsSync(realPath)) signOne(realPath, requirement);
+  signOne(appBundlePath(notionPath), requirement);
+}
+
+export function signNotion(notionPath: string, blockNative = readConfig().blockNativeNotion): boolean {
+  const requirement = signingRequirement(blockNative);
   try {
-    execFileSync('codesign', ['--force', '--deep', '--sign', '-', appBundlePath(notionPath)], {
-      stdio: 'ignore',
-    });
-    console.log('[patcher] App bundle re-signed (ad-hoc).');
+    signChanged(notionPath, requirement);
+    console.log('[patcher] App bundle re-signed (ad-hoc, Notion updates still allowed).');
+    return true;
   } catch {
-    console.warn(
-      '[patcher] Warning: could not re-sign the app bundle.\n' +
-        '         If Notion shows "damaged application" on first launch, go to\n' +
-        '         System Settings > Privacy & Security and click "Open Anyway".'
+    // something inside isn't validly signed any more, sign everything ad hoc first, then ours on top
+    try {
+      execFileSync('codesign', ['--force', '--deep', '--sign', '-', appBundlePath(notionPath)], { stdio: 'pipe' });
+      signChanged(notionPath, requirement);
+      console.log('[patcher] App bundle re-signed (ad-hoc, everything inside too).');
+      return true;
+    } catch {
+      console.warn(
+        '[patcher] Warning: could not re-sign the app bundle.\n' +
+          '         If Notion shows "damaged application" on first launch, go to\n' +
+          '         System Settings > Privacy & Security and click "Open Anyway".'
+      );
+      return false;
+    }
+  }
+}
+
+// false for installs signed before Notion updates were allowed (or whose ShipIt can't start), or before the block
+// setting last changed.
+// The next patch re-signs them
+export function hasCurrentSignature(notionPath: string, blockNative = readConfig().blockNativeNotion): boolean {
+  const realPath = `${notionPath}.real`;
+  try {
+    const out = execFileSync('codesign', ['-d', '-r-', existsSync(realPath) ? realPath : notionPath], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    });
+    return (
+      out.includes(`identifier "${NOTISKIN_SIGNING_ID}"`) &&
+      out.includes('info[NSPrincipalClass]') === blockNative &&
+      !shipItMismatch(notionPath)
     );
+  } catch {
+    return false;
   }
 }
 
@@ -161,7 +256,16 @@ function pathExists(path: string): boolean {
   return existsSync(existencePath(path));
 }
 
-export type NotionStatus = 'not-installed' | 'installed' | 'needs-repair' | 'notion-missing';
+export type NotionStatus = 'not-installed' | 'installed' | 'needs-repair' | 'notion-missing' | 'unsupported';
+
+// Notiskin themes Notion's web page through Chromium's DevTools, which only an Electron Notion has.
+// Notion is moving its Mac app to SwiftUI (announced at WWDC 2026), a native Notion is left alone until Notiskin supports it
+export function isElectronNotion(notionPath: string): boolean {
+  return existsSync(join(appBundlePath(notionPath), 'Contents', 'Frameworks', 'Electron Framework.framework'));
+}
+
+export const UNSUPPORTED_MESSAGE =
+  "This version of Notion isn't built on Electron, so Notiskin can't theme it yet. Notion was left unchanged.";
 
 // read-only, works without root
 export function getNotionStatus(): NotionStatus {
@@ -171,6 +275,7 @@ export function getNotionStatus(): NotionStatus {
   } catch {
     return 'notion-missing';
   }
+  if (!isElectronNotion(notionPath)) return 'unsupported';
   if (isWrapperPresent(notionPath)) {
     const script = readFileSync(notionPath, 'utf-8');
     if (isLegacyWrapper(script)) return 'needs-repair';
@@ -179,8 +284,19 @@ export function getNotionStatus(): NotionStatus {
     if (!target || !pathExists(target.program) || !pathExists(target.cliScript)) return 'needs-repair';
     return 'installed';
   }
-  // a Notion update replaced the wrapper with a fresh binary
-  return existsSync(`${notionPath}.real`) ? 'needs-repair' : 'not-installed';
+  // a Notion update replaced the wrapper with a fresh binary, or the whole app (Notion's updater swaps the bundle)
+  if (existsSync(`${notionPath}.real`) || readConfig().notionInstalled) return 'needs-repair';
+  return 'not-installed';
+}
+
+// remembered so a Notion update, which leaves no trace of Notiskin in the app, shows as needs-repair
+function setInstalled(installed: boolean): void {
+  try {
+    const config = readConfig();
+    if (config.notionInstalled !== installed) writeConfig({ ...config, notionInstalled: installed });
+  } catch (err: unknown) {
+    console.warn(`[patcher] Warning: could not save the install state. ${(err as Error).message}`);
+  }
 }
 
 // true when Notion has a wrapper from before the pipe, the desktop app repairs these on start
@@ -191,6 +307,32 @@ export function hasLegacyWrapper(): boolean {
   } catch {
     return false;
   }
+}
+
+// true when Notion is patched but signed the old way (which blocked Notion's own updates), or not yet re-signed
+// after the block setting changed. The desktop app re-signs these on start
+export function hasOldSignature(): boolean {
+  try {
+    const notionPath = findNotionBinary();
+    return isWrapperPresent(notionPath) && !hasCurrentSignature(notionPath);
+  } catch {
+    return false;
+  }
+}
+
+// re-signs a patched Notion after the block setting changed
+export function resignNotion(): 'signed' | 'not-patched' | 'failed' {
+  let notionPath: string;
+  try {
+    notionPath = findNotionBinary();
+  } catch {
+    return 'not-patched';
+  }
+  if (!isWrapperPresent(notionPath)) return 'not-patched';
+  const owner = bundleOwner(notionPath);
+  const signed = signNotion(notionPath);
+  restoreBundleOwner(notionPath, owner);
+  return signed ? 'signed' : 'failed';
 }
 
 interface Owner {
@@ -215,85 +357,13 @@ function restoreBundleOwner(notionPath: string, owner: Owner): void {
   }
 }
 
+// older versions set up passwordless root signing for the watcher: this rule and a password helper app.
+// Signing never needed root (Notion.app belongs to the user), so they aren't made any more, unpatch still removes them
 const SUDOERS_FILE = '/etc/sudoers.d/notiskin';
 
 // NOTISKIN_DIR already resolves the real user's home under sudo
 export function signingHelperPath(): string {
   return join(NOTISKIN_DIR, 'Notiskin.app');
-}
-
-// .app so the password dialog says "Notiskin" not "osascript"
-export function compileSigningHelper(): void {
-  const helperApp = signingHelperPath();
-  const helperDir = join(helperApp, '..'); // ~/.notiskin/
-  const tmpScript = join(helperDir, 'notiskin_sign_tmp.applescript');
-
-  mkdirSync(helperDir, { recursive: true });
-  // osacompile fails if the bundle dir already exists
-  rmSync(helperApp, { recursive: true, force: true });
-
-  writeFileSync(
-    tmpScript,
-    [
-      'on run argv',
-      '  do shell script "codesign --force --deep --sign - " & quoted form of (item 1 of argv) with administrator privileges',
-      'end run',
-    ].join('\n'),
-    'utf-8'
-  );
-
-  try {
-    execFileSync('osacompile', ['-o', helperApp, tmpScript], { stdio: 'pipe' });
-    // sudo creates files owned by root, chown back to the actual user
-    const sudoUser = process.env.SUDO_USER;
-    if (sudoUser) {
-      execFileSync('chown', ['-R', sudoUser, helperDir], { stdio: 'ignore' });
-    }
-    console.log(`[patcher] Signing helper compiled at ${helperApp}`);
-  } catch (err: unknown) {
-    throw new Error(`Failed to compile signing helper: ${(err as Error).message}`);
-  } finally {
-    try { unlinkSync(tmpScript); } catch {}
-  }
-}
-
-// visudo -c validates before writing, failed check leaves sudoers.d untouched
-function installSudoersRule(username: string, notionPath: string): void {
-  const bundle = appBundlePath(notionPath);
-  const rule = [
-    '# Notiskin: passwordless codesign for automatic Notion bundle re-signing.',
-    '# This grants NO other elevated access, only this exact command is covered.',
-    `${username} ALL = (root) NOPASSWD: /usr/bin/codesign --force --deep --sign - ${bundle}`,
-    '',
-  ].join('\n');
-
-  // private temp dir, a fixed /tmp path written as root could be pre-planted as a symlink
-  const tmpDir = mkdtempSync(join(tmpdir(), 'notiskin-sudoers-'));
-  const tmpFile = join(tmpDir, 'rule');
-
-  // validate before touching sudoers.d, reject means nothing was written
-  writeFileSync(tmpFile, rule, { encoding: 'utf-8', mode: 0o440, flag: 'wx' });
-  try {
-    execFileSync('visudo', ['-c', '-f', tmpFile], { stdio: 'pipe' });
-  } catch (err: unknown) {
-    rmSync(tmpDir, { recursive: true, force: true });
-    throw new Error(
-      `Sudoers rule failed visudo validation, aborting, nothing written to /etc/sudoers.d/. ` +
-      `${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`
-    );
-  }
-
-  try {
-    writeFileSync(SUDOERS_FILE, rule, { encoding: 'utf-8', mode: 0o440 });
-    chmodSync(SUDOERS_FILE, 0o440);
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
-  }
-
-  console.log(`[patcher] Sudoers rule installed at ${SUDOERS_FILE}`);
-  console.log('[patcher] The watcher will now re-sign automatically without prompting.');
-  console.log('[patcher] Safety check: run "sudo ls /" and confirm it still asks for your password.');
-  console.log('[patcher] (The rule only covers the exact codesign command, nothing else gains passwordless access.)');
 }
 
 // the wrapper is already there but runs something else, e.g. Notiskin was moved, or it was patched from the CLI before
@@ -307,13 +377,16 @@ function rewriteWrapper(notionPath: string, script: string, owner: Owner): void 
     }
     throw err;
   }
-  resignBundle(notionPath);
+  signNotion(notionPath);
   restoreBundleOwner(notionPath, owner);
+  setInstalled(true);
   console.log('[patcher] Done. Quit Notion and reopen it normally, themes and plugins will load automatically.');
 }
 
 export function patchNotion(nodePath: string, cliScriptPath: string, opts: WrapperOptions = {}): void {
   const notionPath = findNotionBinary();
+  // checked before anything is touched, a native Notion wouldn't open the DevTools pipe the wrapper expects
+  if (!isElectronNotion(notionPath)) throw new Error(UNSUPPORTED_MESSAGE);
   const realPath = `${notionPath}.real`;
   const backupDir = join(NOTISKIN_DIR, 'backup');
   const backupPath = join(backupDir, 'Notion.original');
@@ -324,6 +397,12 @@ export function patchNotion(nodePath: string, cliScriptPath: string, opts: Wrapp
   if (isWrapperPresent(notionPath)) {
     if (readFileSync(notionPath, 'utf-8') === script) {
       console.log('[patcher] Already patched, wrapper is in place.');
+      if (!hasCurrentSignature(notionPath)) {
+        // signed the old way or before the block setting changed, re-sign so the next update is handled right
+        signNotion(notionPath);
+        restoreBundleOwner(notionPath, owner);
+      }
+      setInstalled(true);
       return;
     }
     rewriteWrapper(notionPath, script, owner);
@@ -361,33 +440,9 @@ export function patchNotion(nodePath: string, cliScriptPath: string, opts: Wrapp
     throw new Error(`Failed to write wrapper, original restored. ${(err as Error).message}`);
   }
 
-  resignBundle(notionPath);
+  signNotion(notionPath);
   restoreBundleOwner(notionPath, owner);
-
-  // watcher uses this to show "Notiskin" instead of "osascript" in elevation prompts
-  console.log('[patcher] Compiling signing helper...');
-  try {
-    compileSigningHelper();
-  } catch (err: unknown) {
-    console.warn(`[patcher] Warning: ${(err as Error).message}`);
-    console.warn('[patcher] Falling back to the "osascript" dialog name if signing prompts are needed.');
-  }
-
-  // only runs as root, no extra prompt needed beyond what the user typed for sudo
-  const sudoUser = process.env.SUDO_USER || process.env.USER;
-  const isRoot = process.getuid?.() === 0;
-  if (isRoot && sudoUser) {
-    console.log('[patcher] Installing passwordless sudoers rule for codesign...');
-    try {
-      installSudoersRule(sudoUser, notionPath);
-    } catch (err: unknown) {
-      console.warn(`[patcher] Warning: ${(err as Error).message}`);
-      console.warn('[patcher] Auto-signing will use the password popup as a fallback instead.');
-    }
-  } else {
-    console.log('[patcher] Not running as root, skipping passwordless sudoers setup.');
-    console.log('[patcher] The watcher will show a password popup when re-signing. To set up silent re-signing, run: sudo npm run patch');
-  }
+  setInstalled(true);
 
   console.log('');
   console.log('[patcher] Done. Quit Notion and reopen it normally, themes and plugins will load automatically.');
@@ -425,8 +480,10 @@ export function unpatchNotion(): void {
   console.log('[patcher] Restoring original binary...');
   renameSync(realPath, notionPath);
 
-  resignBundle(notionPath);
+  // Notion can still update itself after an uninstall, nothing is held back any more
+  signNotion(notionPath, false);
   restoreBundleOwner(notionPath, owner);
+  setInstalled(false);
 
   if (existsSync(SUDOERS_FILE)) {
     try {
