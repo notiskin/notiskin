@@ -118,12 +118,16 @@ test('sanitizeSearch strips PostgREST filter syntax', () => {
   assert.equal(sanitizeSearch('x'.repeat(500)).length, 100);
 });
 
+// the real check, before any test mocks it
+const realOtherCopy = notionSetup.otherCopy;
+
 // the Install into Notion endpoints, with the platform and the CLI run mocked
-function mockNotionSetup({ platform = 'darwin', status = 'not-installed', legacy = false, run, restart } = {}) {
+function mockNotionSetup({ platform = 'darwin', status = 'not-installed', legacy = false, otherCopy = false, run, restart } = {}) {
   const calls = [];
   notionSetup.platform = () => platform;
   notionSetup.status = () => status;
   notionSetup.legacy = () => legacy;
+  notionSetup.otherCopy = () => otherCopy;
   notionSetup.run = async action => {
     calls.push(action);
     return run ? run(action) : { status: 'ok', output: '' };
@@ -243,6 +247,50 @@ test('the app repairs an old port wrapper on start, and leaves everything else a
     assert.deepEqual(calls, [], JSON.stringify(setup));
   }
   mockNotionSetup();
+});
+
+test('a Notion installed from another copy of Notiskin is offered as a Repair, never repaired on its own', async () => {
+  let calls = mockNotionSetup({ status: 'installed', otherCopy: true });
+  let res = await request('GET', '/api/notion/status', { headers: authed() });
+  assert.equal(res.json.status, 'needs-repair');
+  assert.equal(res.json.otherCopy, true);
+  assert.equal(await repairLegacyWrapper(), false);
+  assert.deepEqual(calls, []);
+
+  // only an installed Notion can be running another copy, the other statuses keep their own meaning
+  for (const status of ['installed', 'not-installed', 'needs-repair', 'unsupported']) {
+    mockNotionSetup({ status, otherCopy: status !== 'installed' });
+    res = await request('GET', '/api/notion/status', { headers: authed() });
+    assert.equal(res.json.status, status);
+    assert.equal(res.json.otherCopy, false);
+  }
+  mockNotionSetup();
+});
+
+test("copies run from source never call another copy's wrapper broken", () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = require('fs');
+  const { join } = require('path');
+  const { tmpdir } = require('os');
+  const { makeWrapperScript, wrapperRunsOtherCopy } = require('../dist/patcher/index');
+  const { CLI_SCRIPT } = require('../dist/core/library');
+  // a temp Notion.app whose wrapper runs some other installed copy
+  const notionApp = join(mkdtempSync(join(tmpdir(), 'notiskin-notion-')), 'Notion.app');
+  mkdirSync(join(notionApp, 'Contents', 'MacOS'), { recursive: true });
+  mkdirSync(join(notionApp, 'Contents', 'Frameworks', 'Electron Framework.framework'), { recursive: true });
+  writeFileSync(
+    join(notionApp, 'Contents', 'MacOS', 'Notion'),
+    makeWrapperScript('/Applications/notiskin.app/Contents/MacOS/notiskin', '/Applications/notiskin.app/Contents/Resources/app.asar/dist/cli/index.js', { appMode: true })
+  );
+  const before = process.env.NOTISKIN_NOTION_APP;
+  process.env.NOTISKIN_NOTION_APP = notionApp;
+  try {
+    assert.equal(wrapperRunsOtherCopy(process.execPath, CLI_SCRIPT), true);
+    // these tests run dist/ from the checkout, not app.asar, so the server doesn't flag it
+    assert.equal(realOtherCopy(), false);
+  } finally {
+    if (before === undefined) delete process.env.NOTISKIN_NOTION_APP;
+    else process.env.NOTISKIN_NOTION_APP = before;
+  }
 });
 
 test('the hold-back switch is saved, and re-signs Notion only when it is installed', async () => {

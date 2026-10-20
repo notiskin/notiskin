@@ -464,6 +464,11 @@
         badge: 'Needs repair', tone: 'available', button: 'Repair', action: 'install',
         sub: 'A Notion update or moving Notiskin switched this off. Repair it, then restart Notion.',
       },
+      // installed, but by another copy of Notiskin (a source checkout or an older download)
+      'other-copy': {
+        badge: 'Needs repair', tone: 'available', button: 'Repair', action: 'install',
+        sub: 'Notion is set up to use another copy of Notiskin. Repair to switch it to this one, then restart Notion.',
+      },
       'unsupported': {
         badge: 'Not supported yet', tone: 'neutral', button: null,
         sub: "This version of Notion is built differently, so Notiskin can't theme it yet. Notion itself works as normal.",
@@ -512,8 +517,8 @@
       showNotif('Open System Settings → Privacy & Security → App Management');
     }
 
-    function renderNotion(status, unavailableReason) {
-      notionState = NOTION_STATES[status] ?? null;
+    function renderNotion(status, unavailableReason, otherCopy = false) {
+      notionState = NOTION_STATES[otherCopy ? 'other-copy' : status] ?? null;
       const badge = document.getElementById('notion-badge');
       const sub = document.getElementById('notion-sub');
       const btn = document.getElementById('notion-btn');
@@ -537,7 +542,7 @@
       try {
         const res = await fetch('/api/notion/status');
         const data = await res.json();
-        renderNotion(data.status, data.error);
+        renderNotion(data.status, data.error, data.otherCopy === true);
         renderBlockNative(data);
         return data;
       } catch {

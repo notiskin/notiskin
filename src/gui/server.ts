@@ -34,7 +34,15 @@ import {
   writeItem,
   ItemType,
 } from '../core/library';
-import { appBundlePath, findNotionBinary, getNotionStatus, hasLegacyWrapper, hasOldSignature, NotionStatus } from '../patcher/index';
+import {
+  appBundlePath,
+  findNotionBinary,
+  getNotionStatus,
+  hasLegacyWrapper,
+  hasOldSignature,
+  NotionStatus,
+  wrapperRunsOtherCopy,
+} from '../patcher/index';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
 
@@ -207,6 +215,9 @@ export const notionSetup = {
   status: (): NotionStatus => getNotionStatus(),
   // wrappers from before the DevTools pipe, which opened a debug port, or a signature that blocked Notion's updates
   legacy: (): boolean => hasLegacyWrapper() || hasOldSignature(),
+  // Notion runs another copy of Notiskin, e.g. a source checkout or an older download. Only the packaged app (its CLI
+  // sits in app.asar) asks, so copies run from source never call the installed app's wrapper broken
+  otherCopy: (): boolean => CLI_SCRIPT.includes('.asar/') && wrapperRunsOtherCopy(process.execPath, CLI_SCRIPT),
   // in the desktop app execPath is Electron (run as Node by the env var), under `npm run gui` it is Node itself
   run: (action: AdminAction): Promise<SetupResult> => runCli(action),
   // open the bundle like the Dock does, so the wrapper runs and starts the injector
@@ -406,7 +417,11 @@ app.get('/api/diagnostics', async (_req, res) => {
 
 app.get('/api/notion/status', (_req, res) => {
   if (!requireMac(res)) return;
-  res.json({ status: notionSetup.status(), notionRunning: isNotionRunning(), blockNative: readConfig().blockNativeNotion });
+  let status = notionSetup.status();
+  // offered as a Repair, which points Notion at this copy. Never done on its own, the other copy may be on purpose
+  const otherCopy = status === 'installed' && notionSetup.otherCopy();
+  if (otherCopy) status = 'needs-repair';
+  res.json({ status, otherCopy, notionRunning: isNotionRunning(), blockNative: readConfig().blockNativeNotion });
 });
 
 // the setting lives in Notion's signature, so a patched Notion is re-signed (the same CLI patch as Repair).
