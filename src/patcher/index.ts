@@ -9,8 +9,9 @@ import {
   renameSync,
   unlinkSync,
   rmSync,
+  realpathSync,
 } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { NOTISKIN_DIR, USER_HOME } from '../utils/constants';
 import { readConfig, writeConfig } from '../utils/config';
 import { shellQuote } from './admin';
@@ -287,6 +288,34 @@ export function getNotionStatus(): NotionStatus {
   // a Notion update replaced the wrapper with a fresh binary, or the whole app (Notion's updater swaps the bundle)
   if (existsSync(`${notionPath}.real`) || readConfig().notionInstalled) return 'needs-repair';
   return 'not-installed';
+}
+
+// the same file however it's spelled (symlinks, `..`), the part inside app.asar is compared as written
+function canonicalPath(path: string): string {
+  const onDisk = existencePath(path);
+  try {
+    return realpathSync(onDisk) + path.slice(onDisk.length);
+  } catch {
+    return resolve(path);
+  }
+}
+
+// true when Notion's current wrapper runs a different Notiskin than the one given (what patchNotion() would write
+// for that copy), e.g. Notion was installed from a worktree and then the app was downloaded. Read-only, no root.
+// Not part of getNotionStatus(): every copy, the watcher included, would call the others' wrappers broken
+export function wrapperRunsOtherCopy(program: string, cliScript: string): boolean {
+  try {
+    const notionPath = findNotionBinary();
+    if (!isWrapperPresent(notionPath)) return false;
+    const target = wrapperInjectTarget(readFileSync(notionPath, 'utf-8'));
+    if (!target) return false;
+    return (
+      canonicalPath(target.program) !== canonicalPath(program) ||
+      canonicalPath(target.cliScript) !== canonicalPath(cliScript)
+    );
+  } catch {
+    return false;
+  }
 }
 
 // remembered so a Notion update, which leaves no trace of Notiskin in the app, shows as needs-repair
