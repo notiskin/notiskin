@@ -547,3 +547,25 @@ test('diagnostics need the token and come back as a report', async () => {
   assert.match(res.json.report, /^Notiskin diagnostics/);
   assert.match(res.json.report, /Safe mode:\s+off/);
 });
+
+test('update checks need the token, and only the desktop app checks', async () => {
+  for (const [method, path] of [['GET', '/api/update-status'], ['POST', '/api/update/check'], ['POST', '/api/update/install']]) {
+    assert.equal((await request(method, path)).status, 403, path);
+  }
+  // these tests run on Node, which has no updater: nothing to check, nothing to install
+  assert.deepEqual((await request('GET', '/api/update-status', { headers: authed() })).json, { state: 'up-to-date' });
+  const check = await request('POST', '/api/update/check', { headers: authed() });
+  assert.equal(check.status, 400);
+  assert.match(check.json.error, /desktop app/);
+});
+
+test('every page says a new version is out and links to the download, never promising an install', () => {
+  const { readFileSync } = require('fs');
+  const { join } = require('path');
+  for (const page of ['themes', 'plugins', 'review', 'settings']) {
+    const html = readFileSync(join(__dirname, '..', 'src', 'gui', `${page}.html`), 'utf-8');
+    assert.match(html, /is out`/, page);
+    assert.match(html, /onclick="openReleasesPage\(\)"[^>]*>Download<\/button>/, page);
+    assert.doesNotMatch(html, /Ready to install`|ready`;|>Install<\/a>/, page);
+  }
+});
