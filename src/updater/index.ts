@@ -4,14 +4,17 @@ import log from 'electron-log';
 import { execSync } from 'child_process';
 import path from 'path';
 
+// 'downloading' and 'ready' come back with Developer ID signing: macOS's updater (Squirrel.Mac) refuses to install
+// one ad hoc signed build over another, so until then the app only says a new version is out
 export type UpdateStatus =
+  | { state: 'checking' }
   | { state: 'up-to-date' }
   | { state: 'available'; version: string }
   | { state: 'downloading'; version: string; percent: number }
   | { state: 'ready'; version: string }
   | { state: 'error'; message: string };
 
-let currentStatus: UpdateStatus = { state: 'up-to-date' };
+let currentStatus: UpdateStatus = { state: 'checking' };
 let mainWindow: BrowserWindow | null = null;
 
 export function getUpdateStatus(): UpdateStatus {
@@ -27,7 +30,8 @@ export function initUpdater(win: BrowserWindow) {
   mainWindow = win;
 
   autoUpdater.logger = log;
-  autoUpdater.autoDownload = true;
+  // nothing to install it with yet (see UpdateStatus), so don't download 120 MB for nothing
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on('update-available', (info) => {
@@ -64,8 +68,20 @@ export function initUpdater(win: BrowserWindow) {
   });
 
   // check on launch, then every 4 hours
-  autoUpdater.checkForUpdates().catch(() => {});
-  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000);
+  checkForUpdates();
+  setInterval(checkForUpdates, 4 * 60 * 60 * 1000);
+}
+
+// Settings' Check now, and the timer
+export function checkForUpdates() {
+  setStatus({ state: 'checking' });
+  autoUpdater
+    .checkForUpdates()
+    .then(result => {
+      // null when it skipped the check (running from source), no event follows
+      if (!result && currentStatus.state === 'checking') setStatus({ state: 'up-to-date' });
+    })
+    .catch(() => {});
 }
 
 export function installUpdate() {

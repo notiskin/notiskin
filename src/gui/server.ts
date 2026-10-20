@@ -748,6 +748,13 @@ app.get('/api/update-status', (_req, res) => {
   res.json(updater ? updater.getUpdateStatus() : { state: 'up-to-date' });
 });
 
+app.post('/api/update/check', (_req, res) => {
+  const updater = loadUpdater();
+  if (!updater) return res.status(400).json({ ok: false, error: 'Updates are only available in the desktop app' });
+  updater.checkForUpdates();
+  res.json({ ok: true });
+});
+
 app.post('/api/update/install', (_req, res) => {
   const updater = loadUpdater();
   if (!updater) return res.status(400).json({ ok: false, error: 'Updates are only available in the desktop app' });
