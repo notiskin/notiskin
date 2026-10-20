@@ -164,7 +164,7 @@
         color: var(--info);
       ">
         <span id="banner-text"></span>
-        <button onclick="openReleasesPage()" style="background: none; border: none; color: var(--info); text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download Update</button>
+        <button onclick="openReleasesPage()" style="background: none; border: none; color: var(--info); text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download</button>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
@@ -563,8 +563,9 @@
         const status = await res.json();
         const banner = document.getElementById('update-banner');
         const bannerText = document.getElementById('banner-text');
-        if (status.state === 'ready' && banner && bannerText) {
-          bannerText.textContent = `Notiskin ${status.version} ready`;
+        // installed by hand until Developer ID signing, see src/updater/index.ts
+        if ((status.state === 'available' || status.state === 'ready') && banner && bannerText) {
+          bannerText.textContent = `Notiskin ${status.version} is out`;
           banner.style.display = 'flex';
         }
       } catch {}
