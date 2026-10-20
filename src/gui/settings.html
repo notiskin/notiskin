@@ -131,6 +131,7 @@
     .update-badge.downloading { background: var(--info-soft); color: var(--info); }
     .update-badge.ready       { background: var(--info-soft); color: var(--info); }
     .update-badge.error       { background: var(--danger-soft); color: var(--danger); }
+    .update-badge.checking    { background: var(--surface); color: var(--text-2); }
     .update-badge.neutral     { background: var(--surface); color: var(--text-2); }
 
     .diagnostics-report {
@@ -210,7 +211,7 @@
         color: var(--info);
       ">
         <span id="banner-text"></span>
-        <a href="/settings.html" style="color: var(--info); text-decoration: underline; white-space: nowrap;">Install</a>
+        <button onclick="openReleasesPage()" style="background: none; border: none; color: var(--info); text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download</button>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
@@ -289,15 +290,18 @@
             <div class="settings-row-label">Current version</div>
             <div class="settings-row-sub" id="current-version">Notiskin 0.1.0</div>
           </div>
-          <span id="update-badge" class="update-badge up-to-date">Checking...</span>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span id="update-badge" class="update-badge checking">Checking...</span>
+            <button class="btn-cache" id="update-check-btn" onclick="checkForUpdates()" style="display:none">Check now</button>
+          </div>
         </div>
 
         <div class="settings-row" id="install-row" style="display:none">
           <div>
-            <div class="settings-row-label">Update ready</div>
-            <div class="settings-row-sub" id="install-version-label"></div>
+            <div class="settings-row-label" id="install-version-label"></div>
+            <div class="settings-row-sub">Notiskin can't install updates by itself yet. Download it, then drag Notiskin into Applications to replace this one. If macOS says it's damaged, follow the install steps in the README.</div>
           </div>
-          <button class="btn-install" onclick="openReleasesPage()">Download Update</button>
+          <button class="btn-install" onclick="openReleasesPage()">Download</button>
         </div>
       </div>
 
@@ -810,11 +814,12 @@
     }
 
     const stateLabels = {
+      'checking':    'Checking...',
       'up-to-date':  'Up to date',
-      'available':   'Downloading...',
+      'available':   'Update available',
       'downloading': 'Downloading...',
       'ready':       'Ready to install',
-      'error':       'Update error',
+      'error':       "Couldn't check",
     };
 
     fetch('/api/version')
@@ -840,18 +845,34 @@
 
       badge.className = `update-badge ${status.state}`;
       badge.textContent = stateLabels[status.state] ?? status.state;
+      document.getElementById('update-check-btn').style.display = status.state === 'checking' ? 'none' : '';
 
-      if (status.state === 'ready') {
+      // installed by hand until Developer ID signing, see src/updater/index.ts
+      if (status.state === 'available' || status.state === 'ready') {
         installRow.style.display = 'flex';
-        installLabel.textContent = `Version ${status.version} downloaded`;
+        installLabel.textContent = `Notiskin ${status.version} is out`;
         if (banner && bannerText) {
-          bannerText.textContent = `Notiskin ${status.version} ready`;
+          bannerText.textContent = `Notiskin ${status.version} is out`;
           banner.style.display = 'flex';
         }
       } else {
         installRow.style.display = 'none';
         if (banner) banner.style.display = 'none';
       }
+    }
+
+    async function checkForUpdates() {
+      applyStatus({ state: 'checking' });
+      try {
+        await fetch('/api/update/check', { method: 'POST' });
+      } catch {}
+      // the check takes a moment, the answer comes from the status
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const status = await fetch('/api/update-status').then(r => r.json()).catch(() => null);
+        if (status && status.state !== 'checking') return applyStatus(status);
+      }
+      loadUpdateStatus();
     }
 
     async function installUpdate() {
