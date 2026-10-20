@@ -244,6 +244,13 @@
           </div>
           <button class="btn-install" id="native-btn" onclick="toggleBlockNative()">Turn off</button>
         </div>
+        <div class="settings-row" id="repair-row" style="display:none">
+          <div>
+            <div class="settings-row-label">Repair automatically after Notion updates <span id="repair-badge" class="update-badge neutral">Off</span></div>
+            <div class="settings-row-sub" id="repair-sub"></div>
+          </div>
+          <button class="btn-install" id="repair-btn" onclick="toggleAutoRepair()">Turn on</button>
+        </div>
         <div class="settings-row" id="notion-restart-row" style="display:none">
           <div>
             <div class="settings-row-label">Restart Notion</div>
@@ -544,10 +551,12 @@
         const data = await res.json();
         renderNotion(data.status, data.error, data.otherCopy === true);
         renderBlockNative(data);
+        renderAutoRepair(data);
         return data;
       } catch {
         renderNotion(null, 'Could not check Notion.');
         renderBlockNative(null);
+        renderAutoRepair(null);
         return null;
       }
     }
@@ -602,6 +611,51 @@
       } else {
         showNotif('Could not change this setting');
       }
+      await loadNotionStatus();
+    }
+
+    // the watcher: a background process that repairs Notion after its updates, even with Notiskin closed. Off by default
+    let autoRepairOn = false;
+    let repairBusy = false;
+
+    function renderAutoRepair(data) {
+      const row = document.getElementById('repair-row');
+      const relevant = data && data.autoRepairAvailable === true && typeof data.autoRepair === 'boolean' &&
+        ['not-installed', 'installed', 'needs-repair'].includes(data.status);
+      row.style.display = relevant ? 'flex' : 'none';
+      if (!relevant || repairBusy) return;
+      autoRepairOn = data.autoRepair;
+      const badge = document.getElementById('repair-badge');
+      badge.className = `update-badge ${autoRepairOn ? 'up-to-date' : 'neutral'}`;
+      badge.textContent = autoRepairOn ? 'On' : 'Off';
+      document.getElementById('repair-sub').textContent = autoRepairOn
+        ? 'A small helper runs in the background, even when Notion and Notiskin are closed, and brings your theme back after Notion updates.'
+        : 'Nothing runs in the background. After a Notion update, open Notiskin and click Repair.';
+      const btn = document.getElementById('repair-btn');
+      btn.textContent = autoRepairOn ? 'Turn off' : 'Turn on';
+      btn.disabled = notionBusy;
+    }
+
+    async function toggleAutoRepair() {
+      if (repairBusy || notionBusy) return;
+      const on = !autoRepairOn;
+      const btn = document.getElementById('repair-btn');
+      repairBusy = true;
+      btn.disabled = true;
+      btn.textContent = on ? 'Turning on...' : 'Turning off...';
+      let data = null;
+      try {
+        const res = await fetch('/api/notion/auto-repair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on }),
+        });
+        data = await res.json();
+      } catch {}
+      repairBusy = false;
+      if (!data?.ok) showNotif('Could not change this setting');
+      else if (on && !data.running) showNotif('Saved, starts once Notion is installed from this app');
+      else showNotif(on ? 'Turned on' : 'Turned off, nothing runs in the background');
       await loadNotionStatus();
     }
 

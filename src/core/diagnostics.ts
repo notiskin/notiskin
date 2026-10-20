@@ -140,6 +140,7 @@ export async function diagnosticsReport(now = new Date()): Promise<string> {
     `Port ${OLD_DEBUG_PORT}:       ${oldPort ? 'open (an old Notiskin wrapper or another app, Repair closes ours)' : 'closed'}`,
     `Safe mode:       ${config.safeMode ? 'on' : 'off'}`,
     `Block native:    ${config.blockNativeNotion ? 'on' : 'off'}`,
+    `Auto repair:     ${config.autoRepair ? 'on' : 'off'}`,
     `Theme:           ${config.activeTheme || '(none)'} (${themes.length} installed)`,
     `Plugins on:      ${config.enabledPlugins.join(', ') || '(none)'} (${plugins.length} installed)`,
     `Data folder:     ${NOTISKIN_DIR}`,
