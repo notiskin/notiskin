@@ -44,7 +44,7 @@ import {
   watcherRunsThisCopy,
   wrapperRunsOtherCopy,
 } from '../patcher/index';
-import { installWatcher } from '../patcher/agent';
+import { installWatcher, uninstallWatcher } from '../patcher/agent';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
 
@@ -224,6 +224,9 @@ export const notionSetup = {
   // the watcher's LaunchAgent runs this copy
   watcherIsOurs: (): boolean => watcherRunsThisCopy() === true,
   installWatcher: (): void => installWatcher(),
+  removeWatcher: (): void => {
+    uninstallWatcher();
+  },
   // in the desktop app execPath is Electron (run as Node by the env var), under `npm run gui` it is Node itself
   run: (action: AdminAction): Promise<SetupResult> => runCli(action),
   // open the bundle like the Dock does, so the wrapper runs and starts the injector
@@ -302,12 +305,21 @@ export async function repairLegacyWrapper(): Promise<boolean> {
   }
 }
 
-// the app keeps the watcher pointed at itself, so a Notion update is repaired by this copy (and Notion stays on it).
-// Runs after Install / Repair and on start. Only when Notion runs this copy: a Notion installed from another copy is
-// the user's call (Settings offers Repair). Never touches Notion itself, a failure only shows in the log
+// the watcher repairs Notion after its updates. It's a background process that runs even when Notion and Notiskin
+// are closed, so the app only keeps one while "Repair automatically" is on (off by default). Then it's pointed at this
+// app, and only when Notion runs this copy: a Notion installed from another copy is the user's call (Settings offers
+// Repair). With it off the app removes its own watcher (0.7.0 set one up for everyone), never one another copy made.
+// Runs after Install / Repair, on start, and when the switch changes. Never touches Notion itself, a failure only
+// shows in the log. True when it changed something
 export function ensureWatcher(): boolean {
   try {
     if (notionSetup.platform() !== 'darwin' || !notionSetup.packaged()) return false;
+    if (!readConfig().autoRepair) {
+      if (!notionSetup.watcherIsOurs()) return false;
+      notionSetup.removeWatcher();
+      logSetup('patch', 'watcher removed, repairing automatically is off');
+      return true;
+    }
     if (notionSetup.status() !== 'installed' || notionSetup.otherCopy() || notionSetup.watcherIsOurs()) return false;
     notionSetup.installWatcher();
     logSetup('patch', 'watcher set up to repair Notion after its updates');
@@ -444,7 +456,16 @@ app.get('/api/notion/status', (_req, res) => {
   // offered as a Repair, which points Notion at this copy. Never done on its own, the other copy may be on purpose
   const otherCopy = status === 'installed' && notionSetup.packaged() && notionSetup.otherCopy();
   if (otherCopy) status = 'needs-repair';
-  res.json({ status, otherCopy, notionRunning: isNotionRunning(), blockNative: readConfig().blockNativeNotion });
+  const config = readConfig();
+  res.json({
+    status,
+    otherCopy,
+    notionRunning: isNotionRunning(),
+    blockNative: config.blockNativeNotion,
+    // only the packaged app keeps a watcher, copies run from source use `npm run watch:install`
+    autoRepair: config.autoRepair,
+    autoRepairAvailable: notionSetup.packaged(),
+  });
 });
 
 // the setting lives in Notion's signature, so a patched Notion is re-signed (the same CLI patch as Repair).
@@ -479,6 +500,18 @@ app.post('/api/notion/block-native', async (req, res) => {
 });
 
 // nothing from the request goes into the command, it is built from this process's own paths
+// sets up or removes the watcher right away. Saved either way: with Notion not installed from this app yet, the
+// watcher is set up at Install
+app.post('/api/notion/auto-repair', (req, res) => {
+  if (!requireMac(res)) return;
+  const on = (req.body as { on?: unknown })?.on;
+  if (typeof on !== 'boolean') return res.status(400).json({ ok: false, error: 'on must be true or false' });
+  if (notionSetupBusy) return res.status(409).json({ ok: false, error: 'Already working on it.' });
+  writeConfig({ ...readConfig(), autoRepair: on });
+  ensureWatcher();
+  res.json({ ok: true, autoRepair: on, running: notionSetup.watcherIsOurs() });
+});
+
 app.post('/api/notion/install', (_req, res) => runNotionSetup('patch', res));
 app.post('/api/notion/uninstall', (_req, res) => runNotionSetup('unpatch', res));
 

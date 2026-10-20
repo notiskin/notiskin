@@ -87,6 +87,13 @@
     },
     {
       page: '/settings.html',
+      target: row('repair-btn'),
+      fit: 'content',
+      title: 'Repairing after Notion updates',
+      text: 'A Notion update switches Notiskin off until you click Repair. Turn this on and a small helper runs in the background to do that for you. It\'s off by default, so nothing runs when Notiskin is closed.',
+    },
+    {
+      page: '/settings.html',
       target: row('notion-btn'),
       fit: 'content',
       title: 'Install into Notion',
