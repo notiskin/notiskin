@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync, unlinkSync, statSync, truncateSync } from 'fs';
+import { statSync, truncateSync } from 'fs';
 import { basename, join, resolve } from 'path';
-import { homedir } from 'os';
 import { patchNotion, resignNotion, unpatchNotion } from '../patcher/index';
+import { installWatcher, uninstallWatcher, watcherPlistPath } from '../patcher/agent';
 import { readConfig, writeConfig } from '../utils/config';
 import { LOGS_DIR, NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR, INJECTOR_PID_PATH } from '../utils/constants';
 import { acquirePidLock } from '../utils/pidlock';
@@ -84,66 +84,17 @@ function printList(items: string[], isActive: (name: string) => boolean, empty: 
   for (const item of items) console.log(`  ${isActive(item) ? '*' : ' '} ${item}`);
 }
 
-const PLIST_LABEL = 'com.notiskin.watcher';
-const PLIST_PATH = join(homedir(), 'Library', 'LaunchAgents', `${PLIST_LABEL}.plist`);
-
-function xmlEscape(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function installWatcher(): void {
-  const watcherScript = join(__dirname, '..', 'patcher', 'watcher.js');
-  if (!existsSync(watcherScript)) {
-    throw new Error(`${watcherScript} not found. Run 'npm run build' first.`);
-  }
-  const watcherLog = join(LOGS_DIR, 'watcher.log');
-
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>${PLIST_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${xmlEscape(process.execPath)}</string>
-        <string>${xmlEscape(watcherScript)}</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${xmlEscape(watcherLog)}</string>
-    <key>StandardErrorPath</key>
-    <string>${xmlEscape(watcherLog)}</string>
-</dict>
-</plist>`;
-
-  mkdirSync(LOGS_DIR, { recursive: true });
-  mkdirSync(join(homedir(), 'Library', 'LaunchAgents'), { recursive: true });
-  writeFileSync(PLIST_PATH, plist, 'utf-8');
-  console.log(`[watcher] Plist written to ${PLIST_PATH}`);
-
-  try {
-    execFileSync('launchctl', ['load', PLIST_PATH], { stdio: 'inherit' });
-  } catch {
-    throw new Error(`Failed to load the LaunchAgent. The plist was written, try: launchctl load "${PLIST_PATH}"`);
-  }
+function watchInstall(): void {
+  installWatcher();
+  console.log(`[watcher] Plist written to ${watcherPlistPath()}`);
   console.log('[watcher] LaunchAgent loaded, the watcher runs now and at every login.');
-  console.log(`[watcher] Logs: ${watcherLog}`);
+  console.log(`[watcher] Logs: ${join(LOGS_DIR, 'watcher.log')}`);
   console.log('[watcher] To stop: notiskin watch:uninstall');
 }
 
-function uninstallWatcher(): void {
-  if (!existsSync(PLIST_PATH)) {
-    console.log('[watcher] No LaunchAgent found at', PLIST_PATH);
-    return;
-  }
-  // unload fails if the agent isn't running, still remove the plist
-  try { execFileSync('launchctl', ['unload', PLIST_PATH], { stdio: 'ignore' }); } catch {}
-  unlinkSync(PLIST_PATH);
-  console.log('[watcher] LaunchAgent unloaded and removed.');
+function watchUninstall(): void {
+  if (uninstallWatcher()) console.log('[watcher] LaunchAgent unloaded and removed.');
+  else console.log('[watcher] No LaunchAgent found at', watcherPlistPath());
 }
 
 async function themeCommand(args: string[]): Promise<void> {
@@ -371,9 +322,9 @@ async function main(argv: string[]): Promise<void> {
     case 'unpatch':
       return asRootCommand(unpatchNotion);
     case 'watch:install':
-      return installWatcher();
+      return watchInstall();
     case 'watch:uninstall':
-      return uninstallWatcher();
+      return watchUninstall();
     case 'help':
     case '--help':
     case '-h':

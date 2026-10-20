@@ -15,6 +15,7 @@ import { join, dirname, resolve } from 'path';
 import { NOTISKIN_DIR, USER_HOME } from '../utils/constants';
 import { readConfig, writeConfig } from '../utils/config';
 import { shellQuote } from './admin';
+import { readWatcherTarget, thisCopyWatcher, uninstallWatcher, watcherPlistPath } from './agent';
 
 function notionBinaryCandidates(): string[] {
   // tests point this at a copy of the fake Notion, never /Applications
@@ -300,6 +301,11 @@ function canonicalPath(path: string): string {
   }
 }
 
+// the same file, however each path is spelled
+export function samePath(a: string, b: string): boolean {
+  return canonicalPath(a) === canonicalPath(b);
+}
+
 // true when Notion's current wrapper runs a different Notiskin than the one given (what patchNotion() would write
 // for that copy), e.g. Notion was installed from a worktree and then the app was downloaded. Read-only, no root.
 // Not part of getNotionStatus(): every copy, the watcher included, would call the others' wrappers broken
@@ -309,13 +315,18 @@ export function wrapperRunsOtherCopy(program: string, cliScript: string): boolea
     if (!isWrapperPresent(notionPath)) return false;
     const target = wrapperInjectTarget(readFileSync(notionPath, 'utf-8'));
     if (!target) return false;
-    return (
-      canonicalPath(target.program) !== canonicalPath(program) ||
-      canonicalPath(target.cliScript) !== canonicalPath(cliScript)
-    );
+    return !samePath(target.program, program) || !samePath(target.cliScript, cliScript);
   } catch {
     return false;
   }
+}
+
+// whether the watcher's LaunchAgent runs this copy of Notiskin, null when there's no watcher
+export function watcherRunsThisCopy(): boolean | null {
+  const installed = readWatcherTarget();
+  if (!installed) return null;
+  const ours = thisCopyWatcher();
+  return installed.appMode === ours.appMode && samePath(installed.program, ours.program) && samePath(installed.script, ours.script);
 }
 
 // remembered so a Notion update, which leaves no trace of Notiskin in the app, shows as needs-repair
@@ -523,19 +534,10 @@ export function unpatchNotion(): void {
     }
   }
 
-  const PLIST_PATH = join(USER_HOME, 'Library', 'LaunchAgents', 'com.notiskin.watcher.plist');
-  if (existsSync(PLIST_PATH)) {
-    try {
-      execFileSync('launchctl', ['unload', PLIST_PATH], { stdio: 'ignore' });
-    } catch {
-      // agent may already be unloaded, still remove the file
-    }
-    try {
-      unlinkSync(PLIST_PATH);
-      console.log('[patcher] LaunchAgent removed.');
-    } catch {
-      console.warn(`[patcher] Could not remove LaunchAgent, remove it manually: rm "${PLIST_PATH}"`);
-    }
+  try {
+    if (uninstallWatcher()) console.log('[patcher] LaunchAgent removed.');
+  } catch {
+    console.warn(`[patcher] Could not remove LaunchAgent, remove it manually: rm "${watcherPlistPath()}"`);
   }
 
   const helperApp = signingHelperPath();
