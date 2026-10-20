@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
-import { repairLegacyWrapper, startServer } from '../gui/server';
+import { ensureWatcher, repairLegacyWrapper, startServer } from '../gui/server';
 import { initUpdater } from '../updater/index';
 import { NOTISKIN_DIR, GUI_PORT } from '../utils/constants';
 
@@ -53,8 +53,9 @@ if (!gotLock) {
       return;
     }
 
-    // runs in the background, Settings shows the result through the usual Notion status
-    void repairLegacyWrapper();
+    // runs in the background, Settings shows the result through the usual Notion status.
+    // Then the watcher, for installs from before the app set it up (a repair above already did)
+    void repairLegacyWrapper().then(() => ensureWatcher());
 
     win = new BrowserWindow({
       width: 1024,
