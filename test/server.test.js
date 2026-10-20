@@ -144,6 +144,9 @@ function mockNotionSetup({
     calls.push('watcher');
     installWatcher?.();
   };
+  notionSetup.removeWatcher = () => {
+    calls.push('remove-watcher');
+  };
   notionSetup.run = async action => {
     calls.push(action);
     return run ? run(action) : { status: 'ok', output: '' };
@@ -165,6 +168,7 @@ const NOTION_ROUTES = [
   ['POST', '/api/notion/restart'],
   ['POST', '/api/notion/app-management'],
   ['POST', '/api/notion/block-native'],
+  ['POST', '/api/notion/auto-repair'],
 ];
 
 test('Notion setup endpoints need the session token', async () => {
@@ -316,7 +320,14 @@ test("copies run from source never call another copy's wrapper broken", () => {
   }
 });
 
-test('the app keeps the watcher pointed at itself once Notion runs it', async () => {
+// the switch in Settings, off unless turned on
+function setAutoRepair(on) {
+  const { readConfig, writeConfig } = require('../dist/utils/config');
+  writeConfig({ ...readConfig(), autoRepair: on });
+}
+
+test('with repairing automatically on, the app keeps the watcher pointed at itself once Notion runs it', async () => {
+  setAutoRepair(true);
   const ready = { status: 'installed', packaged: true };
   let calls = mockNotionSetup(ready);
   assert.equal(ensureWatcher(), true);
@@ -350,6 +361,63 @@ test('the app keeps the watcher pointed at itself once Notion runs it', async ()
   // a failure is only logged
   mockNotionSetup({ ...ready, installWatcher: () => { throw new Error('launchctl failed'); } });
   assert.equal(ensureWatcher(), false);
+  setAutoRepair(false);
+  mockNotionSetup();
+});
+
+test('with repairing automatically off (the default), nothing runs in the background', async () => {
+  setAutoRepair(false);
+  const ready = { status: 'installed', packaged: true };
+  let calls = mockNotionSetup(ready);
+  assert.equal(ensureWatcher(), false);
+  calls = mockNotionSetup(ready);
+  await request('POST', '/api/notion/install', { headers: authed() });
+  assert.deepEqual(calls, ['patch'], 'Install leaves it off');
+
+  // the watcher 0.7.0 set up for everyone is removed on start, but only this app's own
+  calls = mockNotionSetup({ ...ready, watcherIsOurs: true });
+  assert.equal(ensureWatcher(), true);
+  assert.deepEqual(calls, ['remove-watcher']);
+  for (const setup of [{ ...ready, watcherIsOurs: true, packaged: false }, { ...ready, watcherIsOurs: true, platform: 'linux' }]) {
+    calls = mockNotionSetup(setup);
+    assert.equal(ensureWatcher(), false, JSON.stringify(setup));
+    assert.deepEqual(calls, [], JSON.stringify(setup));
+  }
+  mockNotionSetup();
+});
+
+test('the repair switch is saved and sets up or removes the watcher right away', async () => {
+  const { readConfig } = require('../dist/utils/config');
+  setAutoRepair(false);
+  let calls = mockNotionSetup({ status: 'installed', packaged: true });
+  assert.equal((await request('POST', '/api/notion/auto-repair', { headers: authed(), body: { on: 'yes' } })).status, 400);
+  let res = await request('POST', '/api/notion/auto-repair', { headers: authed(), body: { on: true } });
+  assert.equal(res.json.ok, true);
+  assert.equal(res.json.autoRepair, true);
+  assert.equal(readConfig().autoRepair, true);
+  assert.deepEqual(calls, ['watcher']);
+
+  calls = mockNotionSetup({ status: 'installed', packaged: true, watcherIsOurs: true });
+  res = await request('POST', '/api/notion/auto-repair', { headers: authed(), body: { on: false } });
+  assert.equal(res.json.autoRepair, false);
+  assert.equal(readConfig().autoRepair, false);
+  assert.deepEqual(calls, ['remove-watcher']);
+
+  // Notion not installed yet: saved, the watcher starts at Install
+  calls = mockNotionSetup({ status: 'not-installed', packaged: true });
+  res = await request('POST', '/api/notion/auto-repair', { headers: authed(), body: { on: true } });
+  assert.deepEqual(res.json, { ok: true, autoRepair: true, running: false });
+  assert.deepEqual(calls, []);
+
+  // Settings shows the switch only in the packaged app
+  mockNotionSetup({ status: 'installed', packaged: true });
+  res = await request('GET', '/api/notion/status', { headers: authed() });
+  assert.equal(res.json.autoRepair, true);
+  assert.equal(res.json.autoRepairAvailable, true);
+  mockNotionSetup({ status: 'installed' });
+  res = await request('GET', '/api/notion/status', { headers: authed() });
+  assert.equal(res.json.autoRepairAvailable, false);
+  setAutoRepair(false);
   mockNotionSetup();
 });
 

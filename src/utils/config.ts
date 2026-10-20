@@ -14,10 +14,13 @@ export interface NotiskinConfig {
   notionInstalled: boolean;
   // refuse a Notion update that isn't Electron (Notion is moving to SwiftUI), on unless turned off
   blockNativeNotion: boolean;
+  // the app keeps the watcher (a background process, runs even when Notion and Notiskin are closed) to repair Notion
+  // after its updates. Off unless turned on
+  autoRepair: boolean;
 }
 
 function defaultConfig(): NotiskinConfig {
-  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false, blockNativeNotion: true };
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false, blockNativeNotion: true, autoRepair: false };
 }
 
 function stringArray(value: unknown): string[] {
@@ -35,6 +38,7 @@ export function parseConfig(raw: unknown): NotiskinConfig {
     setupDone: obj.setupDone === true,
     notionInstalled: obj.notionInstalled === true,
     blockNativeNotion: obj.blockNativeNotion !== false,
+    autoRepair: obj.autoRepair === true,
   };
 }
 
