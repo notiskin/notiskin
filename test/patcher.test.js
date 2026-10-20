@@ -3,8 +3,8 @@ const { dataDir, infoPlist, makeFramework, makeElectronFramework } = require('./
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('child_process');
-const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, readdirSync, statSync } = require('fs');
-const { join } = require('path');
+const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, readdirSync, statSync, symlinkSync } = require('fs');
+const { join, basename } = require('path');
 const { tmpdir } = require('os');
 
 // unpatch looks for a LaunchAgent in the home folder, keep it away from the real one
@@ -264,6 +264,46 @@ test('status: a CLI inside app.asar counts as present when the archive exists', 
   withNotionApp(app, () => assert.equal(patcher.getNotionStatus(), 'installed'));
   rmSync(join(resources, 'app.asar'));
   withNotionApp(app, () => assert.equal(patcher.getNotionStatus(), 'needs-repair'));
+});
+
+test('status: a wrapper that runs another copy of Notiskin is noticed, but still counts as installed', () => {
+  const { app, notion, real } = fakeNotionApp();
+  writeFileSync(real, '');
+  const copy = () => {
+    const resources = tempDir('notiskin-copy-');
+    writeFileSync(join(resources, 'notiskin'), '');
+    writeFileSync(join(resources, 'app.asar'), '');
+    return { program: join(resources, 'notiskin'), cli: join(resources, 'app.asar', 'dist', 'cli', 'index.js'), resources };
+  };
+  const installed = copy();
+  const other = copy();
+
+  withNotionApp(app, () => {
+    // nothing installed yet, no wrapper to compare
+    assert.equal(patcher.wrapperRunsOtherCopy(installed.program, installed.cli), false);
+
+    writeFileSync(notion, patcher.makeWrapperScript(installed.program, installed.cli, { appMode: true }));
+    assert.equal(patcher.getNotionStatus(), 'installed');
+    assert.equal(patcher.wrapperRunsOtherCopy(installed.program, installed.cli), false);
+    // the same copy spelled differently, through a symlink or with ..
+    const link = join(tempDir('notiskin-link-'), 'copy');
+    symlinkSync(installed.resources, link);
+    assert.equal(patcher.wrapperRunsOtherCopy(join(link, 'notiskin'), join(link, 'app.asar', 'dist', 'cli', 'index.js')), false);
+    assert.equal(patcher.wrapperRunsOtherCopy(join(installed.resources, '..', basename(installed.resources), 'notiskin'), installed.cli), false);
+
+    // another copy that still exists: status alone can't tell, the app asks separately
+    assert.equal(patcher.getNotionStatus(), 'installed');
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, other.cli), true);
+    assert.equal(patcher.wrapperRunsOtherCopy(installed.program, other.cli), true);
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, installed.cli), true);
+
+    // an old port wrapper is a repair on its own, not another copy
+    writeFileSync(notion, LEGACY_APP_WRAPPER);
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, other.cli), false);
+  });
+  withNotionApp(join(tempDir('notiskin-empty-'), 'Notion.app'), () => {
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, other.cli), false);
+  });
 });
 
 // as root, patch would try to install a sudoers rule, only run this as a normal user
