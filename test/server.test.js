@@ -2,7 +2,7 @@ require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName, repairLegacyWrapper } = require('../dist/gui/server');
+const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName, repairLegacyWrapper, ensureWatcher } = require('../dist/gui/server');
 
 let server;
 let port;
@@ -119,15 +119,31 @@ test('sanitizeSearch strips PostgREST filter syntax', () => {
 });
 
 // the real check, before any test mocks it
-const realOtherCopy = notionSetup.otherCopy;
+const realPackaged = notionSetup.packaged;
 
 // the Install into Notion endpoints, with the platform and the CLI run mocked
-function mockNotionSetup({ platform = 'darwin', status = 'not-installed', legacy = false, otherCopy = false, run, restart } = {}) {
+function mockNotionSetup({
+  platform = 'darwin',
+  status = 'not-installed',
+  legacy = false,
+  packaged = false,
+  otherCopy = false,
+  watcherIsOurs = false,
+  installWatcher,
+  run,
+  restart,
+} = {}) {
   const calls = [];
   notionSetup.platform = () => platform;
   notionSetup.status = () => status;
   notionSetup.legacy = () => legacy;
+  notionSetup.packaged = () => packaged;
   notionSetup.otherCopy = () => otherCopy;
+  notionSetup.watcherIsOurs = () => watcherIsOurs;
+  notionSetup.installWatcher = () => {
+    calls.push('watcher');
+    installWatcher?.();
+  };
   notionSetup.run = async action => {
     calls.push(action);
     return run ? run(action) : { status: 'ok', output: '' };
@@ -250,16 +266,23 @@ test('the app repairs an old port wrapper on start, and leaves everything else a
 });
 
 test('a Notion installed from another copy of Notiskin is offered as a Repair, never repaired on its own', async () => {
-  let calls = mockNotionSetup({ status: 'installed', otherCopy: true });
+  let calls = mockNotionSetup({ status: 'installed', packaged: true, otherCopy: true });
   let res = await request('GET', '/api/notion/status', { headers: authed() });
   assert.equal(res.json.status, 'needs-repair');
   assert.equal(res.json.otherCopy, true);
   assert.equal(await repairLegacyWrapper(), false);
+  assert.equal(ensureWatcher(), false, "the watcher isn't taken over either");
   assert.deepEqual(calls, []);
+
+  // a copy run from source leaves it alone
+  mockNotionSetup({ status: 'installed', packaged: false, otherCopy: true });
+  res = await request('GET', '/api/notion/status', { headers: authed() });
+  assert.equal(res.json.status, 'installed');
+  assert.equal(res.json.otherCopy, false);
 
   // only an installed Notion can be running another copy, the other statuses keep their own meaning
   for (const status of ['installed', 'not-installed', 'needs-repair', 'unsupported']) {
-    mockNotionSetup({ status, otherCopy: status !== 'installed' });
+    mockNotionSetup({ status, packaged: true, otherCopy: status !== 'installed' });
     res = await request('GET', '/api/notion/status', { headers: authed() });
     assert.equal(res.json.status, status);
     assert.equal(res.json.otherCopy, false);
@@ -286,11 +309,48 @@ test("copies run from source never call another copy's wrapper broken", () => {
   try {
     assert.equal(wrapperRunsOtherCopy(process.execPath, CLI_SCRIPT), true);
     // these tests run dist/ from the checkout, not app.asar, so the server doesn't flag it
-    assert.equal(realOtherCopy(), false);
+    assert.equal(realPackaged(), false);
   } finally {
     if (before === undefined) delete process.env.NOTISKIN_NOTION_APP;
     else process.env.NOTISKIN_NOTION_APP = before;
   }
+});
+
+test('the app keeps the watcher pointed at itself once Notion runs it', async () => {
+  const ready = { status: 'installed', packaged: true };
+  let calls = mockNotionSetup(ready);
+  assert.equal(ensureWatcher(), true);
+  assert.deepEqual(calls, ['watcher']);
+
+  // Install and Repair set it up right after patching
+  calls = mockNotionSetup(ready);
+  assert.equal((await request('POST', '/api/notion/install', { headers: authed() })).json.ok, true);
+  assert.deepEqual(calls, ['patch', 'watcher']);
+  calls = mockNotionSetup(ready);
+  await request('POST', '/api/notion/uninstall', { headers: authed() });
+  assert.deepEqual(calls, ['unpatch'], 'uninstall removes it, never sets it up');
+  calls = mockNotionSetup({ ...ready, run: () => ({ status: 'error', message: 'EPERM', output: 'EPERM' }) });
+  await request('POST', '/api/notion/install', { headers: authed() });
+  assert.deepEqual(calls, ['patch'], 'not after a failed install');
+
+  // nothing to do, or not this copy's call
+  for (const setup of [
+    { ...ready, watcherIsOurs: true },
+    { ...ready, packaged: false },
+    { ...ready, otherCopy: true },
+    { ...ready, status: 'not-installed' },
+    { ...ready, status: 'needs-repair' },
+    { ...ready, platform: 'linux' },
+  ]) {
+    calls = mockNotionSetup(setup);
+    assert.equal(ensureWatcher(), false, JSON.stringify(setup));
+    assert.deepEqual(calls, [], JSON.stringify(setup));
+  }
+
+  // a failure is only logged
+  mockNotionSetup({ ...ready, installWatcher: () => { throw new Error('launchctl failed'); } });
+  assert.equal(ensureWatcher(), false);
+  mockNotionSetup();
 });
 
 test('the hold-back switch is saved, and re-signs Notion only when it is installed', async () => {
