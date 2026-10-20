@@ -1,5 +1,5 @@
 // wrapper text, shell quoting, and status detection, all against temp folders that imitate Notion.app
-const { dataDir, infoPlist, makeElectronFramework } = require('./helpers');
+const { dataDir, infoPlist, makeFramework, makeElectronFramework } = require('./helpers');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('child_process');
@@ -445,6 +445,45 @@ test('the hold-back requirement refuses an app that is not Electron', { skip: si
   assert.ok(meets(electron, testable(true)));
   assert.ok(!meets(native, testable(true)));
   assert.ok(meets(native, testable(false)));
+});
+
+// older versions signed Notion with --deep, which skipped ShipIt (Notion's installer), so it kept Notion's team and
+// couldn't load the ad hoc Mantle next to it: updates were accepted and never installed. Node's own binary is
+// Developer ID signed, so a copy of it plays a ShipIt that still has a team
+test('ShipIt is signed to match the libraries next to it', { skip: signSkip }, t => {
+  if (!/TeamIdentifier=(?!not set)/.test(signatureInfo(process.execPath))) {
+    return t.skip('this Node binary has no team signature');
+  }
+  const build = tempDir('notiskin-cc-');
+  const program = join(build, 'notion');
+  try {
+    execFileSync('cc', ['-x', 'c', '-o', program, '-'], { input: 'int main(void) { return 0; }\n', stdio: ['pipe', 'ignore', 'ignore'] });
+  } catch {
+    return t.skip('no C compiler');
+  }
+  const { app, notion } = signedNotionApp(program);
+  const frameworks = join(app, 'Contents', 'Frameworks');
+  makeFramework(frameworks, 'Mantle');
+  const squirrel = makeFramework(frameworks, 'Squirrel', { ShipIt: process.execPath });
+  const shipIt = join(squirrel, 'Versions', 'A', 'Resources', 'ShipIt');
+  codesign('--force', '--sign', '-', app);
+  assert.match(signatureInfo(shipIt), /TeamIdentifier=(?!not set)/);
+  const silence = ['log', 'warn'].map(k => [k, console[k]]);
+  for (const [k] of silence) console[k] = () => {};
+  try {
+    withNotionApp(app, () => {
+      assert.equal(patcher.shipItMismatch(notion), true);
+      assert.equal(patcher.hasCurrentSignature(notion), false, 'a ShipIt that cannot start counts as an old signature');
+
+      patcher.patchNotion(join(build, 'gone'), join(build, 'gone.js'));
+      assert.equal(patcher.shipItMismatch(notion), false);
+      assert.match(signatureInfo(shipIt), /TeamIdentifier=not set/);
+      assert.doesNotThrow(() => codesign('--verify', '--deep', '--strict', app));
+      assert.equal(patcher.hasOldSignature(), false);
+    });
+  } finally {
+    for (const [k, fn] of silence) console[k] = fn;
+  }
 });
 
 test('admin command passes the real user and runs the CLI as Node', () => {

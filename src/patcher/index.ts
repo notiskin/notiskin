@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import {
   existsSync,
   copyFileSync,
@@ -75,9 +75,46 @@ function signOne(path: string, requirement: string): void {
   });
 }
 
-// only what we changed: Notion.real (while patched), then the app itself. Notion's frameworks and helpers keep Notion's signatures
+function teamOf(path: string): string | null {
+  // codesign -dv writes to stderr
+  const out = spawnSync('codesign', ['-dv', path], { encoding: 'utf-8' }).stderr ?? '';
+  const team = /^TeamIdentifier=(.+)$/m.exec(out)?.[1];
+  return team && team !== 'not set' ? team : null;
+}
+
+function squirrelPaths(bundle: string): { shipIt: string; squirrel: string; libraries: string[] } {
+  const frameworks = join(bundle, 'Contents', 'Frameworks');
+  const squirrel = join(frameworks, 'Squirrel.framework');
+  return {
+    shipIt: join(squirrel, 'Versions', 'A', 'Resources', 'ShipIt'),
+    squirrel,
+    libraries: [squirrel, join(frameworks, 'Mantle.framework'), join(frameworks, 'ReactiveObjC.framework')],
+  };
+}
+
+// ShipIt is Notion's installer, it swaps in an update after Notion quits. Older versions signed everything inside
+// ad hoc with --deep, which skips ShipIt (it sits in Squirrel.framework's Resources), so ShipIt kept Notion's team and
+// macOS refused to load the now ad hoc Mantle into it: updates were accepted, then never installed
+export function shipItMismatch(notionPath: string): boolean {
+  const { shipIt, libraries } = squirrelPaths(appBundlePath(notionPath));
+  if (!existsSync(shipIt)) return false;
+  const team = teamOf(shipIt);
+  return libraries.some(lib => existsSync(lib) && teamOf(lib) !== team);
+}
+
+// sign ShipIt ad hoc like the libraries around it, then the framework it sits in, whose seal covers it
+function matchShipIt(notionPath: string): void {
+  if (!shipItMismatch(notionPath)) return;
+  const { shipIt, squirrel } = squirrelPaths(appBundlePath(notionPath));
+  execFileSync('codesign', ['--force', '--sign', '-', shipIt], { stdio: 'pipe' });
+  execFileSync('codesign', ['--force', '--sign', '-', squirrel], { stdio: 'pipe' });
+}
+
+// only what we changed: Notion.real (while patched), then the app itself. Notion's frameworks and helpers keep Notion's
+// signatures, apart from ShipIt in a bundle older versions signed with --deep
 function signChanged(notionPath: string, requirement: string): void {
   const realPath = `${notionPath}.real`;
+  matchShipIt(notionPath);
   if (existsSync(realPath)) signOne(realPath, requirement);
   signOne(appBundlePath(notionPath), requirement);
 }
@@ -106,7 +143,8 @@ export function signNotion(notionPath: string, blockNative = readConfig().blockN
   }
 }
 
-// false for installs signed before Notion updates were allowed, or before the block setting last changed.
+// false for installs signed before Notion updates were allowed (or whose ShipIt can't start), or before the block
+// setting last changed.
 // The next patch re-signs them
 export function hasCurrentSignature(notionPath: string, blockNative = readConfig().blockNativeNotion): boolean {
   const realPath = `${notionPath}.real`;
@@ -115,7 +153,11 @@ export function hasCurrentSignature(notionPath: string, blockNative = readConfig
       stdio: ['ignore', 'pipe', 'pipe'],
       encoding: 'utf-8',
     });
-    return out.includes(`identifier "${NOTISKIN_SIGNING_ID}"`) && out.includes('info[NSPrincipalClass]') === blockNative;
+    return (
+      out.includes(`identifier "${NOTISKIN_SIGNING_ID}"`) &&
+      out.includes('info[NSPrincipalClass]') === blockNative &&
+      !shipItMismatch(notionPath)
+    );
   } catch {
     return false;
   }
