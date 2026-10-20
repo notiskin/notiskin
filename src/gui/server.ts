@@ -34,7 +34,7 @@ import {
   writeItem,
   ItemType,
 } from '../core/library';
-import { appBundlePath, findNotionBinary, getNotionStatus, hasLegacyWrapper, NotionStatus } from '../patcher/index';
+import { appBundlePath, findNotionBinary, getNotionStatus, hasLegacyWrapper, hasOldSignature, NotionStatus } from '../patcher/index';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
 
@@ -205,8 +205,8 @@ function runCli(action: AdminAction): Promise<SetupResult> {
 export const notionSetup = {
   platform: (): NodeJS.Platform => process.platform,
   status: (): NotionStatus => getNotionStatus(),
-  // wrappers from before the DevTools pipe, which opened a debug port
-  legacy: (): boolean => hasLegacyWrapper(),
+  // wrappers from before the DevTools pipe, which opened a debug port, or a signature that blocked Notion's updates
+  legacy: (): boolean => hasLegacyWrapper() || hasOldSignature(),
   // in the desktop app execPath is Electron (run as Node by the env var), under `npm run gui` it is Node itself
   run: (action: AdminAction): Promise<SetupResult> => runCli(action),
   // open the bundle like the Dock does, so the wrapper runs and starts the injector
@@ -265,18 +265,19 @@ async function runNotionSetup(action: AdminAction, res: Response): Promise<void>
   }
 }
 
-// older versions opened a debug port any program on the Mac could use. The app replaces that wrapper on start,
-// the same as clicking Repair, and the port is gone the next time Notion starts. If it fails (App Management
-// was turned off, say), Settings still shows Repair. Never restarts Notion
+// older versions opened a debug port any program on the Mac could use, and signed Notion in a way that made it
+// refuse its own updates. The app fixes both on start, the same as clicking Repair: the port is gone the next time
+// Notion starts and the next Notion update installs. If it fails (App Management was turned off, say), Settings
+// still shows Repair for an old wrapper. Never restarts Notion
 export async function repairLegacyWrapper(): Promise<boolean> {
   if (notionSetup.platform() !== 'darwin' || notionSetupBusy || !notionSetup.legacy()) return false;
   notionSetupBusy = true;
   try {
     const result = await notionSetup.run('patch');
-    logSetup('patch', `automatic repair of an old wrapper: ${result.status}\n${result.output}`);
+    logSetup('patch', `automatic repair of an old install: ${result.status}\n${result.output}`);
     return result.status === 'ok';
   } catch (err) {
-    logSetup('patch', `automatic repair of an old wrapper failed: ${errorMessage(err)}`);
+    logSetup('patch', `automatic repair of an old install failed: ${errorMessage(err)}`);
     return false;
   } finally {
     notionSetupBusy = false;
@@ -335,7 +336,9 @@ const debugLogLimiter = rateLimit({
 // served from the installed package instead of a CDN, so the version is pinned by package-lock
 const SUPABASE_UMD = require.resolve('@supabase/supabase-js/dist/umd/supabase.js');
 app.get('/vendor/supabase.js', (_req, res) => {
-  res.type('application/javascript').sendFile(SUPABASE_UMD);
+  // a fixed path, never from the request. Running from a folder like .claude/worktrees would otherwise 404,
+  // because send refuses any path with a dot folder in it
+  res.type('application/javascript').sendFile(SUPABASE_UMD, { dotfiles: 'allow' });
 });
 
 app.get('/', sendPage('themes.html'));
@@ -403,7 +406,35 @@ app.get('/api/diagnostics', async (_req, res) => {
 
 app.get('/api/notion/status', (_req, res) => {
   if (!requireMac(res)) return;
-  res.json({ status: notionSetup.status(), notionRunning: isNotionRunning() });
+  res.json({ status: notionSetup.status(), notionRunning: isNotionRunning(), blockNative: readConfig().blockNativeNotion });
+});
+
+// the setting lives in Notion's signature, so a patched Notion is re-signed (the same CLI patch as Repair).
+// Saved either way: an unpatched Notion gets it at Install, and if signing fails the app retries on its next start
+app.post('/api/notion/block-native', async (req, res) => {
+  if (!requireMac(res)) return;
+  const on = (req.body as { on?: unknown })?.on;
+  if (typeof on !== 'boolean') return res.status(400).json({ ok: false, error: 'on must be true or false' });
+  writeConfig({ ...readConfig(), blockNativeNotion: on });
+  if (notionSetup.status() !== 'installed') return res.json({ ok: true, blockNative: on, applied: false });
+  if (notionSetupBusy) return res.status(409).json({ ok: false, blockNative: on, error: 'Already working on it.' });
+  notionSetupBusy = true;
+  try {
+    const result = await notionSetup.run('patch');
+    logSetup('patch', `block native Notion ${on ? 'on' : 'off'}: ${result.status}\n${result.output}`);
+    if (result.status === 'ok') return res.json({ ok: true, blockNative: on, applied: true });
+    res.json({
+      ok: false,
+      blockNative: on,
+      error: result.message,
+      reason: setupFailureReason(result.output),
+      appName: appManagementName(),
+    });
+  } catch (err) {
+    res.json({ ok: false, blockNative: on, error: errorMessage(err) });
+  } finally {
+    notionSetupBusy = false;
+  }
 });
 
 // nothing from the request goes into the command, it is built from this process's own paths

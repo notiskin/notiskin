@@ -80,6 +80,13 @@
     },
     {
       page: '/settings.html',
+      target: row('native-btn'),
+      fit: 'content',
+      title: 'Notion updates',
+      text: 'Notion is rebuilding its Mac app, and Notiskin can\'t theme the new one. While this is on, Notion keeps updating but holds that version back, since there\'s no easy way back once it\'s installed.',
+    },
+    {
+      page: '/settings.html',
       target: row('notion-btn'),
       fit: 'content',
       title: 'Install into Notion',
