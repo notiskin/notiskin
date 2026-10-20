@@ -8,7 +8,7 @@ import { release, userInfo } from 'os';
 import { INJECTOR_PID_PATH, LOGS_DIR, NOTISKIN_DIR, USER_HOME } from '../utils/constants';
 import { readConfig } from '../utils/config';
 import { pidLockHolder } from '../utils/pidlock';
-import { appBundlePath, findNotionBinary, getNotionStatus } from '../patcher/index';
+import { appBundlePath, findNotionBinary, getNotionStatus, watcherRunsThisCopy } from '../patcher/index';
 import { askInjector } from '../injector/control';
 import { findNotionRun } from '../injector/pipe';
 import { isNotionRunning, listPlugins, listThemes } from './library';
@@ -102,6 +102,13 @@ async function systemVersion(): Promise<string> {
 
 const yesNo = (value: boolean) => (value ? 'yes' : 'no');
 
+// no paths, which copy is enough to tell a stale watcher apart
+function watcherDescription(): string {
+  const ours = watcherRunsThisCopy();
+  if (ours === null) return 'off';
+  return ours ? 'on (this copy)' : 'on (another copy of Notiskin)';
+}
+
 export async function diagnosticsReport(now = new Date()): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { version } = require('../../package.json') as { version: string };
@@ -127,6 +134,7 @@ export async function diagnosticsReport(now = new Date()): Promise<string> {
     `Notion version:  ${notion ?? 'unknown'}`,
     `Installed:       ${getNotionStatus()}`,
     `Notion running:  ${yesNo(isNotionRunning())}`,
+    `Watcher:         ${watcherDescription()}`,
     `DevTools pipe:   ${findNotionRun() ? 'open' : 'not open'}`,
     `Injector:        ${injectorPid ? `running (pid ${injectorPid})` : 'not running'}${injector?.ok ? `, connected to ${injector.tabs} tab(s)` : ''}`,
     `Port ${OLD_DEBUG_PORT}:       ${oldPort ? 'open (an old Notiskin wrapper or another app, Repair closes ours)' : 'closed'}`,

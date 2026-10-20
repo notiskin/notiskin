@@ -41,8 +41,10 @@ import {
   hasLegacyWrapper,
   hasOldSignature,
   NotionStatus,
+  watcherRunsThisCopy,
   wrapperRunsOtherCopy,
 } from '../patcher/index';
+import { installWatcher } from '../patcher/agent';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
 
@@ -215,9 +217,13 @@ export const notionSetup = {
   status: (): NotionStatus => getNotionStatus(),
   // wrappers from before the DevTools pipe, which opened a debug port, or a signature that blocked Notion's updates
   legacy: (): boolean => hasLegacyWrapper() || hasOldSignature(),
-  // Notion runs another copy of Notiskin, e.g. a source checkout or an older download. Only the packaged app (its CLI
-  // sits in app.asar) asks, so copies run from source never call the installed app's wrapper broken
-  otherCopy: (): boolean => CLI_SCRIPT.includes('.asar/') && wrapperRunsOtherCopy(process.execPath, CLI_SCRIPT),
+  // the downloaded app, its CLI sits in app.asar. Copies run from source leave Notion's setup to the installed app
+  packaged: (): boolean => CLI_SCRIPT.includes('.asar/'),
+  // Notion runs another copy of Notiskin, e.g. a source checkout or an older download
+  otherCopy: (): boolean => wrapperRunsOtherCopy(process.execPath, CLI_SCRIPT),
+  // the watcher's LaunchAgent runs this copy
+  watcherIsOurs: (): boolean => watcherRunsThisCopy() === true,
+  installWatcher: (): void => installWatcher(),
   // in the desktop app execPath is Electron (run as Node by the env var), under `npm run gui` it is Node itself
   run: (action: AdminAction): Promise<SetupResult> => runCli(action),
   // open the bundle like the Dock does, so the wrapper runs and starts the injector
@@ -259,6 +265,7 @@ async function runNotionSetup(action: AdminAction, res: Response): Promise<void>
     const result = await notionSetup.run(action);
     logSetup(action, result.output);
     if (result.status === 'ok') {
+      if (action === 'patch') ensureWatcher();
       res.json({ ok: true, status: notionSetup.status() });
       return;
     }
@@ -292,6 +299,22 @@ export async function repairLegacyWrapper(): Promise<boolean> {
     return false;
   } finally {
     notionSetupBusy = false;
+  }
+}
+
+// the app keeps the watcher pointed at itself, so a Notion update is repaired by this copy (and Notion stays on it).
+// Runs after Install / Repair and on start. Only when Notion runs this copy: a Notion installed from another copy is
+// the user's call (Settings offers Repair). Never touches Notion itself, a failure only shows in the log
+export function ensureWatcher(): boolean {
+  try {
+    if (notionSetup.platform() !== 'darwin' || !notionSetup.packaged()) return false;
+    if (notionSetup.status() !== 'installed' || notionSetup.otherCopy() || notionSetup.watcherIsOurs()) return false;
+    notionSetup.installWatcher();
+    logSetup('patch', 'watcher set up to repair Notion after its updates');
+    return true;
+  } catch (err) {
+    logSetup('patch', `could not set up the watcher: ${errorMessage(err)}`);
+    return false;
   }
 }
 
@@ -419,7 +442,7 @@ app.get('/api/notion/status', (_req, res) => {
   if (!requireMac(res)) return;
   let status = notionSetup.status();
   // offered as a Repair, which points Notion at this copy. Never done on its own, the other copy may be on purpose
-  const otherCopy = status === 'installed' && notionSetup.otherCopy();
+  const otherCopy = status === 'installed' && notionSetup.packaged() && notionSetup.otherCopy();
   if (otherCopy) status = 'needs-repair';
   res.json({ status, otherCopy, notionRunning: isNotionRunning(), blockNative: readConfig().blockNativeNotion });
 });
@@ -437,7 +460,10 @@ app.post('/api/notion/block-native', async (req, res) => {
   try {
     const result = await notionSetup.run('patch');
     logSetup('patch', `block native Notion ${on ? 'on' : 'off'}: ${result.status}\n${result.output}`);
-    if (result.status === 'ok') return res.json({ ok: true, blockNative: on, applied: true });
+    if (result.status === 'ok') {
+      ensureWatcher();
+      return res.json({ ok: true, blockNative: on, applied: true });
+    }
     res.json({
       ok: false,
       blockNative: on,
