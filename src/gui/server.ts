@@ -397,6 +397,7 @@ app.get('/settings.html', sendPage('settings.html'));
 const ASSETS: Record<string, string> = {
   '/brand.css': 'css',
   '/tour.js': 'js',
+  '/versions.js': 'js',
   '/fonts/fraunces.woff2': 'font/woff2',
   '/fonts/inter.woff2': 'font/woff2',
 };
@@ -805,10 +806,16 @@ app.get('/api/submissions', async (req, res) => {
   const table = submissionTable(req.query.type);
   if (!table) return res.status(400).json({ error: 'type must be theme or plugin' });
 
-  // row level security limits this to the signed-in user's own submissions
-  const { data, error } = await userSupabase(token)
+  // row level security also lets everyone read approved items, so filter by the GitHub identity
+  // Supabase vouches for (never user_metadata)
+  const client = userSupabase(token);
+  const { data: auth, error: authError } = await client.auth.getUser(token);
+  const username = auth?.user?.identities?.find(i => i.provider === 'github')?.identity_data?.user_name;
+  if (authError || typeof username !== 'string' || !username) return res.status(401).json({ error: 'Sign in again' });
+  const { data, error } = await client
     .from(table)
-    .select('id,name,description,status,rejection_reason,created_at')
+    .select('id,name,description,status,rejection_reason,created_at,version')
+    .ilike('author_github', username.replace(/[\\%_]/g, '\\$&'))
     .order('created_at', { ascending: false });
   if (error) return res.status(502).json({ error: error.message });
   res.json({ submissions: data ?? [] });

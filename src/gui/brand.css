@@ -151,3 +151,58 @@ h1, h2, .display {
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 ::selection { background: var(--accent-soft); color: var(--text); }
+
+/* item versions (versions.js): update available, publish a new version, the plugin update dialog */
+.card:has(.ns-update) { flex-wrap: wrap; }
+.ns-update {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  cursor: default;
+}
+.ns-update-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ns-update-badge { font-size: 12px; font-weight: 600; color: var(--accent-text); }
+.ns-update-change { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-update-btn {
+  flex-shrink: 0;
+  background: var(--ink);
+  color: var(--on-ink);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ns-update-btn:hover { background: var(--ink-hover); }
+.ns-update-btn:disabled { opacity: 0.6; cursor: default; }
+.ns-version-heading { margin-top: 32px; }
+.ns-version-intro, .ns-version-empty { font-size: 13px; color: var(--text-2); margin-bottom: 14px; line-height: 1.6; }
+.ns-version-form select { width: 100%; }
+.ns-changes { margin: 6px 0 0 18px; font-size: 13px; color: var(--text-2); line-height: 1.6; }
+.ns-version-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay);
+}
+.ns-version-dialog-box {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+.ns-version-dialog-box h3 { font-size: 15px; font-weight: 600; color: var(--warning); margin-bottom: 10px; }
+.ns-version-dialog-box p { font-size: 13px; color: var(--text-2); line-height: 1.65; margin-bottom: 12px; }
+.ns-dialog-label { font-weight: 600; color: var(--text) !important; margin-bottom: 0 !important; }
+.ns-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
