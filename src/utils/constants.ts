@@ -9,6 +9,8 @@ export const NOTISKIN_DIR = process.env.NOTISKIN_DIR || join(USER_HOME, '.notisk
 export const THEMES_DIR = join(NOTISKIN_DIR, 'themes');
 export const PLUGINS_DIR = join(NOTISKIN_DIR, 'plugins');
 export const CONFIG_PATH = join(NOTISKIN_DIR, 'notiskin.config.json');
+// which marketplace item and version each installed theme / plugin came from
+export const INSTALLED_PATH = join(NOTISKIN_DIR, 'installed.json');
 export const LOGS_DIR = join(NOTISKIN_DIR, 'logs');
 export const INJECTOR_PID_PATH = join(NOTISKIN_DIR, 'injector.pid');
 // 0700, holds Notion's DevTools pipes (one folder per Notion pid) and the injector's control socket

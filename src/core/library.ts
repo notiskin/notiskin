@@ -21,6 +21,7 @@ import { PluginEntry } from '../injector/index';
 import { ensureRunDir, findNotionRun } from '../injector/pipe';
 import { askInjector, ControlReply, ControlRequest } from '../injector/control';
 import { sleep } from '../utils/sleep';
+import { forgetInstall } from './installed';
 
 export type ItemType = 'theme' | 'plugin';
 
@@ -90,6 +91,8 @@ export function writeItem(type: ItemType, name: string, content: string): string
 export function deleteItem(type: ItemType, name: string): boolean {
   if (!itemExists(type, name)) return false;
   unlinkSync(itemPath(type, name));
+  // a file made later with this name is the user's own, not the marketplace item
+  forgetInstall(type, name);
   const config = readConfig();
   if (type === 'theme' && config.activeTheme === name) config.activeTheme = '';
   if (type === 'plugin') {

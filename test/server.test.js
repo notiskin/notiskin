@@ -569,3 +569,22 @@ test('every page says a new version is out and links to the download, never prom
     assert.doesNotMatch(html, /Ready to install`|ready`;|>Install<\/a>/, page);
   }
 });
+
+test('marketplace update refuses bad input, unconfirmed plugins and files not from the marketplace', async () => {
+  const lib = require('../dist/core/library');
+  const bad = await request('POST', '/api/marketplace/update', { headers: authed(), body: { type: 'exe', name: 'x' } });
+  assert.equal(bad.status, 400);
+  const badName = await request('POST', '/api/marketplace/update', { headers: authed(), body: { type: 'theme', name: '../x' } });
+  assert.equal(badName.status, 400);
+  const unconfirmed = await request('POST', '/api/marketplace/update', { headers: authed(), body: { type: 'plugin', name: 'x' } });
+  assert.equal(unconfirmed.status, 400);
+  lib.writeItem('theme', 'handmade', 'mine');
+  const notOurs = await request('POST', '/api/marketplace/update', { headers: authed(), body: { type: 'theme', name: 'handmade' } });
+  assert.equal(notOurs.status, 404);
+});
+
+test('the update check with nothing installed from the marketplace asks nobody', async () => {
+  const res = await request('GET', '/api/marketplace/updates', { headers: authed() });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json, { updates: [] });
+});
