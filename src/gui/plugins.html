@@ -6,7 +6,7 @@
   <title>Notiskin</title>
   <link rel="stylesheet" href="/brand.css">
   <script src="/tour.js"></script>
-  <script src="/versions.js"></script>
+  <script src="/marketplace.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -519,6 +519,7 @@
         <section>
           <h2>Plugins</h2>
           <input type="text" id="browse-search-plugins" placeholder="Search" style="margin-bottom:12px">
+          <div id="browse-controls"></div>
           <div id="browse-plugins-list"><span class="loading">Loading</span></div>
         </section>
       </div>
@@ -578,6 +579,17 @@
                 <span id="code-hint">Paste the full contents. External links won't work.</span>
                 <span id="code-count" style="float:right">0/50000</span>
               </div>
+            </div>
+
+            <div class="field">
+              <label>Tags</label>
+              <div id="f-tags"></div>
+            </div>
+
+            <div class="field">
+              <label for="f-link">GitHub link (optional)</label>
+              <input type="text" inputmode="url" id="f-link" maxlength="220" placeholder="https://github.com/you/your-plugin">
+              <div class="field-hint"><span>A github.com repo or gist, for screenshots and docs.</span></div>
             </div>
 
             <button class="btn-submit" type="submit" id="publish-submit-btn">Submit</button>
@@ -812,6 +824,15 @@
 
     let currentInstalledPlugins = [];
 
+    // the tag checkboxes on the publish form, at most 3
+    let readPublishTags = () => [];
+    function resetPublishTags() {
+      const box = document.getElementById('f-tags');
+      box.innerHTML = nsBrowse.tagPickerHtml('f', []);
+      readPublishTags = nsBrowse.wireTagPicker(box);
+    }
+    resetPublishTags();
+
     async function sessionToken() {
       return (await db.auth.getSession()).data.session?.access_token || null;
     }
@@ -984,6 +1005,7 @@
               <div class="card-name">${esc(item.name)}</div>
               ${item.description ? `<div class="card-desc">${esc(item.description)}</div>` : ''}
               <div class="card-meta">by <a href="https://github.com/${esc(item.author_github)}" target="_blank" rel="noopener noreferrer">${esc(item.author_github)}</a></div>
+              ${nsBrowse.browseMetaHtml(item)}
             </div>
             <button class="btn-install" data-key="${esc(key)}" onclick="installFromBrowse(this)">Install</button>
           </div>
@@ -1003,7 +1025,7 @@
       try {
         const res = await fetch('/api/marketplace/install', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await nsBrowse.authHeader(sessionToken)) },
           body: JSON.stringify({ type: 'plugin', id: item.id }),
         });
         const data = await res.json();
@@ -1037,6 +1059,10 @@
     }
 
     async function loadBrowse() {
+      const controls = document.getElementById('browse-controls');
+      if (!controls.firstChild) {
+        nsBrowse.mountBrowseControls(controls, () => debouncedBrowseSearch(document.getElementById('browse-search-plugins').value.trim()));
+      }
       const pluginsEl = document.getElementById('browse-plugins-list');
       pluginsEl.innerHTML = '<span class="loading">Loading</span>';
       try {
@@ -1044,7 +1070,7 @@
         currentInstalledPlugins = data?.plugins || [];
       } catch (e) { /* ignore */ }
       try {
-        const res = await api('GET', '/plugins/search?q=');
+        const res = await api('GET', `/plugins/search?${nsBrowse.browseQuery('')}`);
         const list = (res.plugins || [])
           .filter(p => !currentInstalledPlugins.some(n => normalizeName(n) === normalizeName(p.name)));
         pluginsEl.innerHTML = list.map(p => renderBrowsePluginCard(p)).join('') || '<span class="empty">No plugins here yet</span>';
@@ -1057,7 +1083,7 @@
       const pluginsEl = document.getElementById('browse-plugins-list');
       pluginsEl.innerHTML = '<span class="loading">Searching…</span>';
       try {
-        const res = await api('GET', `/plugins/search?q=${encodeURIComponent(q)}`);
+        const res = await api('GET', `/plugins/search?${nsBrowse.browseQuery(q)}`);
         const list = (res.plugins || [])
           .filter(p => !currentInstalledPlugins.some(n => normalizeName(n) === normalizeName(p.name)));
         pluginsEl.innerHTML = list.map(p => renderBrowsePluginCard(p)).join('') || '<span class="empty">No plugins found</span>';
@@ -1153,7 +1179,7 @@
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ name, description, js: code }),
+          body: JSON.stringify({ name, description, js: code, tags: readPublishTags(), link: document.getElementById('f-link').value.trim() }),
         });
         const result = await res.json();
         if (!res.ok) throw new Error(result.error ?? 'Submission failed');
@@ -1162,6 +1188,7 @@
         btn.textContent = 'Submit';
         showPublishMsg('success', "Plugin submitted. We'll review it shortly.");
         document.getElementById('publish-form').reset();
+        resetPublishTags();
       } catch (err) {
         btn.disabled = false;
         btn.textContent = 'Submit';

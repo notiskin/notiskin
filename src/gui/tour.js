@@ -33,7 +33,7 @@
       target: '.tab-btn[data-tab="browse"]',
       fit: 'content',
       title: 'Browse',
-      text: 'Themes other people made. Installing one adds it to Your themes, it doesn\'t switch to it.',
+      text: 'Themes other people made. Sort by newest, top rated or most downloaded, and filter by tag. Installing one adds it to Your themes, it doesn\'t switch to it.',
     },
     {
       page: '/',
