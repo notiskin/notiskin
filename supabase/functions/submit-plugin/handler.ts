@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.108.2';
 import { adminClient, cleanDescription, cleanItemName, json, normalizeName, preflight, readJson, verifyUser } from '../_shared/http.ts';
+import { checkRateLimit } from '../_shared/limits.ts';
 
 const MAX_JS_LENGTH = 200_000;
 
@@ -20,6 +21,9 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
   if (description === null) return json(req, { error: 'Description must be 500 characters or fewer.' }, 400);
   if (typeof body.js !== 'string' || !body.js.trim()) return json(req, { error: 'Plugin code is empty.' }, 400);
   if (body.js.length > MAX_JS_LENGTH) return json(req, { error: 'Plugin code is too long.' }, 400);
+
+  const limited = await checkRateLimit(req, db, user, 'submit');
+  if (limited) return limited;
 
   // plugins run arbitrary JS in Notion, they always wait for a human reviewer
   const { error } = await db.from('plugins').insert({

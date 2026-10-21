@@ -12,6 +12,7 @@ export interface Call {
 
 export interface FakeResult {
   data?: unknown;
+  count?: number | null;
   error?: { code?: string; message?: string } | null;
 }
 
@@ -33,7 +34,8 @@ export function mockDb(opts: { user?: FakeUser | null; results?: Record<string, 
     const call: Call = { table, op: 'select', filters: [] };
     const answer = (): FakeResult => {
       const r = results[`${table}.${call.op}`] ?? results[table] ?? {};
-      return { data: r.data ?? null, error: r.error ?? null };
+      // count defaults to 0 so code that checks rate limits sees an unused limit
+      return { data: r.data ?? null, error: r.error ?? null, count: r.count === undefined ? 0 : r.count };
     };
     let recorded = false;
     const record = () => {
