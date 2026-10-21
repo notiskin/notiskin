@@ -143,6 +143,21 @@
     .ns-preview-block { height: 7px; border-radius: 3px; background: var(--ns-text, #aaa); opacity: 0.3; }
     .ns-preview-block.short { width: 45%; }
     .auto-flag { font-size: 11px; color: var(--warning); margin: 4px 0; }
+    .diff {
+      margin-top: 12px;
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      background: var(--bg);
+    }
+    .diff-line { padding: 0 10px; white-space: pre-wrap; word-break: break-all; color: var(--text-2); }
+    .diff-add { background: var(--success-soft); color: var(--success); }
+    .diff-del { background: var(--danger-soft); color: var(--danger); }
+    .diff-skip { color: var(--text-3); font-style: italic; padding: 4px 10px; border-block: 1px solid var(--border); }
   </style>
 </head>
 <body>
@@ -215,6 +230,10 @@
           <section>
             <h2>Plugins</h2>
             <div id="plugins-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
+          </section>
+          <section id="versions-section" style="display:none">
+            <h2>New versions</h2>
+            <div id="versions-list"></div>
           </section>
           <section id="rejected-section" style="display:none">
             <h2>Rejected</h2>
@@ -379,6 +398,83 @@
       `;
     }
 
+    // version ids on this page, so a decision on one goes to the version, not the item
+    const versionTypes = {};
+
+    // a simple line diff: trims what's the same at both ends, then a longest-common-subsequence on the
+    // middle. Very large changes skip the LCS and show the old lines removed and the new ones added
+    function lineDiff(oldText, newText) {
+      const a = String(oldText ?? '').split('\n');
+      const b = String(newText ?? '').split('\n');
+      let start = 0;
+      while (start < a.length && start < b.length && a[start] === b[start]) start++;
+      let endA = a.length, endB = b.length;
+      while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+      const out = a.slice(0, start).map(text => ({ op: ' ', text }));
+      const midA = a.slice(start, endA), midB = b.slice(start, endB);
+      if (midA.length * midB.length > 4_000_000) {
+        midA.forEach(text => out.push({ op: '-', text }));
+        midB.forEach(text => out.push({ op: '+', text }));
+      } else {
+        const n = midA.length, m = midB.length;
+        const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+        for (let i = n - 1; i >= 0; i--) {
+          for (let j = m - 1; j >= 0; j--) {
+            lcs[i][j] = midA[i] === midB[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+          }
+        }
+        let i = 0, j = 0;
+        while (i < n && j < m) {
+          if (midA[i] === midB[j]) { out.push({ op: ' ', text: midA[i] }); i++; j++; }
+          else if (lcs[i + 1][j] >= lcs[i][j + 1]) out.push({ op: '-', text: midA[i++] });
+          else out.push({ op: '+', text: midB[j++] });
+        }
+        while (i < n) out.push({ op: '-', text: midA[i++] });
+        while (j < m) out.push({ op: '+', text: midB[j++] });
+      }
+      a.slice(endA).forEach(text => out.push({ op: ' ', text }));
+      return out;
+    }
+
+    // changed lines with 3 lines of context, long unchanged stretches folded
+    function diffHtml(oldText, newText) {
+      const lines = lineDiff(oldText, newText);
+      const keep = lines.map(() => false);
+      lines.forEach((l, i) => {
+        if (l.op === ' ') return;
+        for (let k = Math.max(0, i - 3); k <= Math.min(lines.length - 1, i + 3); k++) keep[k] = true;
+      });
+      if (!keep.some(Boolean)) return '<div class="diff-line">No changes to the code</div>';
+      let html = '', skipped = 0;
+      lines.forEach((l, i) => {
+        if (!keep[i]) { skipped++; return; }
+        if (skipped) { html += `<div class="diff-line diff-skip">${skipped} unchanged line${skipped === 1 ? '' : 's'}</div>`; skipped = 0; }
+        const cls = l.op === '+' ? 'diff-add' : l.op === '-' ? 'diff-del' : '';
+        html += `<div class="diff-line ${cls}">${l.op} ${esc(l.text)}</div>`;
+      });
+      if (skipped) html += `<div class="diff-line diff-skip">${skipped} unchanged line${skipped === 1 ? '' : 's'}</div>`;
+      return html;
+    }
+
+    function versionCard(v) {
+      versionTypes[v.id] = v.item_type;
+      return `
+        <div class="card" id="submission-${esc(v.id)}">
+          <div class="card-header">
+            <div>
+              <div class="card-name">${esc(v.name || 'Unknown item')}, version ${esc(v.version)} (${esc(v.item_type)})</div>
+              <div class="card-meta">by ${esc(v.author_github)}: ${esc(v.changelog)}</div>
+            </div>
+            <div class="card-actions" id="actions-${esc(v.id)}">
+              <button class="btn-approve" data-id="${esc(v.id)}" data-type="${esc(v.item_type)}">Approve</button>
+              <button class="btn-reject"  data-id="${esc(v.id)}" data-type="${esc(v.item_type)}">Reject</button>
+            </div>
+          </div>
+          <div class="diff">${diffHtml(v.previous_code, v.code)}</div>
+        </div>
+      `;
+    }
+
     async function loadQueue() {
       dbg('loadQueue() entered, stack: ' + (new Error().stack ?? '').split('\n').slice(1, 5).join(' | '));
       if (queueLoaded) {
@@ -392,7 +488,7 @@
       const themesEl  = document.getElementById('themes-list');
       const pluginsEl = document.getElementById('plugins-list');
 
-      let themes = [], plugins = [], rejectedThemes = [], rejectedPlugins = [];
+      let themes = [], plugins = [], rejectedThemes = [], rejectedPlugins = [], versions = [];
       try {
         const session = await db.auth.getSession();
         const token = session.data.session?.access_token;
@@ -411,7 +507,7 @@
           queueEl.style.display = 'block';
           return;
         }
-        ({ themes, plugins, rejectedThemes, rejectedPlugins } = await res.json());
+        ({ themes, plugins, rejectedThemes, rejectedPlugins, versions = [] } = await res.json());
       } catch {
         themesEl.innerHTML = '<span class="empty">Couldn\'t reach the server.</span>';
         pluginsEl.innerHTML = '';
@@ -448,6 +544,13 @@
         pluginsEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
       }
 
+      const versionsSection = document.getElementById('versions-section');
+      const versionsEl = document.getElementById('versions-list');
+      versionsSection.style.display = versions.length ? 'block' : 'none';
+      versionsEl.innerHTML = versions.map(versionCard).join('');
+      versionsEl.querySelectorAll('.btn-approve').forEach(btn => btn.addEventListener('click', () => approve(btn.dataset.id, btn.dataset.type)));
+      versionsEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
+
       const rejectedSection = document.getElementById('rejected-section');
       const rejectedThemesEl = document.getElementById('rejected-themes-list');
       const rejectedPluginsEl = document.getElementById('rejected-plugins-list');
@@ -469,7 +572,7 @@
         const res = await fetch('/api/review/decide', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ type, id, status, reason }),
+          body: JSON.stringify(versionTypes[id] ? { type, version_id: id, status, reason } : { type, id, status, reason }),
         });
         const data = await res.json();
         return { ok: res.ok, data };

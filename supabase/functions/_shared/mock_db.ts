@@ -5,7 +5,7 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.108.
 
 export interface Call {
   table: string;
-  op: 'select' | 'insert' | 'update' | 'upsert' | 'delete';
+  op: 'select' | 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
   values?: unknown;
   filters: [string, string, unknown][];
 }
@@ -15,6 +15,9 @@ export interface FakeResult {
   count?: number | null;
   error?: { code?: string; message?: string } | null;
 }
+
+// a result can also be worked out from the query, for tables that are read more than one way
+export type ResultSpec = FakeResult | ((call: Call) => FakeResult);
 
 export interface FakeUser {
   id: string;
@@ -26,14 +29,15 @@ export interface MockDb {
   calls: Call[];
 }
 
-export function mockDb(opts: { user?: FakeUser | null; results?: Record<string, FakeResult> } = {}): MockDb {
+export function mockDb(opts: { user?: FakeUser | null; results?: Record<string, ResultSpec> } = {}): MockDb {
   const calls: Call[] = [];
   const results = opts.results ?? {};
 
   function from(table: string) {
     const call: Call = { table, op: 'select', filters: [] };
     const answer = (): FakeResult => {
-      const r = results[`${table}.${call.op}`] ?? results[table] ?? {};
+      const spec = results[`${table}.${call.op}`] ?? results[table] ?? {};
+      const r = typeof spec === 'function' ? spec(call) : spec;
       // count defaults to 0 so code that checks rate limits sees an unused limit
       return { data: r.data ?? null, error: r.error ?? null, count: r.count === undefined ? 0 : r.count };
     };
@@ -68,9 +72,18 @@ export function mockDb(opts: { user?: FakeUser | null; results?: Record<string, 
     return builder;
   }
 
+  function rpc(name: string, args: unknown) {
+    const call: Call = { table: name, op: 'rpc', values: args, filters: [] };
+    calls.push(call);
+    const spec = results[`rpc.${name}`] ?? {};
+    const r = typeof spec === 'function' ? spec(call) : spec;
+    return Promise.resolve({ data: r.data ?? null, error: r.error ?? null });
+  }
+
   const user = opts.user;
   const client = {
     from,
+    rpc,
     auth: {
       getUser: (token: string) => {
         if (!user || token === 'bad') return Promise.resolve({ data: { user: null }, error: { message: 'invalid' } });
