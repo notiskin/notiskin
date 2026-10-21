@@ -25,6 +25,8 @@ Deno.test('a reviewer gets all four lists', async () => {
   const res = await handle(post({}), db.client);
   assertEquals(res.status, 200);
   assertEquals(await res.json(), {
+    reports: [],
+    actions: [],
     versions: [],
     themes: [{ id: 1 }],
     plugins: [{ id: 2 }],
@@ -51,4 +53,19 @@ Deno.test('pending versions come with the item name and the live code to diff ag
   });
   const body = await (await handle(post({}), db.client)).json();
   assertEquals(body.versions, [{ id: 'v2', item_type: 'plugin', item_id: 'p1', version: 2, code: 'new()', name: 'clock', previous_code: 'old()' }]);
+});
+
+Deno.test('open reports come with the item name and status, plus the latest log entries', async () => {
+  const db = mockDb({
+    user: me,
+    results: {
+      ...reviewer,
+      reports: { data: [{ id: 'r1', item_type: 'theme', item_id: 't1', reason: 'harmful', note: '' }] },
+      review_actions: { data: [{ id: 1, actor_github: 'automatic', action: 'auto_hide' }] },
+      themes: (call) => call.filters.some(f => f[0] === 'in') ? { data: [{ id: 't1', name: 'dark', css: '', status: 'hidden' }] } : { data: [] },
+    },
+  });
+  const body = await (await handle(post({}), db.client)).json();
+  assertEquals(body.reports, [{ id: 'r1', item_type: 'theme', item_id: 't1', reason: 'harmful', note: '', name: 'dark', item_status: 'hidden' }]);
+  assertEquals(body.actions, [{ id: 1, actor_github: 'automatic', action: 'auto_hide' }]);
 });
