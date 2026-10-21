@@ -181,6 +181,15 @@ h1, h2, .display {
 }
 .ns-update-btn:hover { background: var(--ink-hover); }
 .ns-update-btn:disabled { opacity: 0.6; cursor: default; }
+/* an installed item that was hidden, rejected or removed from the marketplace */
+.ns-pulled {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 6px;
+  background: var(--warning-soft);
+}
+.ns-pulled-text { font-size: 12px; line-height: 1.5; color: var(--warning); }
 .ns-version-heading { margin-top: 32px; }
 .ns-version-intro, .ns-version-empty { font-size: 13px; color: var(--text-2); margin-bottom: 14px; line-height: 1.6; }
 .ns-version-form select { width: 100%; }

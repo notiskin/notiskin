@@ -907,7 +907,7 @@
         `;
       }).join('');
 
-      nsVersions.decorateInstalled('plugin', () => loadPlugins());
+      nsVersions.decorateInstalled('plugin', () => loadPlugins(), { turnOff: name => togglePlugin(name, false) });
 
       const session = (await db.auth.getSession()).data.session;
       const itemIds = Object.values(nameToId);

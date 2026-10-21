@@ -46,9 +46,12 @@ import { installWatcher, uninstallWatcher } from '../patcher/agent';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
 import {
+  findPulled,
   findUpdates,
+  inBatches,
   installedIds,
   installFromMarketplace,
+  ItemStatus,
   LatestInfo,
   MarketplaceItem,
   MarketplaceSort,
@@ -738,36 +741,90 @@ app.post('/api/marketplace/install', async (req, res) => {
   }
 });
 
-// installed marketplace items with a newer approved version, with what changed
+// what the marketplace says about installed items, swappable so tests don't need Supabase
+export const marketplaceRemote = {
+  // id, status and live version for up to 200 ids, approved, hidden and rejected items only.
+  // null means item_statuses() isn't on the server yet (the migration isn't applied)
+  statuses: async (type: ItemType, ids: string[]): Promise<{ id: string; status: ItemStatus; version: number }[] | null> => {
+    const { data, error } = await publicSupabase().rpc('item_statuses', { p_item_type: type, p_ids: ids });
+    if (error?.code === 'PGRST202') return null;
+    if (error) throw new Error(error.message);
+    return (data ?? []) as { id: string; status: ItemStatus; version: number }[];
+  },
+  // the old way, approved items only, for a server without item_statuses()
+  approved: async (type: ItemType, ids: string[]): Promise<{ id: string; version: number }[]> => {
+    const table = type === 'theme' ? 'themes' : 'plugins';
+    const { data, error } = await publicSupabase().from(table).select('id, version').in('id', ids).eq('status', 'approved');
+    if (error) throw new Error(error.message);
+    return (data ?? []) as { id: string; version: number }[];
+  },
+  changes: async (type: ItemType, ids: string[]): Promise<{ item_id: string; version: number; changelog: string }[]> => {
+    const { data, error } = await publicSupabase()
+      .from('item_versions')
+      .select('item_id, version, changelog')
+      .eq('item_type', type)
+      .in('item_id', ids)
+      .eq('status', 'approved')
+      .order('version', { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as { item_id: string; version: number; changelog: string }[];
+  },
+};
+
+interface RemoteInfo {
+  latest: Map<string, LatestInfo>;
+  // null when the server can't say (no item_statuses() yet), then nothing is called pulled
+  statuses: Map<string, ItemStatus> | null;
+}
+
+// the pages ask every time they list installed items, so answers are kept for a while. The key is the
+// set of ids, so installing something new asks again; updating or deleting needs nothing new
+const REMOTE_CACHE_MS = 30 * 60 * 1000;
+const remoteCache = new Map<string, { at: number; info: RemoteInfo }>();
+
+export function clearMarketplaceCache(): void {
+  remoteCache.clear();
+}
+
+async function remoteInfo(type: ItemType, ids: string[]): Promise<RemoteInfo> {
+  const key = `${type}:${[...ids].sort().join(',')}`;
+  const cached = remoteCache.get(key);
+  if (cached && Date.now() - cached.at < REMOTE_CACHE_MS) return cached.info;
+
+  const latest = new Map<string, LatestInfo>();
+  let statuses: Map<string, ItemStatus> | null = new Map();
+  for (const batch of inBatches(ids)) {
+    const [rows, changes] = await Promise.all([marketplaceRemote.statuses(type, batch), marketplaceRemote.changes(type, batch)]);
+    let live: { id: string; version: number }[];
+    if (rows && statuses) {
+      for (const row of rows) statuses.set(String(row.id), row.status);
+      live = rows.filter(row => row.status === 'approved');
+    } else {
+      statuses = null;
+      live = await marketplaceRemote.approved(type, batch);
+    }
+    for (const row of live) latest.set(String(row.id), { version: Number(row.version) || 1, changes: [] });
+    for (const v of changes) latest.get(String(v.item_id))?.changes.push({ version: v.version, changelog: v.changelog ?? '' });
+  }
+  const info = { latest, statuses };
+  remoteCache.set(key, { at: Date.now(), info });
+  return info;
+}
+
+// installed marketplace items with a newer approved version, with what changed, and installed items that
+// were hidden after reports, rejected by a reviewer or removed, so the GUI can warn about them
 app.get('/api/marketplace/updates', async (_req, res) => {
   const updates = [];
+  const pulled = [];
   try {
     for (const type of ['theme', 'plugin'] as const) {
       const ids = installedIds(type);
       if (ids.length === 0) continue;
-      const table = type === 'theme' ? 'themes' : 'plugins';
-      const [items, versions] = await Promise.all([
-        publicSupabase().from(table).select('id, version').in('id', ids).eq('status', 'approved'),
-        publicSupabase()
-          .from('item_versions')
-          .select('item_id, version, changelog')
-          .eq('item_type', type)
-          .in('item_id', ids)
-          .eq('status', 'approved')
-          .order('version', { ascending: false }),
-      ]);
-      if (items.error) throw new Error(items.error.message);
-      if (versions.error) throw new Error(versions.error.message);
-      const latest = new Map<string, LatestInfo>();
-      for (const row of (items.data ?? []) as { id: string; version: number }[]) {
-        latest.set(String(row.id), { version: Number(row.version) || 1, changes: [] });
-      }
-      for (const v of (versions.data ?? []) as { item_id: string; version: number; changelog: string }[]) {
-        latest.get(String(v.item_id))?.changes.push({ version: v.version, changelog: v.changelog ?? '' });
-      }
-      updates.push(...findUpdates(type, latest));
+      const info = await remoteInfo(type, ids);
+      updates.push(...findUpdates(type, info.latest));
+      if (info.statuses) pulled.push(...findPulled(type, info.statuses));
     }
-    res.json({ updates });
+    res.json({ updates, pulled });
   } catch (err) {
     res.status(502).json({ error: errorMessage(err) });
   }
