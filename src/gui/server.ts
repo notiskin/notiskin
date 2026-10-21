@@ -172,6 +172,50 @@ function openExternal(url: string): Promise<void> {
   });
 }
 
+// ---- signing in through the default browser ----
+// GitHub sign-in can't happen inside the app window: Google sign-in refuses embedded windows and passkeys
+// need a real browser. So Settings opens Supabase's GitHub sign-in in the default browser (PKCE flow),
+// Supabase sends the browser back to /auth/callback with a one-time code, and the app picks the code up
+// here and exchanges it. The code is useless without the PKCE verifier the app kept in its own storage
+
+// swappable so tests never open a real browser
+export const authBrowser = {
+  open: (url: string): Promise<void> => openExternal(url),
+};
+
+const AUTH_WAIT_MS = 10 * 60 * 1000;
+let pendingAuth: { startedAt: number; code: string | null; error: string | null } | null = null;
+
+export function isSupabaseSignInUrl(raw: unknown): boolean {
+  try {
+    const url = new URL(String(raw));
+    return (
+      url.protocol === 'https:' &&
+      url.host === new URL(SUPABASE_URL).host &&
+      url.pathname === '/auth/v1/authorize' &&
+      url.searchParams.get('provider') === 'github' &&
+      url.searchParams.get('code_challenge_method')?.toLowerCase() === 's256' &&
+      !!url.searchParams.get('code_challenge')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function authWaiting(): boolean {
+  return !!pendingAuth && Date.now() - pendingAuth.startedAt < AUTH_WAIT_MS;
+}
+
+const CODE_PATTERN = /^[A-Za-z0-9._-]{8,200}$/;
+
+function callbackPage(title: string, text: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiskin</title><link rel="stylesheet" href="/brand.css">
+<style>body{background:var(--bg);color:var(--text);font-family:var(--font-body);display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:16px}
+main{max-width:420px;text-align:center}h1{font-family:var(--font-display);font-weight:500;font-size:26px;margin:0 0 10px}p{color:var(--text-2);line-height:1.6;margin:0}</style>
+</head><body><main><h1>${title}</h1><p>${text}</p></main></body></html>`;
+}
+
 function loadUpdater(): typeof import('../updater/index') | null {
   // the updater needs Electron, the standalone `npm run gui` server runs without it
   if (!process.versions.electron) return null;
@@ -401,6 +445,22 @@ app.get('/', sendPage('themes.html'));
 app.get('/plugins.html', sendPage('plugins.html'));
 app.get('/review.html', sendPage('review.html'));
 app.get('/settings.html', sendPage('settings.html'));
+
+// where the default browser lands after GitHub sign-in. Not under /api: it's a page the browser opens
+app.get('/auth/callback', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!authWaiting()) {
+    return res.status(400).type('html').send(callbackPage('Nothing to finish', 'No sign-in was waiting. Start again from Settings in Notiskin.'));
+  }
+  const code = req.query.code;
+  const error = req.query.error_description ?? req.query.error;
+  if (typeof code === 'string' && CODE_PATTERN.test(code)) {
+    pendingAuth = { ...pendingAuth!, code };
+    return res.type('html').send(callbackPage("You're signed in", 'You can close this tab and go back to Notiskin.'));
+  }
+  pendingAuth = { ...pendingAuth!, error: typeof error === 'string' ? error.slice(0, 200) : 'Sign in was cancelled.' };
+  res.status(400).type('html').send(callbackPage("Sign in didn't finish", 'Go back to Notiskin and try again.'));
+});
 
 // files the pages share: the look (brand.css and its fonts) and the welcome tour. A fixed list,
 // nothing else in the folder is reachable, and read the same way as the pages so it works from app.asar
@@ -904,6 +964,46 @@ app.get('/api/version', (_req, res) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { version } = require('../../package.json') as { version: string };
   res.json({ version });
+});
+
+// Settings asks for Supabase's GitHub sign-in page to open in the default browser
+app.post('/api/auth/start', async (req, res) => {
+  const url = (req.body as { url?: unknown })?.url;
+  if (!isSupabaseSignInUrl(url)) return res.status(400).json({ error: 'That sign-in link is not allowed' });
+  pendingAuth = { startedAt: Date.now(), code: null, error: null };
+  try {
+    await authBrowser.open(String(url));
+    res.json({ ok: true });
+  } catch (err) {
+    pendingAuth = null;
+    res.status(500).json({ error: `Couldn't open the browser: ${errorMessage(err)}` });
+  }
+});
+
+// Settings polls this while the browser sign-in is open. The code is handed out once
+app.get('/api/auth/result', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!pendingAuth) return res.json({ state: 'idle' });
+  if (!authWaiting()) {
+    pendingAuth = null;
+    return res.json({ state: 'expired' });
+  }
+  if (pendingAuth.code) {
+    const { code } = pendingAuth;
+    pendingAuth = null;
+    return res.json({ state: 'done', code });
+  }
+  if (pendingAuth.error) {
+    const { error } = pendingAuth;
+    pendingAuth = null;
+    return res.json({ state: 'failed', error });
+  }
+  res.json({ state: 'waiting' });
+});
+
+app.post('/api/auth/cancel', (_req, res) => {
+  pendingAuth = null;
+  res.json({ ok: true });
 });
 
 app.post('/api/open-external', async (req, res) => {
