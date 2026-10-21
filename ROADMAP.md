@@ -33,10 +33,10 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 
 ## Phase 3: Marketplace v2 (weeks 6–10, about 25–30 hours)
 
-- [x] Item versions: authors publish updates, installed items show "update available", plugin updates are re-reviewed with a diff (code done; migration and functions not yet deployed)
-- [x] Tags, an optional GitHub link (instead of screenshots, which would use paid storage), sort by rating or downloads, download counts (code done; migration and functions not yet deployed)
+- [x] Item versions: authors publish updates, installed items show "update available", plugin updates are re-reviewed with a diff
+- [x] Tags, an optional GitHub link (instead of screenshots, which would use paid storage), sort by rating or downloads, download counts
 - Report button and a reviewer action log
-- [x] Rate limits enforced server-side (code done; migration and functions not yet deployed)
+- [x] Rate limits enforced server-side
 - [x] Tests for the edge functions (Deno, mocked database, runs in CI)
 
 ## Phase 4: Creator tools (weeks 10–14, about 25 hours)
