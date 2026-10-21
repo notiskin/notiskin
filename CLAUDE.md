@@ -44,7 +44,7 @@ src/
     run.ts                — Dev entry point; calls startServer(true) for standalone mode
     themes.html / plugins.html / review.html / settings.html — GUI pages (Settings has the Notion section: Install / Repair / Uninstall)
     tour.js               — Welcome tour shared by Themes, Plugins and Settings (served at /tour.js, packaged via build.files)
-    versions.js           — Item versions on Themes and Plugins: Update button, Publish a new version, pending versions (served at /versions.js)
+    marketplace.js        — Shared marketplace UI for Themes and Plugins (served at /marketplace.js): nsVersions (Update button, Publish a new version, Tags and link, pending versions) and nsBrowse (sort, tag chips, tags / downloads / More info on cards)
     brand.css, fonts/     — The "paper and ink" look: color tokens (light + dark, follows macOS), Fraunces + Inter bundled (SIL OFL). Served from a fixed list in server.ts
   injector/index.ts       — What gets injected (core CSS, theme, window.notiskin, plugins), plugins run once per page load
   injector/daemon.ts      — Long-running injector: the only CDP client, themes every Notion tab, re-applies on reload and on file changes, exits when Notion quits
@@ -63,10 +63,10 @@ src/
     sleep.ts
 
 supabase/
-  functions/_shared/      — Auth verification (http.ts), theme CSS allowlist (css.ts), rate limit numbers + check (limits.ts)
+  functions/_shared/      — Auth verification (http.ts), theme CSS allowlist (css.ts), rate limit numbers + check (limits.ts), tags + GitHub link checks (details.ts)
   functions/*/handler.ts  — Edge function logic, exported as handle(req, db) so tests can call it. index.ts next to it is only Deno.serve
   functions/*/handler_test.ts, _shared/*_test.ts, _shared/mock_db.ts — Deno tests with a fake database (`npm run test:functions`, needs Deno; CI job `functions`)
-  migrations/             — SQL migrations (RLS policies, rate_limit_events, item_versions + approve_item_version())
+  migrations/             — SQL migrations (RLS policies, rate_limit_events, item_versions + approve_item_version(), tags/link/download_count + downloads + record_download())
 
 scripts/check-bundle.js   — electron-builder afterPack hook, fails the build if .env etc. get packaged
 test/                     — node:test suites (npm test builds first)
@@ -93,6 +93,8 @@ test/                     — node:test suites (npm test builds first)
 **Rate limits:** `checkRateLimit()` in `functions/_shared/limits.ts` counts a user's rows in `rate_limit_events` (service role only, RLS on, no client access) and answers 429 with Retry-After. Publishing (themes and plugins together) 5 per hour, rating 30 per hour, numbers in `LIMITS`. It runs after input validation so bad requests don't use the limit, and it refuses if the database errors. The app's own `submitLimiter` stays as a first line.
 
 **Item versions:** `themes` / `plugins` keep the live approved code plus a `version` number. Later versions are rows in `item_versions` (pending / approved / rejected, with a changelog), written only by edge functions. `submit-version` lets the author (verified GitHub identity) publish one pending version at a time; themes that pass the allowlist are approved at once, plugins wait for a reviewer. `approve_item_version()` (SQL, service role only) swaps the live code and archives the old version in one transaction; `review-decide` with `version_id` calls it, `review-pending` returns `versions` with the live code so review.html shows a line diff. The app records each marketplace install in `installed.json`; `GET /api/marketplace/updates` compares it with Supabase, `POST /api/marketplace/update` writes the live version (plugins need `confirmed: true`, the GUI shows the plugin warning and changelog first). Installing over a same-named file the user made returns 409 instead of skipping; a pre-manifest install is adopted only when its contents match exactly. Deleting an item forgets it. `/api/submissions` now filters by the token's GitHub identity (RLS also returns everyone's approved items).
+
+**Tags, links, downloads:** `themes` / `plugins` have `tags` (up to 3 from a fixed list, checked by the database; the list lives in the migration, `_shared/details.ts`, `MARKETPLACE_TAGS` in core/marketplace.ts and marketplace.js, keep them the same), `link` (optional, https github.com or gist only, opened with `/api/open-external`, never loaded in the app; there are no screenshots because Storage is the one free-tier limit that costs money to raise) and `download_count`. Authors set tags and link when submitting or later with `update-details` (no review, its own rate limit). A signed-in install from Browse sends the token, the server calls `count-download` without waiting, and `record_download()` counts once per user per item per day using the `downloads` table. Signed-out installs aren't counted. Browse search takes `sort` (newest / rating / downloads) and `tag`.
 
 **Marketplace (Supabase):** Tables `themes`, `plugins`, `reviewers`, `ratings`. Edge functions in `supabase/functions/` handle submit, review, and rating with the service role after verifying the user. Installing from the Browse tab writes to `~/.notiskin/themes/` or `~/.notiskin/plugins/` — it does **not** auto-activate. The live schema was never fully committed; `supabase/legacy/reconstructed-schema.sql` is the best record, see the notes in it.
 

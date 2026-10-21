@@ -85,3 +85,19 @@ Deno.test('bad input does not use up the limit', async () => {
   await handle(post({ ...valid, name: '!!' }), db.client);
   assertEquals(db.calls.some(c => c.table === 'rate_limit_events'), false);
 });
+
+Deno.test('tags and a GitHub link are saved with the theme', async () => {
+  const db = mockDb({ user: me });
+  await handle(post({ ...valid, tags: ['dark', 'minimal'], link: 'https://github.com/octocat/t' }), db.client);
+  const row = db.calls.find(c => c.op === 'insert' && c.table === 'themes')!.values as Record<string, unknown>;
+  assertEquals([row.tags, row.link], [['dark', 'minimal'], 'https://github.com/octocat/t']);
+});
+
+Deno.test('no tags or link is fine, bad ones are a 400', async () => {
+  const db = mockDb({ user: me });
+  await handle(post(valid), db.client);
+  const row = db.calls.find(c => c.op === 'insert' && c.table === 'themes')!.values as Record<string, unknown>;
+  assertEquals([row.tags, row.link], [[], null]);
+  assertEquals((await handle(post({ ...valid, tags: ['evil'] }), mockDb({ user: me }).client)).status, 400);
+  assertEquals((await handle(post({ ...valid, link: 'https://evil.example' }), mockDb({ user: me }).client)).status, 400);
+});

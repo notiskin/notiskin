@@ -54,3 +54,11 @@ Deno.test('themes and plugins share one publishing limit', async () => {
   await handle(post(valid), db.client);
   assertEquals(db.calls.find(c => c.op === 'insert' && c.table === 'rate_limit_events')?.values, { user_id: 'u1', action: 'submit' });
 });
+
+Deno.test('plugins take tags and a GitHub link too', async () => {
+  const db = mockDb({ user: me });
+  await handle(post({ ...valid, tags: ['productivity'], link: 'https://gist.github.com/octocat/abc' }), db.client);
+  const row = db.calls.find(c => c.op === 'insert' && c.table === 'plugins')!.values as Record<string, unknown>;
+  assertEquals([row.tags, row.link], [['productivity'], 'https://gist.github.com/octocat/abc']);
+  assertEquals((await handle(post({ ...valid, link: 'http://github.com/x' }), mockDb({ user: me }).client)).status, 400);
+});

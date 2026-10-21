@@ -4,6 +4,19 @@ import { readFileSync } from 'fs';
 import { ItemType, isValidItemName, itemExists, itemPath, toFileStem, writeItem } from './library';
 import { InstalledManifest, installedEntry, readInstalled, recordInstall } from './installed';
 
+// must match TAGS in supabase/functions/_shared/details.ts and the tags migration
+export const MARKETPLACE_TAGS = ['dark', 'light', 'minimal', 'colorful', 'productivity', 'fun', 'accessibility', 'fonts'] as const;
+
+export type MarketplaceSort = 'newest' | 'rating' | 'downloads';
+
+export function parseSort(raw: unknown): MarketplaceSort {
+  return raw === 'rating' || raw === 'downloads' ? raw : 'newest';
+}
+
+export function parseTag(raw: unknown): string | null {
+  return typeof raw === 'string' && (MARKETPLACE_TAGS as readonly string[]).includes(raw) ? raw : null;
+}
+
 export interface MarketplaceItem {
   id: string;
   name: string;

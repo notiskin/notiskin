@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.108.2';
 import { adminClient, cleanDescription, cleanItemName, json, normalizeName, preflight, readJson, verifyUser } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/limits.ts';
+import { cleanLink, cleanTags } from '../_shared/details.ts';
 import { validateThemeCss } from '../_shared/css.ts';
 
 export async function handle(req: Request, db: SupabaseClient = adminClient()): Promise<Response> {
@@ -21,6 +22,10 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
   if (typeof body.css !== 'string' || !body.css.trim()) return json(req, { error: 'Theme CSS is empty.' }, 400);
   if (body.css.length > 20_000) return json(req, { error: 'Theme CSS is too long.' }, 400);
   const css = body.css;
+  const tags = cleanTags(body.tags);
+  if (tags === null) return json(req, { error: 'Pick up to 3 tags from the list.' }, 400);
+  const link = cleanLink(body.link);
+  if (link === false) return json(req, { error: 'The link must be a github.com repo or gist.' }, 400);
 
   const limited = await checkRateLimit(req, db, user, 'submit');
   if (limited) return limited;
@@ -33,6 +38,8 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
     description,
     css,
     author_github: user.githubUsername,
+    tags,
+    link,
     status: problem ? 'pending' : 'approved',
     rejection_reason: problem ? `Auto-check failed: ${problem}` : null,
   });

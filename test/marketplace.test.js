@@ -129,3 +129,11 @@ test('installedIds lists each marketplace item once per type', () => {
   assert.deepEqual(mp.installedIds('theme'), ['id-1']);
   assert.deepEqual(mp.installedIds('plugin'), ['p-1']);
 });
+
+test('sort and tag from the query string fall back safely', () => {
+  assert.equal(mp.parseSort('rating'), 'rating');
+  assert.equal(mp.parseSort('downloads'), 'downloads');
+  for (const other of [undefined, '', 'newest', 'created_at.desc', ['rating']]) assert.equal(mp.parseSort(other), 'newest');
+  assert.equal(mp.parseTag('dark'), 'dark');
+  for (const bad of [undefined, '', 'Dark', 'evil', 'dark,light', ['dark']]) assert.equal(mp.parseTag(bad), null);
+});
