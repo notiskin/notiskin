@@ -35,7 +35,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 
 - [x] Item versions: authors publish updates, installed items show "update available", plugin updates are re-reviewed with a diff
 - [x] Tags, an optional GitHub link (instead of screenshots, which would use paid storage), sort by rating or downloads, download counts
-- Report button and a reviewer action log
+- [x] Report button and a reviewer action log (code done; migration and functions not yet deployed)
 - [x] Rate limits enforced server-side
 - [x] Tests for the edge functions (Deno, mocked database, runs in CI)
 

@@ -76,6 +76,9 @@
     if (typeof item.link === 'string' && /^https:\/\/(gist\.)?github\.com\//.test(item.link)) {
       parts.push(`<button type="button" class="ns-more-info" data-link="${esc(item.link)}">More info</button>`);
     }
+    if (item.id && (item.type === 'theme' || item.type === 'plugin')) {
+      parts.push(`<button type="button" class="ns-report" data-id="${esc(item.id)}" data-type="${esc(item.type)}" data-name="${esc(item.name)}">Report</button>`);
+    }
     return `<div class="ns-browse-meta">${parts.join('')}</div>`;
   }
 
@@ -89,6 +92,82 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: btn.dataset.link }),
     }).catch(() => {});
+  });
+
+  // ---- reporting ----
+
+  const REPORT_REASONS = [
+    ['harmful', 'Harmful or steals data'],
+    ['broken', "Doesn't work"],
+    ['offensive', 'Offensive'],
+    ['copyright', 'Copied without permission'],
+    ['spam', 'Spam'],
+    ['other', 'Something else'],
+  ];
+
+  async function openReportDialog(type, id, name) {
+    const token = typeof window.sessionToken === 'function' ? await window.sessionToken() : null;
+    const overlay = document.createElement('div');
+    overlay.className = 'ns-version-dialog';
+    overlay.innerHTML = token ? `
+      <form class="ns-version-dialog-box ns-report-box" role="dialog" aria-modal="true" aria-labelledby="ns-report-title">
+        <h3 id="ns-report-title">Report ${esc(name)}</h3>
+        <p>A reviewer reads every report. The author doesn't see who reported.</p>
+        <div class="ns-report-reasons">
+          ${REPORT_REASONS.map(([value, label], i) => `
+            <label><input type="radio" name="ns-report-reason" value="${value}" ${i === 0 ? 'required' : ''}> ${label}</label>`).join('')}
+        </div>
+        <textarea maxlength="500" placeholder="What happened? (optional)"></textarea>
+        <div class="ns-report-error"></div>
+        <div class="ns-dialog-actions">
+          <button type="button" class="btn-ghost" data-act="cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Send report</button>
+        </div>
+      </form>` : `
+      <div class="ns-version-dialog-box" role="dialog" aria-modal="true">
+        <h3>Sign in to report</h3>
+        <p>Reports need a GitHub sign-in, so one person can't send hundreds. Sign in from Settings, then come back.</p>
+        <div class="ns-dialog-actions">
+          <button type="button" class="btn-ghost" data-act="cancel">Close</button>
+        </div>
+      </div>`;
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay || e.target.closest('[data-act="cancel"]')) close();
+    });
+    document.body.appendChild(overlay);
+    const form = overlay.querySelector('form');
+    if (!form) return;
+    form.querySelector('input').focus();
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const error = form.querySelector('.ns-report-error');
+      const reason = form.querySelector('input[name="ns-report-reason"]:checked')?.value;
+      if (!reason) { error.textContent = 'Pick a reason.'; return; }
+      const button = form.querySelector('button[type=submit]');
+      button.disabled = true;
+      try {
+        const result = await authed('/api/report', await window.sessionToken(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, id, reason, note: form.querySelector('textarea').value.trim() }),
+        });
+        close();
+        notify(result.hidden
+          ? `Thanks. ${name} is hidden until a reviewer looks at it.`
+          : 'Thanks, a reviewer will look at it.');
+      } catch (err) {
+        error.textContent = err.message;
+        button.disabled = false;
+      }
+    });
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest?.('.ns-report');
+    if (!btn) return;
+    e.preventDefault();
+    openReportDialog(btn.dataset.type, btn.dataset.id, btn.dataset.name);
   });
 
   // signed-in installs count as downloads, signed-out installs just install

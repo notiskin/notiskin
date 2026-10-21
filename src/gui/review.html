@@ -157,6 +157,16 @@
     .diff-line { padding: 0 10px; white-space: pre-wrap; word-break: break-all; color: var(--text-2); }
     .diff-add { background: var(--success-soft); color: var(--success); }
     .diff-del { background: var(--danger-soft); color: var(--danger); }
+    .report-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 13px; }
+    .report-row .card-meta { margin-left: 6px; }
+    .report-note { margin-top: 4px; color: var(--text-2); white-space: pre-wrap; }
+    .status-pill { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+    .status-pill.hidden { color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-border); }
+    .status-pill.live { color: var(--success); background: var(--success-soft); border: 1px solid var(--success-border); }
+    .log-table { display: flex; flex-direction: column; font-size: 12px; }
+    .log-row { display: grid; grid-template-columns: 150px 110px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); color: var(--text-2); }
+    .log-who { color: var(--text); font-weight: 600; }
+    @media (max-width: 600px) { .log-row { grid-template-columns: 1fr; gap: 2px; } }
     .diff-skip { color: var(--text-3); font-style: italic; padding: 4px 10px; border-block: 1px solid var(--border); }
   </style>
 </head>
@@ -231,6 +241,10 @@
             <h2>Plugins</h2>
             <div id="plugins-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
           </section>
+          <section id="reports-section" style="display:none">
+            <h2>Reports</h2>
+            <div id="reports-list"></div>
+          </section>
           <section id="versions-section" style="display:none">
             <h2>New versions</h2>
             <div id="versions-list"></div>
@@ -239,6 +253,11 @@
             <h2>Rejected</h2>
             <div id="rejected-themes-list"></div>
             <div id="rejected-plugins-list"></div>
+          </section>
+          <section id="log-section" style="display:none">
+            <h2>Action log</h2>
+            <p class="card-meta">Every review decision, hide, unhide and dismissed report. Nobody can edit or delete it.</p>
+            <div id="log-list"></div>
           </section>
         </div>
       </div>
@@ -475,6 +494,107 @@
       `;
     }
 
+    const REPORT_LABELS = {
+      harmful: 'Harmful or steals data',
+      broken: "Doesn't work",
+      offensive: 'Offensive',
+      copyright: 'Copied without permission',
+      spam: 'Spam',
+      other: 'Something else',
+    };
+    const ACTION_LABELS = {
+      approve: 'Approved',
+      reject: 'Rejected',
+      approve_version: 'Approved a version',
+      reject_version: 'Rejected a version',
+      hide: 'Hid',
+      unhide: 'Unhid',
+      auto_hide: 'Hid automatically',
+      dismiss_report: 'Dismissed a report',
+    };
+
+    // hide / unhide / dismiss, with a fresh session like sendDecision
+    async function sendReview(body) {
+      const { data: { session } } = await db.auth.refreshSession();
+      const token = session?.access_token;
+      if (!token) { alert('Session expired. Reload and sign in.'); return false; }
+      const res = await fetch('/api/review/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(data.error ?? 'Something went wrong'); return false; }
+      return true;
+    }
+
+    async function reviewAndReload(body, btn) {
+      if (btn) btn.disabled = true;
+      const ok = await sendReview(body);
+      if (ok) { queueLoaded = false; await loadQueue(); }
+      else if (btn) btn.disabled = false;
+    }
+
+    function reportsHtml(reports) {
+      const byItem = new Map();
+      for (const r of reports) {
+        const key = `${r.item_type}:${r.item_id}`;
+        if (!byItem.has(key)) byItem.set(key, []);
+        byItem.get(key).push(r);
+      }
+      return [...byItem.values()].map(list => {
+        const first = list[0];
+        const hidden = first.item_status === 'hidden';
+        const harmful = list.filter(r => r.reason === 'harmful').length;
+        const summary = `${list.length} report${list.length === 1 ? '' : 's'}${harmful ? `, ${harmful} harmful` : ''}`;
+        return `
+          <div class="card" id="report-item-${esc(first.item_id)}">
+            <div class="card-header">
+              <div>
+                <div class="card-name">${esc(first.name || 'Unknown item')} (${esc(first.item_type)})
+                  <span class="status-pill ${hidden ? 'hidden' : 'live'}">${hidden ? 'Hidden' : first.item_status === 'approved' ? 'Live' : esc(first.item_status || 'Gone')}</span>
+                </div>
+                <div class="card-meta">${esc(summary)}</div>
+              </div>
+              <div class="card-actions" id="actions-${esc(first.item_id)}">
+                ${first.item_status === 'approved' ? `<button class="btn-reject" data-review="hide" data-type="${esc(first.item_type)}" data-id="${esc(first.item_id)}" data-why="${esc(summary)}">Hide</button>` : ''}
+                ${hidden ? `<button class="btn-approve" data-review="unhide" data-type="${esc(first.item_type)}" data-id="${esc(first.item_id)}">Unhide</button>` : ''}
+                ${first.item_status === 'approved' || hidden ? `<button class="btn-reject" data-review="reject" data-type="${esc(first.item_type)}" data-id="${esc(first.item_id)}">Reject</button>` : ''}
+              </div>
+            </div>
+            ${list.map(r => `
+              <div class="report-row">
+                <div>
+                  <strong>${esc(REPORT_LABELS[r.reason] || r.reason)}</strong>
+                  <span class="card-meta">by ${esc(r.reporter_github)}, ${esc(new Date(r.created_at).toLocaleString())}${r.counts_for_hiding ? '' : ', new account'}</span>
+                  ${r.note ? `<div class="report-note">${esc(r.note)}</div>` : ''}
+                </div>
+                <button data-review="dismiss" data-report="${esc(r.id)}">Dismiss</button>
+              </div>`).join('')}
+          </div>`;
+      }).join('');
+    }
+
+    function logHtml(actions, names) {
+      if (!actions.length) return '<span class="empty">Nothing yet</span>';
+      return `<div class="log-table">${actions.map(a => `
+        <div class="log-row">
+          <span class="log-when">${esc(new Date(a.created_at).toLocaleString())}</span>
+          <span class="log-who">${esc(a.actor_github)}</span>
+          <span class="log-what">${esc(ACTION_LABELS[a.action] || a.action)} ${a.item_type ? esc(a.item_type) + ' ' : ''}${esc(names.get(a.item_id) || (a.item_id ? String(a.item_id).slice(0, 8) : ''))}${a.reason ? `: ${esc(a.reason)}` : ''}</span>
+        </div>`).join('')}</div>`;
+    }
+
+    document.addEventListener('click', e => {
+      const btn = e.target.closest('[data-review]');
+      if (!btn) return;
+      const kind = btn.dataset.review;
+      if (kind === 'hide') reviewAndReload({ action: 'hide', type: btn.dataset.type, id: btn.dataset.id, reason: `Reported (${btn.dataset.why})` }, btn);
+      if (kind === 'unhide') reviewAndReload({ action: 'unhide', type: btn.dataset.type, id: btn.dataset.id }, btn);
+      if (kind === 'dismiss') reviewAndReload({ action: 'dismiss_report', report_id: btn.dataset.report }, btn);
+      if (kind === 'reject') startReject(btn.dataset.id, btn.dataset.type);
+    });
+
     async function loadQueue() {
       dbg('loadQueue() entered, stack: ' + (new Error().stack ?? '').split('\n').slice(1, 5).join(' | '));
       if (queueLoaded) {
@@ -488,7 +608,7 @@
       const themesEl  = document.getElementById('themes-list');
       const pluginsEl = document.getElementById('plugins-list');
 
-      let themes = [], plugins = [], rejectedThemes = [], rejectedPlugins = [], versions = [];
+      let themes = [], plugins = [], rejectedThemes = [], rejectedPlugins = [], versions = [], reports = [], actions = [];
       try {
         const session = await db.auth.getSession();
         const token = session.data.session?.access_token;
@@ -507,7 +627,7 @@
           queueEl.style.display = 'block';
           return;
         }
-        ({ themes, plugins, rejectedThemes, rejectedPlugins, versions = [] } = await res.json());
+        ({ themes, plugins, rejectedThemes, rejectedPlugins, versions = [], reports = [], actions = [] } = await res.json());
       } catch {
         themesEl.innerHTML = '<span class="empty">Couldn\'t reach the server.</span>';
         pluginsEl.innerHTML = '';
@@ -543,6 +663,17 @@
         pluginsEl.querySelectorAll('.btn-approve').forEach(btn => btn.addEventListener('click', () => approve(btn.dataset.id, btn.dataset.type)));
         pluginsEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
       }
+
+      const reportsSection = document.getElementById('reports-section');
+      reportsSection.style.display = reports.length ? 'block' : 'none';
+      document.getElementById('reports-list').innerHTML = reportsHtml(reports);
+
+      const names = new Map();
+      [...themes, ...plugins, ...rejectedThemes, ...rejectedPlugins].forEach(i => names.set(i.id, i.name));
+      versions.forEach(v => v.name && names.set(v.item_id, v.name));
+      reports.forEach(r => r.name && names.set(r.item_id, r.name));
+      document.getElementById('log-section').style.display = 'block';
+      document.getElementById('log-list').innerHTML = logHtml(actions, names);
 
       const versionsSection = document.getElementById('versions-section');
       const versionsEl = document.getElementById('versions-list');
