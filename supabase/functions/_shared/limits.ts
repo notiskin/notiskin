@@ -5,6 +5,7 @@ import { json, type VerifiedUser } from './http.ts';
 export const LIMITS = {
   submit: { max: 5, windowMinutes: 60, label: 'publishing' }, // themes and plugins together
   rate: { max: 30, windowMinutes: 60, label: 'rating' },
+  details: { max: 20, windowMinutes: 60, label: 'editing tags and links' },
 } as const;
 
 export type LimitedAction = keyof typeof LIMITS;
