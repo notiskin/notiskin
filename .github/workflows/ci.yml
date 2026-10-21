@@ -25,6 +25,20 @@ jobs:
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
 
+  functions:
+    # edge function tests, the database is mocked so nothing touches Supabase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      # run from supabase/ so Deno uses supabase/deno.json and ignores the root package.json
+      - run: deno check functions/*/index.ts
+        working-directory: supabase
+      - run: deno test --allow-env --allow-net=esm.sh,jsr.io
+        working-directory: supabase
+
   package:
     # integration tests, then builds the unpacked .app so the afterPack check proves no secrets get bundled
     runs-on: macos-latest
