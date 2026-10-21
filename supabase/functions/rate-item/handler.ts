@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.108.2';
 import { adminClient, json, preflight, readJson, verifyUser } from '../_shared/http.ts';
+import { checkRateLimit } from '../_shared/limits.ts';
 
 export async function handle(req: Request, db: SupabaseClient = adminClient()): Promise<Response> {
   const early = preflight(req);
@@ -21,6 +22,9 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
     if (!Number.isInteger(rating) || (rating as number) < 0 || (rating as number) > 5) {
       return json(req, { error: 'Rating must be between 0 and 5' }, 400);
     }
+
+    const limited = await checkRateLimit(req, db, user, 'rate');
+    if (limited) return limited;
 
     const table = item_type === 'theme' ? 'themes' : 'plugins';
 
