@@ -1,5 +1,5 @@
-// Marketplace pieces shared by the Themes and Plugins pages. nsVersions: "update available" on
-// installed items, publishing a new version, editing tags and link, your versions waiting for review.
+// Marketplace pieces shared by the Themes and Plugins pages. nsVersions: "update available" and
+// "pulled from the marketplace" on installed items, publishing a new version, editing tags and link, your versions waiting for review.
 // nsBrowse: sorting and tag filters, tags / downloads / More info on Browse cards, the sign-in header
 // for installs. The page passes its type ('theme' or 'plugin') and a way to get the session's token
 (function () {
@@ -205,11 +205,23 @@
   async function fetchUpdates() {
     try {
       const res = await fetch('/api/marketplace/updates');
-      if (!res.ok) return [];
-      return (await res.json()).updates || [];
+      if (!res.ok) return { updates: [], pulled: [] };
+      const data = await res.json();
+      return { updates: data.updates || [], pulled: data.pulled || [] };
     } catch {
-      return [];
+      return { updates: [], pulled: [] };
     }
+  }
+
+  // why an installed item is no longer in the marketplace, in the words the card shows
+  function pulledMessage(item) {
+    const what = item.type === 'plugin' ? 'plugin' : 'theme';
+    const lead = {
+      hidden: `This ${what} was pulled from the marketplace while it's reviewed.`,
+      rejected: `A reviewer removed this ${what} from the marketplace.`,
+      removed: `This ${what} is no longer in the marketplace.`,
+    }[item.reason] || `This ${what} is no longer in the marketplace.`;
+    return item.type === 'plugin' ? `${lead} Consider turning it off.` : lead;
   }
 
   // plugins run code, so updating one shows the plugin warning again with what changed
@@ -260,10 +272,12 @@
   }
 
   // adds "Version N is out" and an Update button to each installed card (data-file="<file name>")
-  // whose marketplace item has a newer approved version
-  async function decorateInstalled(type, onDone) {
-    const updates = (await fetchUpdates()).filter(u => u.type === type);
-    for (const update of updates) {
+  // whose marketplace item has a newer approved version, and a warning to each one whose item was
+  // hidden, rejected or removed. An enabled plugin's warning has Turn off (opts.turnOff), which only
+  // runs when clicked: nothing is ever turned off or deleted on its own
+  async function decorateInstalled(type, onDone, opts = {}) {
+    const { updates, pulled } = await fetchUpdates();
+    for (const update of updates.filter(u => u.type === type)) {
       const card = document.querySelector(`.card[data-file="${CSS.escape(update.name)}"]`);
       if (!card || card.querySelector('.ns-update')) continue;
       const row = document.createElement('div');
@@ -281,6 +295,37 @@
         runUpdate(update, button, onDone);
       });
       // theme cards are <label>s, a click anywhere in them would also pick the theme
+      row.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
+      card.appendChild(row);
+    }
+    for (const item of pulled.filter(p => p.type === type)) {
+      const card = document.querySelector(`.card[data-file="${CSS.escape(item.name)}"]`);
+      if (!card || card.querySelector('.ns-update')) continue;
+      const enabled = type === 'plugin' && !!card.querySelector('input[type="checkbox"]')?.checked;
+      const row = document.createElement('div');
+      row.className = 'ns-update ns-pulled';
+      row.setAttribute('role', 'status');
+      row.innerHTML = `
+        <div class="ns-update-text">
+          <span class="ns-pulled-text">${esc(pulledMessage(item))}</span>
+        </div>
+        ${enabled && opts.turnOff ? '<button class="ns-update-btn" type="button">Turn off</button>' : ''}`;
+      const button = row.querySelector('button');
+      if (button) {
+        button.addEventListener('click', async e => {
+          e.preventDefault();
+          e.stopPropagation();
+          button.disabled = true;
+          button.textContent = 'Turning off';
+          try {
+            await opts.turnOff(item.name);
+          } catch (err) {
+            button.disabled = false;
+            button.textContent = 'Turn off';
+            notify(err.message);
+          }
+        });
+      }
       row.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
       card.appendChild(row);
     }

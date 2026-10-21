@@ -2,7 +2,7 @@ require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName, repairLegacyWrapper, ensureWatcher } = require('../dist/gui/server');
+const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName, repairLegacyWrapper, ensureWatcher, marketplaceRemote, clearMarketplaceCache } = require('../dist/gui/server');
 
 let server;
 let port;
@@ -586,5 +586,85 @@ test('marketplace update refuses bad input, unconfirmed plugins and files not fr
 test('the update check with nothing installed from the marketplace asks nobody', async () => {
   const res = await request('GET', '/api/marketplace/updates', { headers: authed() });
   assert.equal(res.status, 200);
-  assert.deepEqual(res.json, { updates: [] });
+  assert.deepEqual(res.json, { updates: [], pulled: [] });
+});
+
+// installs marketplace files straight to disk and fakes Supabase's answers, restoring both afterwards
+async function withFakeMarketplace(remote, fn) {
+  const lib = require('../dist/core/library');
+  const mp = require('../dist/core/marketplace');
+  const saved = { ...marketplaceRemote };
+  const calls = [];
+  for (const key of ['statuses', 'approved', 'changes']) {
+    marketplaceRemote[key] = async (type, ids) => {
+      calls.push([key, type, ids.length]);
+      return remote[key] ? remote[key](type, ids) : [];
+    };
+  }
+  clearMarketplaceCache();
+  const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const names = ['live', 'newer', 'hidden-one', 'rejected-one', 'removed-one'];
+  names.forEach((name, i) => mp.installFromMarketplace('plugin', { id: id(i + 1), name, code: '1', version: 1 }));
+  try {
+    await fn(calls, id);
+  } finally {
+    Object.assign(marketplaceRemote, saved);
+    clearMarketplaceCache();
+    for (const name of names) lib.deleteItem('plugin', name);
+  }
+}
+
+test('the update check finds updates and installed plugins that were pulled, in one call per type', async () => {
+  await withFakeMarketplace({
+    statuses: (_type, ids) => [
+      { id: ids[0], status: 'approved', version: 1 },
+      { id: ids[1], status: 'approved', version: 2 },
+      { id: ids[2], status: 'hidden', version: 1 },
+      { id: ids[3], status: 'rejected', version: 1 },
+    ],
+    changes: (_type, ids) => [{ item_id: ids[1], version: 2, changelog: 'faster' }],
+  }, async (calls, id) => {
+    const res = await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json.updates.map(u => [u.name, u.latestVersion, u.changes[0].changelog]), [['newer', 2, 'faster']]);
+    assert.deepEqual(res.json.pulled, [
+      { type: 'plugin', name: 'hidden-one', id: id(3), reason: 'hidden' },
+      { type: 'plugin', name: 'rejected-one', id: id(4), reason: 'rejected' },
+      { type: 'plugin', name: 'removed-one', id: id(5), reason: 'removed' },
+    ]);
+    assert.deepEqual(calls, [['statuses', 'plugin', 5], ['changes', 'plugin', 5]]);
+    // asked again within half an hour, the answer comes from the cache
+    await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(calls.length, 2);
+  });
+});
+
+test('before item_statuses() is deployed the update check still works and calls nothing pulled', async () => {
+  await withFakeMarketplace({
+    statuses: () => null,
+    approved: (_type, ids) => [{ id: ids[1], version: 3 }],
+  }, async calls => {
+    const res = await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json.updates.map(u => [u.name, u.latestVersion]), [['newer', 3]]);
+    assert.deepEqual(res.json.pulled, []);
+    assert.deepEqual(calls.map(c => c[0]), ['statuses', 'changes', 'approved']);
+  });
+});
+
+test('a Supabase error is a 502 and is not cached', async () => {
+  let fail = true;
+  await withFakeMarketplace({
+    statuses: (_type, ids) => {
+      if (fail) throw new Error('offline');
+      return ids.map(id => ({ id, status: 'approved', version: 1 }));
+    },
+  }, async () => {
+    const res = await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(res.status, 502);
+    fail = false;
+    const again = await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(again.status, 200);
+    assert.deepEqual(again.json.pulled, []);
+  });
 });

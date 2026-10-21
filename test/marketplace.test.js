@@ -123,11 +123,44 @@ test('a deleted file is forgotten, so a new file with that name is the user\'s o
   assert.ok(!existsSync(lib.itemPath('theme', 'my-theme')));
 });
 
-test('installedIds lists each marketplace item once per type', () => {
-  mp.installFromMarketplace('theme', item());
-  mp.installFromMarketplace('plugin', item({ id: 'p-1' }));
-  assert.deepEqual(mp.installedIds('theme'), ['id-1']);
-  assert.deepEqual(mp.installedIds('plugin'), ['p-1']);
+const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+test('installedIds lists each marketplace item once per type, UUIDs only', () => {
+  mp.installFromMarketplace('theme', item({ id: uuid(1) }));
+  mp.installFromMarketplace('theme', item({ id: uuid(1), name: 'copy' }));
+  mp.installFromMarketplace('theme', item({ id: 'not-a-uuid', name: 'odd' }));
+  mp.installFromMarketplace('plugin', item({ id: uuid(2) }));
+  assert.deepEqual(mp.installedIds('theme'), [uuid(1)]);
+  assert.deepEqual(mp.installedIds('plugin'), [uuid(2)]);
+});
+
+test('findPulled lists installed items that were hidden, rejected or removed, never live ones', () => {
+  mp.installFromMarketplace('plugin', item({ id: uuid(1), name: 'live' }));
+  mp.installFromMarketplace('plugin', item({ id: uuid(2), name: 'hidden one' }));
+  mp.installFromMarketplace('plugin', item({ id: uuid(3), name: 'rejected one' }));
+  mp.installFromMarketplace('plugin', item({ id: uuid(4), name: 'removed one' }));
+  mp.installFromMarketplace('plugin', item({ id: uuid(5), name: 'deleted file' }));
+  mp.installFromMarketplace('plugin', item({ id: 'old-id', name: 'odd id' }));
+  mp.installFromMarketplace('theme', item({ id: uuid(6), name: 'a theme' }));
+  rmSync(lib.itemPath('plugin', 'deleted-file'));
+  lib.writeItem('plugin', 'mine', 'x');
+  const statuses = new Map([[uuid(1), 'approved'], [uuid(2), 'hidden'], [uuid(3), 'rejected'], [uuid(6), 'approved']]);
+  assert.deepEqual(mp.findPulled('plugin', statuses), [
+    { type: 'plugin', name: 'hidden-one', id: uuid(2), reason: 'hidden' },
+    { type: 'plugin', name: 'rejected-one', id: uuid(3), reason: 'rejected' },
+    { type: 'plugin', name: 'removed-one', id: uuid(4), reason: 'removed' },
+  ]);
+  assert.deepEqual(mp.findPulled('theme', statuses), []);
+  // only shows a warning: every file is still there
+  for (const name of ['live', 'hidden-one', 'rejected-one', 'removed-one']) assert.ok(lib.itemExists('plugin', name));
+});
+
+test('ids go to Supabase in groups of at most 200', () => {
+  const ids = Array.from({ length: 450 }, (_, i) => uuid(i));
+  const batches = mp.inBatches(ids);
+  assert.deepEqual(batches.map(b => b.length), [200, 200, 50]);
+  assert.deepEqual(batches.flat(), ids);
+  assert.deepEqual(mp.inBatches([]), []);
 });
 
 test('sort and tag from the query string fall back safely', () => {
