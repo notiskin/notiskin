@@ -6,6 +6,7 @@ export const LIMITS = {
   submit: { max: 5, windowMinutes: 60, label: 'publishing' }, // themes and plugins together
   rate: { max: 30, windowMinutes: 60, label: 'rating' },
   details: { max: 20, windowMinutes: 60, label: 'editing tags and links' },
+  report: { max: 10, windowMinutes: 60, label: 'reporting' },
 } as const;
 
 export type LimitedAction = keyof typeof LIMITS;

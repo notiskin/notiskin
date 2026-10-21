@@ -22,6 +22,7 @@ export type ResultSpec = FakeResult | ((call: Call) => FakeResult);
 export interface FakeUser {
   id: string;
   github?: string | null;
+  createdAt?: string;
 }
 
 export interface MockDb {
@@ -91,6 +92,7 @@ export function mockDb(opts: { user?: FakeUser | null; results?: Record<string, 
           data: {
             user: {
               id: user.id,
+              created_at: user.createdAt ?? '2026-01-01T00:00:00Z',
               identities: user.github === null ? [] : [{ provider: 'github', identity_data: { user_name: user.github ?? 'octocat' } }],
             },
           },

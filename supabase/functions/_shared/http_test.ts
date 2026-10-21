@@ -40,7 +40,7 @@ Deno.test('preflight answers OPTIONS and nothing else', () => {
 
 Deno.test('verifyUser: needs a bearer token Supabase accepts', async () => {
   const ok = mockDb({ user: { id: 'u1', github: 'Octocat' } });
-  assertEquals(await verifyUser(post({}), ok.client), { id: 'u1', githubUsername: 'Octocat' });
+  assertEquals(await verifyUser(post({}), ok.client), { id: 'u1', githubUsername: 'Octocat', createdAt: '2026-01-01T00:00:00Z' });
   assertEquals(await verifyUser(post({}, { token: null }), ok.client), null);
   assertEquals(await verifyUser(post({}, { token: 'bad' }), ok.client), null);
   assertEquals(await verifyUser(post({}, { token: '' }), ok.client), null);

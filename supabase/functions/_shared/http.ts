@@ -33,6 +33,8 @@ export function adminClient(): SupabaseClient {
 export interface VerifiedUser {
   id: string;
   githubUsername: string;
+  // when this Supabase account was made (its first sign-in to Notiskin), ISO time
+  createdAt?: string;
 }
 
 // asks Supabase Auth to validate the token, never trust a decoded-but-unverified JWT
@@ -51,7 +53,7 @@ export async function verifyUser(req: Request, db: SupabaseClient): Promise<Veri
   const githubUsername = github?.identity_data?.user_name;
   if (typeof githubUsername !== 'string' || !githubUsername) return null;
 
-  return { id: data.user.id, githubUsername };
+  return { id: data.user.id, githubUsername, createdAt: data.user.created_at };
 }
 
 export async function isReviewer(db: SupabaseClient, user: VerifiedUser): Promise<boolean> {
