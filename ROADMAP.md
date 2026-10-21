@@ -35,7 +35,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 - Screenshots, tags, sort by rating or downloads, download counts
 - Report button and a reviewer action log
 - Rate limits enforced server-side
-- Tests for the edge functions
+- [x] Tests for the edge functions (Deno, mocked database, runs in CI)
 
 ## Phase 4: Creator tools (weeks 10–14, about 25 hours)
 

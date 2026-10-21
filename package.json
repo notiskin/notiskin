@@ -23,6 +23,7 @@
     "watch:uninstall": "npm run build && node dist/cli/index.js watch:uninstall",
     "gui": "npm run build && node dist/gui/run.js",
     "test": "npm run build && node --test 'test/*.test.js'",
+    "test:functions": "deno test --allow-env --allow-net=esm.sh,jsr.io supabase",
     "test:integration": "npm run build && node --test --test-concurrency=1 'test/integration/*.test.js'",
     "clean": "rm -rf dist",
     "build:mac": "npm run build && electron-builder --mac --publish never",
