@@ -27,7 +27,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 - ✅ App icon: an ink rounded square with a cream page peeling back to vermilion, also the sidebar logo
 - ✅ Intel Mac builds: separate downloads for Apple Silicon and Intel
 - Apple Developer ID signing and notarization ($99/year): removes "damaged app" warnings and makes auto-update work
-- Check the microphone and camera still work in a patched Notion: record audio with an AI Meeting Notes block (type /meeting in a page) or join a call. macOS should ask once, then it works
+- ✅ The microphone works in a patched Notion: macOS asked for permission and AI Meeting Notes recorded (checked Oct 21, 2026 on 7.40.0). Notion has no camera feature to check
 - ✅ A real Notion update repaired with one click: 7.39.0 updated itself to 7.40.0 on Oct 21, 2026, Settings showed Needs repair, Repair brought the theme back
 - ✅ First-run walkthrough: a short tour of every page that ends at Install into Notion, replayable from Settings → Help
 
