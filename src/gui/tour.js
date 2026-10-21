@@ -26,7 +26,7 @@
       fit: 'content',
       before: () => window.switchTab?.('installed'),
       title: 'Your themes',
-      text: 'Pick a theme and Notion changes right away. "No theme" puts Notion back to normal.',
+      text: 'Pick a theme and Notion changes right away. "No theme" puts Notion back to normal. When a theme you installed gets a new version, an Update button shows up on it.',
     },
     {
       page: '/',
@@ -40,7 +40,7 @@
       target: '.tab-btn[data-tab="publish"]',
       fit: 'content',
       title: 'Publish and Submissions',
-      text: 'Share a theme you made. A reviewer checks every submission before anyone can install it, and Submissions shows where yours are.',
+      text: 'Share a theme you made, and publish new versions of it later. A reviewer checks every submission before anyone can install it, and Submissions shows where yours are.',
     },
     {
       page: '/',
