@@ -1,6 +1,7 @@
-// Item versions in the Themes and Plugins pages: "update available" on installed items, publishing a
-// new version of your own item, and your versions waiting for review. Shared by both pages, the page
-// passes its type ('theme' or 'plugin') and a way to get the signed-in session's token
+// Marketplace pieces shared by the Themes and Plugins pages. nsVersions: "update available" on
+// installed items, publishing a new version, editing tags and link, your versions waiting for review.
+// nsBrowse: sorting and tag filters, tags / downloads / More info on Browse cards, the sign-in header
+// for installs. The page passes its type ('theme' or 'plugin') and a way to get the session's token
 (function () {
   function esc(str) {
     return String(str ?? '')
@@ -24,6 +25,100 @@
     return `<ul class="ns-changes">${changes
       .map(c => `<li><strong>Version ${esc(c.version)}</strong>: ${esc(c.changelog)}</li>`)
       .join('')}</ul>`;
+  }
+
+  // ---- browse: sorting, tags, downloads, links ----
+
+  // must match TAGS in supabase/functions/_shared/details.ts and the tags migration
+  const TAGS = ['dark', 'light', 'minimal', 'colorful', 'productivity', 'fun', 'accessibility', 'fonts'];
+  const browseState = { sort: 'newest', tag: '' };
+
+  function browseQuery(q) {
+    const params = new URLSearchParams({ q: q || '', sort: browseState.sort });
+    if (browseState.tag) params.set('tag', browseState.tag);
+    return params.toString();
+  }
+
+  function mountBrowseControls(container, onChange) {
+    container.innerHTML = `
+      <div class="ns-browse-controls">
+        <label class="ns-sort">Sort
+          <select>
+            <option value="newest">Newest</option>
+            <option value="rating">Top rated</option>
+            <option value="downloads">Most downloaded</option>
+          </select>
+        </label>
+        <div class="ns-tag-chips" role="group" aria-label="Filter by tag">
+          ${TAGS.map(t => `<button type="button" class="ns-tag-chip" data-tag="${t}" aria-pressed="false">${t}</button>`).join('')}
+        </div>
+      </div>`;
+    const select = container.querySelector('select');
+    select.value = browseState.sort;
+    select.addEventListener('change', () => { browseState.sort = select.value; onChange(); });
+    container.querySelectorAll('.ns-tag-chip').forEach(chip => {
+      chip.setAttribute('aria-pressed', String(chip.dataset.tag === browseState.tag));
+      chip.addEventListener('click', () => {
+        browseState.tag = browseState.tag === chip.dataset.tag ? '' : chip.dataset.tag;
+        container.querySelectorAll('.ns-tag-chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.tag === browseState.tag)));
+        onChange();
+      });
+    });
+  }
+
+  // tags, the download count and a More info button for a Browse card
+  function browseMetaHtml(item) {
+    const tags = Array.isArray(item.tags) ? item.tags.filter(t => TAGS.includes(t)) : [];
+    const downloads = Number(item.download_count) || 0;
+    const parts = [];
+    if (tags.length) parts.push(`<span class="ns-tags">${tags.map(t => `<span class="ns-tag">${esc(t)}</span>`).join('')}</span>`);
+    parts.push(`<span class="ns-downloads">${downloads} download${downloads === 1 ? '' : 's'}</span>`);
+    if (typeof item.link === 'string' && /^https:\/\/(gist\.)?github\.com\//.test(item.link)) {
+      parts.push(`<button type="button" class="ns-more-info" data-link="${esc(item.link)}">More info</button>`);
+    }
+    return `<div class="ns-browse-meta">${parts.join('')}</div>`;
+  }
+
+  // More info opens in the browser through the app (github.com only), never inside the app
+  document.addEventListener('click', e => {
+    const btn = e.target.closest?.('.ns-more-info');
+    if (!btn) return;
+    e.preventDefault();
+    fetch('/api/open-external', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: btn.dataset.link }),
+    }).catch(() => {});
+  });
+
+  // signed-in installs count as downloads, signed-out installs just install
+  async function authHeader(getToken) {
+    try {
+      const token = await getToken();
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function tagPickerHtml(idPrefix, selected) {
+    return `
+      <div class="ns-tag-picker" id="${idPrefix}-tags">
+        ${TAGS.map(t => `<label class="ns-tag-option"><input type="checkbox" value="${t}" ${(selected || []).includes(t) ? 'checked' : ''}> ${t}</label>`).join('')}
+      </div>
+      <div class="field-hint"><span>Up to 3.</span></div>`;
+  }
+
+  // keeps at most 3 boxes ticked and returns the ticked tags
+  function wireTagPicker(root) {
+    const boxes = [...root.querySelectorAll('input[type=checkbox]')];
+    const sync = () => {
+      const count = boxes.filter(b => b.checked).length;
+      boxes.forEach(b => { b.disabled = !b.checked && count >= 3; });
+    };
+    boxes.forEach(b => b.addEventListener('change', sync));
+    sync();
+    return () => boxes.filter(b => b.checked).map(b => b.value);
   }
 
   // ---- update available ----
@@ -125,13 +220,14 @@
     const token = await getToken();
     if (!token) { container.innerHTML = ''; return; }
     container.innerHTML = '<span class="loading">Loading</span>';
-    let own = [];
+    let mine = [];
     try {
-      own = ((await authed(`/api/submissions?type=${type}`, token)).submissions || []).filter(s => s.status === 'approved');
+      mine = (await authed(`/api/submissions?type=${type}`, token)).submissions || [];
     } catch {
       container.innerHTML = '';
       return;
     }
+    const own = mine.filter(s => s.status === 'approved');
 
     const codeLabel = type === 'theme' ? 'CSS' : 'JavaScript';
     const maxCode = type === 'theme' ? 20000 : 200000;
@@ -139,6 +235,7 @@
       container.innerHTML = `
         <h2 class="ns-version-heading">Publish a new version</h2>
         <p class="ns-version-empty">Once one of your ${type}s is approved, you can publish new versions of it here.</p>`;
+      renderEditDetails(type, container, getToken, mine);
       return;
     }
 
@@ -201,6 +298,75 @@
         button.disabled = false;
       }
     });
+    renderEditDetails(type, container, getToken, mine);
+  }
+
+  // ---- tags and link of your own items, no review needed ----
+
+  function renderEditDetails(type, container, getToken, mine) {
+    if (!mine.length) return;
+    const section = document.createElement('div');
+    section.className = 'ns-details';
+    section.innerHTML = `
+      <h2 class="ns-version-heading">Tags and link</h2>
+      <p class="ns-version-intro">Help people find your ${type} in Browse. Changes show right away, no review needed.</p>
+      <form class="ns-version-form">
+        <div class="field">
+          <label for="d-item-${type}">${type === 'theme' ? 'Theme' : 'Plugin'}</label>
+          <select id="d-item-${type}">
+            ${mine.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Tags</label>
+          <div class="ns-details-tags"></div>
+        </div>
+        <div class="field">
+          <label for="d-link-${type}">GitHub link (optional)</label>
+          <input type="text" inputmode="url" id="d-link-${type}" maxlength="220" placeholder="https://github.com/you/your-${type}">
+          <div class="field-hint"><span>A github.com repo or gist, for screenshots and docs. Shown as a More info button.</span></div>
+        </div>
+        <button class="btn-submit" type="submit">Save</button>
+      </form>
+      <div class="publish-msg"></div>`;
+    container.appendChild(section);
+
+    const select = section.querySelector('select');
+    const link = section.querySelector(`#d-link-${type}`);
+    const tagsBox = section.querySelector('.ns-details-tags');
+    const msg = section.querySelector('.publish-msg');
+    let readTags = () => [];
+    const fill = () => {
+      const item = mine.find(s => String(s.id) === select.value) || {};
+      tagsBox.innerHTML = tagPickerHtml(`d-${type}`, item.tags || []);
+      readTags = wireTagPicker(tagsBox);
+      link.value = item.link || '';
+      msg.className = 'publish-msg';
+    };
+    select.addEventListener('change', fill);
+    fill();
+
+    section.querySelector('form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const button = section.querySelector('button[type=submit]');
+      button.disabled = true;
+      try {
+        const result = await authed('/api/item/details', await getToken(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, id: select.value, tags: readTags(), link: link.value.trim() }),
+        });
+        const item = mine.find(s => String(s.id) === select.value);
+        if (item) { item.tags = result.tags; item.link = result.link; }
+        msg.className = 'publish-msg success';
+        msg.textContent = 'Saved.';
+      } catch (err) {
+        msg.className = 'publish-msg error';
+        msg.textContent = err.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
   }
 
   // ---- your versions waiting for review ----
@@ -233,4 +399,5 @@
   }
 
   window.nsVersions = { decorateInstalled, renderPublishVersion, renderPendingVersions, changesHtml };
+  window.nsBrowse = { browseQuery, mountBrowseControls, browseMetaHtml, authHeader, tagPickerHtml, wireTagPicker };
 })();

@@ -206,3 +206,39 @@ h1, h2, .display {
 .ns-version-dialog-box p { font-size: 13px; color: var(--text-2); line-height: 1.65; margin-bottom: 12px; }
 .ns-dialog-label { font-weight: 600; color: var(--text) !important; margin-bottom: 0 !important; }
 .ns-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+/* browse: sort, tag chips, tags / downloads / More info on cards, tag picker (marketplace.js) */
+.ns-browse-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+.ns-sort { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.ns-sort select { width: auto; padding: 5px 8px; font-size: 12px; }
+.ns-tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ns-tag-chip {
+  background: var(--surface);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ns-tag-chip:hover { background: var(--surface-hover); }
+.ns-tag-chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); }
+.ns-browse-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.ns-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ns-tag { background: var(--surface-hover); color: var(--text-2); border-radius: 999px; padding: 1px 8px; }
+.ns-more-info {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent-text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.ns-tag-picker { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+/* #tab-publish so it wins over the pages' uppercase field labels */
+#tab-publish .ns-tag-option { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--text-2); text-transform: none; letter-spacing: 0; font-weight: 400; }
+#tab-publish .ns-tag-option input { width: auto; margin: 0; }
+#tab-publish .ns-tag-option:has(input:disabled) { opacity: 0.5; }

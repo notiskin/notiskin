@@ -45,7 +45,17 @@ import {
 import { installWatcher, uninstallWatcher } from '../patcher/agent';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
-import { findUpdates, installedIds, installFromMarketplace, LatestInfo, MarketplaceItem, updateFromMarketplace } from '../core/marketplace';
+import {
+  findUpdates,
+  installedIds,
+  installFromMarketplace,
+  LatestInfo,
+  MarketplaceItem,
+  MarketplaceSort,
+  parseSort,
+  parseTag,
+  updateFromMarketplace,
+} from '../core/marketplace';
 import { installedEntry } from '../core/installed';
 
 let pagesDir = join(__dirname, '..', '..', 'src', 'gui');
@@ -54,7 +64,7 @@ let pagesDir = join(__dirname, '..', '..', 'src', 'gui');
 const SESSION_TOKEN = randomBytes(32).toString('hex');
 const ALLOWED_HOSTS = new Set([`localhost:${GUI_PORT}`, `127.0.0.1:${GUI_PORT}`]);
 const ALLOWED_ORIGINS = new Set([...ALLOWED_HOSTS].map(h => `http://${h}`));
-const OPEN_EXTERNAL_HOSTS = new Set(['github.com', 'www.github.com']);
+const OPEN_EXTERNAL_HOSTS = new Set(['github.com', 'www.github.com', 'gist.github.com']);
 const ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 
 let _publicSupabase: SupabaseClient | null = null;
@@ -397,7 +407,7 @@ app.get('/settings.html', sendPage('settings.html'));
 const ASSETS: Record<string, string> = {
   '/brand.css': 'css',
   '/tour.js': 'js',
-  '/versions.js': 'js',
+  '/marketplace.js': 'js',
   '/fonts/fraunces.woff2': 'font/woff2',
   '/fonts/inter.woff2': 'font/woff2',
 };
@@ -546,20 +556,23 @@ app.get('/api/state', (_req, res) => {
   });
 });
 
-async function searchMarketplace(table: 'themes' | 'plugins', q: string) {
+async function searchMarketplace(table: 'themes' | 'plugins', q: string, sort: MarketplaceSort, tag: string | null) {
   let query = publicSupabase().from(table).select('*').eq('status', 'approved');
   if (q) query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%,author_github.ilike.%${q}%`);
+  if (tag) query = query.contains('tags', [tag]);
+  if (sort === 'rating') query = query.order('avg_rating', { ascending: false }).order('rating_count', { ascending: false });
+  if (sort === 'downloads') query = query.order('download_count', { ascending: false });
   return query.order('created_at', { ascending: false }).limit(200);
 }
 
 app.get('/api/themes/search', async (req, res) => {
-  const { data, error } = await searchMarketplace('themes', sanitizeSearch(req.query.q));
+  const { data, error } = await searchMarketplace('themes', sanitizeSearch(req.query.q), parseSort(req.query.sort), parseTag(req.query.tag));
   if (error) return res.status(502).json({ error: error.message });
   res.json({ themes: data ?? [] });
 });
 
 app.get('/api/plugins/search', async (req, res) => {
-  const { data, error } = await searchMarketplace('plugins', sanitizeSearch(req.query.q));
+  const { data, error } = await searchMarketplace('plugins', sanitizeSearch(req.query.q), parseSort(req.query.sort), parseTag(req.query.tag));
   if (error) return res.status(502).json({ error: error.message });
   res.json({ plugins: data ?? [] });
 });
@@ -664,6 +677,15 @@ app.post('/api/apply', async (_req, res) => {
 
 // the server fetches the code itself, so only approved marketplace items (their live, approved version)
 // can ever be written to disk
+function countDownload(token: string, type: ItemType, id: string): void {
+  fetch(new URL('/functions/v1/count-download', SUPABASE_URL), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type, id }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => {});
+}
+
 async function fetchApprovedItem(type: ItemType, id: string): Promise<MarketplaceItem | null> {
   const table = type === 'theme' ? 'themes' : 'plugins';
   const codeColumn = type === 'theme' ? 'css' : 'js';
@@ -705,6 +727,10 @@ app.post('/api/marketplace/install', async (req, res) => {
         error: `You already have a ${type} called "${result.name}" that didn't come from this marketplace item. Rename or delete it first.`,
       });
     }
+    // a signed-in install counts as a download (once per user per item per day, the function decides).
+    // Never waits on it or fails the install because of it
+    const token = bearerToken(req);
+    if (token && result.outcome === 'installed') countDownload(token, type, item.id);
     const needsWarning = type === 'plugin' && !readConfig().acknowledgedPlugins.includes(result.name);
     res.json({ success: true, name: result.name, needsWarning });
   } catch (err) {
@@ -787,6 +813,7 @@ app.post('/api/review/decide', (req, res) => proxyToEdgeFunction('review-decide'
 app.post('/api/submit/theme', submitLimiter, (req, res) => proxyToEdgeFunction('submit-theme', req, res));
 app.post('/api/submit/plugin', submitLimiter, (req, res) => proxyToEdgeFunction('submit-plugin', req, res));
 app.post('/api/submit/version', submitLimiter, (req, res) => proxyToEdgeFunction('submit-version', req, res));
+app.post('/api/item/details', (req, res) => proxyToEdgeFunction('update-details', req, res));
 
 app.post('/api/debug-log', debugLogLimiter, (req, res) => {
   const msg = String((req.body as { msg?: unknown })?.msg ?? '').replace(/[\r\n]+/g, ' ').slice(0, 2000);
@@ -814,7 +841,7 @@ app.get('/api/submissions', async (req, res) => {
   if (authError || typeof username !== 'string' || !username) return res.status(401).json({ error: 'Sign in again' });
   const { data, error } = await client
     .from(table)
-    .select('id,name,description,status,rejection_reason,created_at,version')
+    .select('id,name,description,status,rejection_reason,created_at,version,tags,link')
     .ilike('author_github', username.replace(/[\\%_]/g, '\\$&'))
     .order('created_at', { ascending: false });
   if (error) return res.status(502).json({ error: error.message });
