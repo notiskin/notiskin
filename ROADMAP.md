@@ -33,7 +33,7 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 
 ## Phase 3: Marketplace v2 (weeks 6–10, about 25–30 hours)
 
-- Item versions: authors publish updates, installed items show "update available", plugin updates are re-reviewed with a diff
+- [x] Item versions: authors publish updates, installed items show "update available", plugin updates are re-reviewed with a diff (code done; migration and functions not yet deployed)
 - Screenshots, tags, sort by rating or downloads, download counts
 - Report button and a reviewer action log
 - [x] Rate limits enforced server-side (code done; migration and functions not yet deployed)

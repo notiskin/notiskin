@@ -28,8 +28,6 @@
 
   // ---- update available ----
 
-  let updatesCache = null;
-
   async function fetchUpdates() {
     try {
       const res = await fetch('/api/marketplace/updates');
@@ -79,7 +77,6 @@
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Couldn't update");
       notify(`${displayName(update.name)} updated to version ${data.version}`);
-      updatesCache = null;
       if (onDone) await onDone();
     } catch (err) {
       button.disabled = false;
@@ -91,8 +88,7 @@
   // adds "Version N is out" and an Update button to each installed card (data-file="<file name>")
   // whose marketplace item has a newer approved version
   async function decorateInstalled(type, onDone) {
-    if (!updatesCache) updatesCache = fetchUpdates();
-    const updates = (await updatesCache).filter(u => u.type === type);
+    const updates = (await fetchUpdates()).filter(u => u.type === type);
     for (const update of updates) {
       const card = document.querySelector(`.card[data-file="${CSS.escape(update.name)}"]`);
       if (!card || card.querySelector('.ns-update')) continue;
