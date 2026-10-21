@@ -581,7 +581,7 @@
         <div class="log-row">
           <span class="log-when">${esc(new Date(a.created_at).toLocaleString())}</span>
           <span class="log-who">${esc(a.actor_github)}</span>
-          <span class="log-what">${esc(ACTION_LABELS[a.action] || a.action)} ${a.item_type ? esc(a.item_type) + ' ' : ''}${esc(names.get(a.item_id) || (a.item_id ? String(a.item_id).slice(0, 8) : ''))}${a.reason ? `: ${esc(a.reason)}` : ''}</span>
+          <span class="log-what">${esc(ACTION_LABELS[a.action] || a.action)} ${a.item_type ? esc(a.item_type) + ' ' : ''}${esc(a.name || names.get(a.item_id) || (a.item_id ? String(a.item_id).slice(0, 8) : ''))}${a.reason ? `: ${esc(a.reason)}` : ''}</span>
         </div>`).join('')}</div>`;
     }
 
