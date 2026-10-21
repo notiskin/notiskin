@@ -67,5 +67,18 @@ Deno.test('open reports come with the item name and status, plus the latest log 
   });
   const body = await (await handle(post({}), db.client)).json();
   assertEquals(body.reports, [{ id: 'r1', item_type: 'theme', item_id: 't1', reason: 'harmful', note: '', name: 'dark', item_status: 'hidden' }]);
-  assertEquals(body.actions, [{ id: 1, actor_github: 'automatic', action: 'auto_hide' }]);
+  assertEquals(body.actions, [{ id: 1, actor_github: 'automatic', action: 'auto_hide', name: null }]);
+});
+
+Deno.test('log entries come with their item name', async () => {
+  const db = mockDb({
+    user: me,
+    results: {
+      ...reviewer,
+      review_actions: { data: [{ id: 3, action: 'hide', item_type: 'plugin', item_id: 'p9' }] },
+      plugins: (call) => call.filters.some(f => f[0] === 'in') ? { data: [{ id: 'p9', name: 'clock', js: '', status: 'hidden' }] } : { data: [] },
+    },
+  });
+  const body = await (await handle(post({}), db.client)).json();
+  assertEquals(body.actions, [{ id: 3, action: 'hide', item_type: 'plugin', item_id: 'p9', name: 'clock' }]);
 });

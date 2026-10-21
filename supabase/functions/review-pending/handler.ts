@@ -41,8 +41,11 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
   // reports with their item's name and status (approved or hidden)
   const pendingVersions = (versions.data ?? []) as Record<string, unknown>[];
   const openReports = (reports.data ?? []) as Record<string, unknown>[];
+  const logEntries = (actions.data ?? []) as Record<string, unknown>[];
   const ids = (t: string) => [
-    ...new Set([...pendingVersions, ...openReports].filter(v => v.item_type === t).map(v => v.item_id as string)),
+    ...new Set(
+      [...pendingVersions, ...openReports, ...logEntries].filter(v => v.item_type === t && v.item_id).map(v => v.item_id as string),
+    ),
   ];
   const [liveThemes, livePlugins] = await Promise.all([
     ids('theme').length ? db.from('themes').select('id,name,css,status').in('id', ids('theme')) : { data: [], error: null },
@@ -67,7 +70,7 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
 
   return json(req, {
     reports: reportsWithItem,
-    actions: actions.data ?? [],
+    actions: logEntries.map(a => ({ ...a, name: live.get(`${a.item_type}:${a.item_id}`)?.name ?? null })),
     versions: withLive,
     themes: themes.data ?? [],
     plugins: plugins.data ?? [],
