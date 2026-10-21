@@ -668,3 +668,84 @@ test('a Supabase error is a 502 and is not cached', async () => {
     assert.deepEqual(again.json.pulled, []);
   });
 });
+
+test('browser sign-in: only a GitHub PKCE sign-in link on our Supabase project can be opened', () => {
+  const { isSupabaseSignInUrl } = require('../dist/gui/server');
+  const { SUPABASE_URL } = require('../dist/utils/constants');
+  const good = `${SUPABASE_URL}/auth/v1/authorize?provider=github&redirect_to=x&code_challenge=abc&code_challenge_method=s256`;
+  assert.equal(isSupabaseSignInUrl(good), true);
+  for (const bad of [
+    good.replace('https:', 'http:'),
+    good.replace('provider=github', 'provider=google'),
+    good.replace('&code_challenge=abc', ''),
+    good.replace('/auth/v1/authorize', '/auth/v1/logout'),
+    'https://evil.example/auth/v1/authorize?provider=github&code_challenge=abc&code_challenge_method=s256',
+    'javascript:alert(1)',
+    undefined,
+  ]) {
+    assert.equal(isSupabaseSignInUrl(bad), false, String(bad));
+  }
+});
+
+test('browser sign-in: start opens the browser, the callback code is handed out once', async () => {
+  const { authBrowser } = require('../dist/gui/server');
+  const { SUPABASE_URL } = require('../dist/utils/constants');
+  const opened = [];
+  const realOpen = authBrowser.open;
+  authBrowser.open = async url => { opened.push(url); };
+  try {
+    const url = `${SUPABASE_URL}/auth/v1/authorize?provider=github&code_challenge=abc&code_challenge_method=s256`;
+    const refused = await request('POST', '/api/auth/start', { headers: authed(), body: { url: 'https://evil.example/' } });
+    assert.equal(refused.status, 400);
+    assert.deepEqual(opened, []);
+
+    const start = await request('POST', '/api/auth/start', { headers: authed(), body: { url } });
+    assert.equal(start.status, 200);
+    assert.deepEqual(opened, [url]);
+    assert.equal((await request('GET', '/api/auth/result', { headers: authed() })).json.state, 'waiting');
+
+    const page = await request('GET', '/auth/callback?code=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0');
+    assert.equal(page.status, 200);
+    assert.match(page.text, /signed in/);
+    const done = await request('GET', '/api/auth/result', { headers: authed() });
+    assert.deepEqual(done.json, { state: 'done', code: '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0' });
+    assert.equal((await request('GET', '/api/auth/result', { headers: authed() })).json.state, 'idle');
+
+    // a callback nobody is waiting for is ignored
+    const late = await request('GET', '/auth/callback?code=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0');
+    assert.equal(late.status, 400);
+    assert.equal((await request('GET', '/api/auth/result', { headers: authed() })).json.state, 'idle');
+  } finally {
+    authBrowser.open = realOpen;
+  }
+});
+
+test('browser sign-in: a cancelled or broken callback is reported, and cancel clears it', async () => {
+  const { authBrowser } = require('../dist/gui/server');
+  const { SUPABASE_URL } = require('../dist/utils/constants');
+  const realOpen = authBrowser.open;
+  authBrowser.open = async () => {};
+  try {
+    const url = `${SUPABASE_URL}/auth/v1/authorize?provider=github&code_challenge=abc&code_challenge_method=s256`;
+    await request('POST', '/api/auth/start', { headers: authed(), body: { url } });
+    const page = await request('GET', '/auth/callback?error=access_denied&error_description=The+user+denied+access');
+    assert.equal(page.status, 400);
+    assert.deepEqual((await request('GET', '/api/auth/result', { headers: authed() })).json, { state: 'failed', error: 'The user denied access' });
+
+    await request('POST', '/api/auth/start', { headers: authed(), body: { url } });
+    const odd = await request('GET', '/auth/callback?code=<script>');
+    assert.equal(odd.status, 400);
+    assert.equal((await request('GET', '/api/auth/result', { headers: authed() })).json.state, 'failed');
+
+    await request('POST', '/api/auth/start', { headers: authed(), body: { url } });
+    await request('POST', '/api/auth/cancel', { headers: authed() });
+    assert.equal((await request('GET', '/api/auth/result', { headers: authed() })).json.state, 'idle');
+  } finally {
+    authBrowser.open = realOpen;
+  }
+});
+
+test('browser sign-in routes need the session token', async () => {
+  assert.equal((await request('GET', '/api/auth/result')).status, 403);
+  assert.equal((await request('POST', '/api/auth/start', { body: { url: 'x' } })).status, 403);
+});
