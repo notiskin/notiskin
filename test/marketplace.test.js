@@ -134,6 +134,8 @@ test('sort and tag from the query string fall back safely', () => {
   assert.equal(mp.parseSort('rating'), 'rating');
   assert.equal(mp.parseSort('downloads'), 'downloads');
   for (const other of [undefined, '', 'newest', 'created_at.desc', ['rating']]) assert.equal(mp.parseSort(other), 'newest');
-  assert.equal(mp.parseTag('dark'), 'dark');
-  for (const bad of [undefined, '', 'Dark', 'evil', 'dark,light', ['dark']]) assert.equal(mp.parseTag(bad), null);
+  assert.deepEqual(mp.parseTags('dark'), ['dark']);
+  assert.deepEqual(mp.parseTags('dark,minimal,dark'), ['dark', 'minimal']);
+  assert.deepEqual(mp.parseTags('dark,evil,Light'), ['dark']);
+  for (const none of [undefined, '', 'evil', ['dark'], 5]) assert.deepEqual(mp.parseTags(none), []);
 });
