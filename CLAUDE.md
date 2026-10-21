@@ -61,7 +61,8 @@ src/
 
 supabase/
   functions/_shared/      — Auth verification (http.ts) and theme CSS allowlist (css.ts)
-  functions/*/index.ts    — Edge functions (submit, review, rate)
+  functions/*/handler.ts  — Edge function logic, exported as handle(req, db) so tests can call it. index.ts next to it is only Deno.serve
+  functions/*/handler_test.ts, _shared/*_test.ts, _shared/mock_db.ts — Deno tests with a fake database (`npm run test:functions`, needs Deno; CI job `functions`)
   migrations/             — SQL migrations (RLS policies)
 
 scripts/check-bundle.js   — electron-builder afterPack hook, fails the build if .env etc. get packaged
@@ -124,7 +125,7 @@ test/                     — node:test suites (npm test builds first)
 
 - Commit as the notiskin account: `git -c user.name=notiskin -c user.email=295556921+notiskin@users.noreply.github.com commit ...`
 - No `Co-Authored-By` lines and no mention of Claude in commits, PRs, or release notes.
-- Run `npm run lint`, `npm run typecheck`, and `npm test` before committing. `npm run test:integration` needs macOS (it launches Electron); CI runs it on a macOS runner.
+- Run `npm run lint`, `npm run typecheck`, and `npm test` before committing (`npm run test:functions` too when touching supabase/functions). `npm run test:integration` needs macOS (it launches Electron); CI runs it on a macOS runner.
 
 ---
 
