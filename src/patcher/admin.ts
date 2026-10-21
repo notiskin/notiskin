@@ -31,7 +31,7 @@ export function shellQuote(value: string): string {
 
 // the admin shell runs as root with a bare environment, SUDO_USER tells the CLI whose home and Notion to use
 export function buildAdminCommand(action: AdminAction, opts: AdminCommandOptions): string {
-  // the name also ends up in the sudoers rule, only accept what macOS allows for account names
+  // only accept what macOS allows for account names
   if (!USERNAME_PATTERN.test(opts.user)) throw new Error(`Unexpected user name: ${JSON.stringify(opts.user)}`);
   return [
     `SUDO_USER=${shellQuote(opts.user)}`,

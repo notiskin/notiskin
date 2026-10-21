@@ -38,6 +38,12 @@ If a plugin breaks Notion, open **Settings → Safe mode → Turn on**. Every th
 
 **Settings → Diagnostics** shows versions, install status, whether the injector is running, and recent log lines, with a **Copy** button for bug reports. Notion page links, IDs, and your Mac username are hidden before anything is shown or copied. From Terminal: `notiskin diagnostics`.
 
+### Notion updates
+
+Notion keeps updating itself while Notiskin is installed. An update replaces the whole Notion app, so Settings shows **Needs repair** afterwards: click **Repair** and restart Notion to bring your theme back. Versions of Notiskin up to 0.5 signed Notion in a way that made it refuse every update. Opening the new version re-signs Notion on its own, but a Notion that's already stuck on an old version needs one manual update: quit Notion, download it again from [notion.com/desktop](https://www.notion.com/desktop), drag it into Applications (choose **Replace**), then click **Install** in Notiskin. Your notes and login aren't affected; if macOS asks about "Notion Safe Storage", click **Always Allow**.
+
+Notion is moving its Mac app to SwiftUI, and Notiskin can only theme Notion's web-based (Electron) app. **Settings → Notion → Hold back a Notion Notiskin can't theme** is on by default: Notion keeps updating, but its updater refuses an update that isn't Electron, since there's no easy way back once it's installed. Turn it off to take every update (from Terminal: `notiskin block-native off`). It can't stop Notion switching parts of the current app to native from its servers. If a native Notion does get installed, Settings shows **Not supported yet** and Notiskin leaves Notion alone.
+
 ## Command line
 
 ```bash
@@ -54,19 +60,19 @@ npm run plugin -- enable <name>
 npm run plugin -- disable <name>    # reloads Notion's page, JS can't be un-run
 npm run plugin -- delete <name>
 node dist/cli/index.js safe-mode on   # pause all themes and plugins (off to resume)
+node dist/cli/index.js block-native off  # let Notion install updates Notiskin can't theme (on to hold them back)
 node dist/cli/index.js diagnostics    # the same report as Settings → Diagnostics
 ```
 
 ### Patching Notion from the command line (alternative to the app's Install button, touches /Applications/Notion.app)
 
 ```bash
-npm run patch               # wrapper, works without sudo when you own Notion.app (the usual case)
-sudo npm run patch          # same, plus a passwordless re-signing rule the watcher uses
-npm run watch:install       # LaunchAgent that repatches after Notion auto-updates
-npm run unpatch             # restores everything: binary, signature, LaunchAgent, helper
+npm run patch               # wrapper, no sudo needed when you own Notion.app (the usual case)
+npm run watch:install       # LaunchAgent that repatches after Notion updates itself
+npm run unpatch             # restores the binary, removes the LaunchAgent
 ```
 
-Terminal needs App Management (System Settings → Privacy & Security) to change Notion. `sudo` is only needed for the watcher: the sudoers rule it installs (`/etc/sudoers.d/notiskin`) only allows that one exact `codesign` command, so the watcher can re-sign Notion after an update without asking. Removing that rule needs root too: `sudo npm run unpatch`, or `sudo rm /etc/sudoers.d/notiskin`.
+Terminal needs App Management (System Settings → Privacy & Security) to change Notion. Notion keeps updating itself while Notiskin is installed; an update switches the theme off until you click Repair (or the watcher repatches). Older versions installed a sudoers rule for the watcher with `sudo npm run patch`; it isn't used any more, remove it with `sudo npm run unpatch` or `sudo rm /etc/sudoers.d/notiskin`.
 
 An admin password can't get past App Management: macOS checks which app asks, not which user, and a command run through the admin password dialog loses track of the app that started it. That's why the app installs as you instead of asking for a password.
 

@@ -34,7 +34,17 @@ import {
   writeItem,
   ItemType,
 } from '../core/library';
-import { appBundlePath, findNotionBinary, getNotionStatus, hasLegacyWrapper, NotionStatus } from '../patcher/index';
+import {
+  appBundlePath,
+  findNotionBinary,
+  getNotionStatus,
+  hasLegacyWrapper,
+  hasOldSignature,
+  NotionStatus,
+  watcherRunsThisCopy,
+  wrapperRunsOtherCopy,
+} from '../patcher/index';
+import { installWatcher, uninstallWatcher } from '../patcher/agent';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
 
@@ -205,8 +215,18 @@ function runCli(action: AdminAction): Promise<SetupResult> {
 export const notionSetup = {
   platform: (): NodeJS.Platform => process.platform,
   status: (): NotionStatus => getNotionStatus(),
-  // wrappers from before the DevTools pipe, which opened a debug port
-  legacy: (): boolean => hasLegacyWrapper(),
+  // wrappers from before the DevTools pipe, which opened a debug port, or a signature that blocked Notion's updates
+  legacy: (): boolean => hasLegacyWrapper() || hasOldSignature(),
+  // the downloaded app, its CLI sits in app.asar. Copies run from source leave Notion's setup to the installed app
+  packaged: (): boolean => CLI_SCRIPT.includes('.asar/'),
+  // Notion runs another copy of Notiskin, e.g. a source checkout or an older download
+  otherCopy: (): boolean => wrapperRunsOtherCopy(process.execPath, CLI_SCRIPT),
+  // the watcher's LaunchAgent runs this copy
+  watcherIsOurs: (): boolean => watcherRunsThisCopy() === true,
+  installWatcher: (): void => installWatcher(),
+  removeWatcher: (): void => {
+    uninstallWatcher();
+  },
   // in the desktop app execPath is Electron (run as Node by the env var), under `npm run gui` it is Node itself
   run: (action: AdminAction): Promise<SetupResult> => runCli(action),
   // open the bundle like the Dock does, so the wrapper runs and starts the injector
@@ -248,6 +268,7 @@ async function runNotionSetup(action: AdminAction, res: Response): Promise<void>
     const result = await notionSetup.run(action);
     logSetup(action, result.output);
     if (result.status === 'ok') {
+      if (action === 'patch') ensureWatcher();
       res.json({ ok: true, status: notionSetup.status() });
       return;
     }
@@ -265,21 +286,47 @@ async function runNotionSetup(action: AdminAction, res: Response): Promise<void>
   }
 }
 
-// older versions opened a debug port any program on the Mac could use. The app replaces that wrapper on start,
-// the same as clicking Repair, and the port is gone the next time Notion starts. If it fails (App Management
-// was turned off, say), Settings still shows Repair. Never restarts Notion
+// older versions opened a debug port any program on the Mac could use, and signed Notion in a way that made it
+// refuse its own updates. The app fixes both on start, the same as clicking Repair: the port is gone the next time
+// Notion starts and the next Notion update installs. If it fails (App Management was turned off, say), Settings
+// still shows Repair for an old wrapper. Never restarts Notion
 export async function repairLegacyWrapper(): Promise<boolean> {
   if (notionSetup.platform() !== 'darwin' || notionSetupBusy || !notionSetup.legacy()) return false;
   notionSetupBusy = true;
   try {
     const result = await notionSetup.run('patch');
-    logSetup('patch', `automatic repair of an old wrapper: ${result.status}\n${result.output}`);
+    logSetup('patch', `automatic repair of an old install: ${result.status}\n${result.output}`);
     return result.status === 'ok';
   } catch (err) {
-    logSetup('patch', `automatic repair of an old wrapper failed: ${errorMessage(err)}`);
+    logSetup('patch', `automatic repair of an old install failed: ${errorMessage(err)}`);
     return false;
   } finally {
     notionSetupBusy = false;
+  }
+}
+
+// the watcher repairs Notion after its updates. It's a background process that runs even when Notion and Notiskin
+// are closed, so the app only keeps one while "Repair automatically" is on (off by default). Then it's pointed at this
+// app, and only when Notion runs this copy: a Notion installed from another copy is the user's call (Settings offers
+// Repair). With it off the app removes its own watcher (0.7.0 set one up for everyone), never one another copy made.
+// Runs after Install / Repair, on start, and when the switch changes. Never touches Notion itself, a failure only
+// shows in the log. True when it changed something
+export function ensureWatcher(): boolean {
+  try {
+    if (notionSetup.platform() !== 'darwin' || !notionSetup.packaged()) return false;
+    if (!readConfig().autoRepair) {
+      if (!notionSetup.watcherIsOurs()) return false;
+      notionSetup.removeWatcher();
+      logSetup('patch', 'watcher removed, repairing automatically is off');
+      return true;
+    }
+    if (notionSetup.status() !== 'installed' || notionSetup.otherCopy() || notionSetup.watcherIsOurs()) return false;
+    notionSetup.installWatcher();
+    logSetup('patch', 'watcher set up to repair Notion after its updates');
+    return true;
+  } catch (err) {
+    logSetup('patch', `could not set up the watcher: ${errorMessage(err)}`);
+    return false;
   }
 }
 
@@ -335,7 +382,9 @@ const debugLogLimiter = rateLimit({
 // served from the installed package instead of a CDN, so the version is pinned by package-lock
 const SUPABASE_UMD = require.resolve('@supabase/supabase-js/dist/umd/supabase.js');
 app.get('/vendor/supabase.js', (_req, res) => {
-  res.type('application/javascript').sendFile(SUPABASE_UMD);
+  // a fixed path, never from the request. Running from a folder like .claude/worktrees would otherwise 404,
+  // because send refuses any path with a dot folder in it
+  res.type('application/javascript').sendFile(SUPABASE_UMD, { dotfiles: 'allow' });
 });
 
 app.get('/', sendPage('themes.html'));
@@ -403,10 +452,66 @@ app.get('/api/diagnostics', async (_req, res) => {
 
 app.get('/api/notion/status', (_req, res) => {
   if (!requireMac(res)) return;
-  res.json({ status: notionSetup.status(), notionRunning: isNotionRunning() });
+  let status = notionSetup.status();
+  // offered as a Repair, which points Notion at this copy. Never done on its own, the other copy may be on purpose
+  const otherCopy = status === 'installed' && notionSetup.packaged() && notionSetup.otherCopy();
+  if (otherCopy) status = 'needs-repair';
+  const config = readConfig();
+  res.json({
+    status,
+    otherCopy,
+    notionRunning: isNotionRunning(),
+    blockNative: config.blockNativeNotion,
+    // only the packaged app keeps a watcher, copies run from source use `npm run watch:install`
+    autoRepair: config.autoRepair,
+    autoRepairAvailable: notionSetup.packaged(),
+  });
+});
+
+// the setting lives in Notion's signature, so a patched Notion is re-signed (the same CLI patch as Repair).
+// Saved either way: an unpatched Notion gets it at Install, and if signing fails the app retries on its next start
+app.post('/api/notion/block-native', async (req, res) => {
+  if (!requireMac(res)) return;
+  const on = (req.body as { on?: unknown })?.on;
+  if (typeof on !== 'boolean') return res.status(400).json({ ok: false, error: 'on must be true or false' });
+  writeConfig({ ...readConfig(), blockNativeNotion: on });
+  if (notionSetup.status() !== 'installed') return res.json({ ok: true, blockNative: on, applied: false });
+  if (notionSetupBusy) return res.status(409).json({ ok: false, blockNative: on, error: 'Already working on it.' });
+  notionSetupBusy = true;
+  try {
+    const result = await notionSetup.run('patch');
+    logSetup('patch', `block native Notion ${on ? 'on' : 'off'}: ${result.status}\n${result.output}`);
+    if (result.status === 'ok') {
+      ensureWatcher();
+      return res.json({ ok: true, blockNative: on, applied: true });
+    }
+    res.json({
+      ok: false,
+      blockNative: on,
+      error: result.message,
+      reason: setupFailureReason(result.output),
+      appName: appManagementName(),
+    });
+  } catch (err) {
+    res.json({ ok: false, blockNative: on, error: errorMessage(err) });
+  } finally {
+    notionSetupBusy = false;
+  }
 });
 
 // nothing from the request goes into the command, it is built from this process's own paths
+// sets up or removes the watcher right away. Saved either way: with Notion not installed from this app yet, the
+// watcher is set up at Install
+app.post('/api/notion/auto-repair', (req, res) => {
+  if (!requireMac(res)) return;
+  const on = (req.body as { on?: unknown })?.on;
+  if (typeof on !== 'boolean') return res.status(400).json({ ok: false, error: 'on must be true or false' });
+  if (notionSetupBusy) return res.status(409).json({ ok: false, error: 'Already working on it.' });
+  writeConfig({ ...readConfig(), autoRepair: on });
+  ensureWatcher();
+  res.json({ ok: true, autoRepair: on, running: notionSetup.watcherIsOurs() });
+});
+
 app.post('/api/notion/install', (_req, res) => runNotionSetup('patch', res));
 app.post('/api/notion/uninstall', (_req, res) => runNotionSetup('unpatch', res));
 
@@ -641,6 +746,13 @@ app.delete('/api/submissions/:id', async (req, res) => {
 app.get('/api/update-status', (_req, res) => {
   const updater = loadUpdater();
   res.json(updater ? updater.getUpdateStatus() : { state: 'up-to-date' });
+});
+
+app.post('/api/update/check', (_req, res) => {
+  const updater = loadUpdater();
+  if (!updater) return res.status(400).json({ ok: false, error: 'Updates are only available in the desktop app' });
+  updater.checkForUpdates();
+  res.json({ ok: true });
 });
 
 app.post('/api/update/install', (_req, res) => {

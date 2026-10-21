@@ -131,6 +131,7 @@
     .update-badge.downloading { background: var(--info-soft); color: var(--info); }
     .update-badge.ready       { background: var(--info-soft); color: var(--info); }
     .update-badge.error       { background: var(--danger-soft); color: var(--danger); }
+    .update-badge.checking    { background: var(--surface); color: var(--text-2); }
     .update-badge.neutral     { background: var(--surface); color: var(--text-2); }
 
     .diagnostics-report {
@@ -210,7 +211,7 @@
         color: var(--info);
       ">
         <span id="banner-text"></span>
-        <a href="/settings.html" style="color: var(--info); text-decoration: underline; white-space: nowrap;">Install</a>
+        <button onclick="openReleasesPage()" style="background: none; border: none; color: var(--info); text-decoration: underline; white-space: nowrap; cursor: pointer; font-size: 11px; padding: 0;">Download</button>
       </div>
       <nav class="sidebar-nav">
         <a href="/" class="sidebar-link">Themes</a>
@@ -236,6 +237,20 @@
             <button class="btn-cache" id="notion-settings-btn" onclick="openAppManagement()" style="display:none; margin-top: 8px">Open App Management</button>
           </div>
           <button class="btn-install" id="notion-btn" onclick="runNotionAction()" style="display:none"></button>
+        </div>
+        <div class="settings-row" id="native-row" style="display:none">
+          <div>
+            <div class="settings-row-label">Hold back a Notion Notiskin can't theme <span id="native-badge" class="update-badge neutral">On</span></div>
+            <div class="settings-row-sub" id="native-sub"></div>
+          </div>
+          <button class="btn-install" id="native-btn" onclick="toggleBlockNative()">Turn off</button>
+        </div>
+        <div class="settings-row" id="repair-row" style="display:none">
+          <div>
+            <div class="settings-row-label">Repair automatically after Notion updates <span id="repair-badge" class="update-badge neutral">Off</span></div>
+            <div class="settings-row-sub" id="repair-sub"></div>
+          </div>
+          <button class="btn-install" id="repair-btn" onclick="toggleAutoRepair()">Turn on</button>
         </div>
         <div class="settings-row" id="notion-restart-row" style="display:none">
           <div>
@@ -275,15 +290,18 @@
             <div class="settings-row-label">Current version</div>
             <div class="settings-row-sub" id="current-version">Notiskin 0.1.0</div>
           </div>
-          <span id="update-badge" class="update-badge up-to-date">Checking...</span>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span id="update-badge" class="update-badge checking">Checking...</span>
+            <button class="btn-cache" id="update-check-btn" onclick="checkForUpdates()" style="display:none">Check now</button>
+          </div>
         </div>
 
         <div class="settings-row" id="install-row" style="display:none">
           <div>
-            <div class="settings-row-label">Update ready</div>
-            <div class="settings-row-sub" id="install-version-label"></div>
+            <div class="settings-row-label" id="install-version-label"></div>
+            <div class="settings-row-sub">Notiskin can't install updates by itself yet. Download it, then drag Notiskin into Applications to replace this one. If macOS says it's damaged, follow the install steps in the README.</div>
           </div>
-          <button class="btn-install" onclick="openReleasesPage()">Download Update</button>
+          <button class="btn-install" onclick="openReleasesPage()">Download</button>
         </div>
       </div>
 
@@ -457,6 +475,15 @@
         badge: 'Needs repair', tone: 'available', button: 'Repair', action: 'install',
         sub: 'A Notion update or moving Notiskin switched this off. Repair it, then restart Notion.',
       },
+      // installed, but by another copy of Notiskin (a source checkout or an older download)
+      'other-copy': {
+        badge: 'Needs repair', tone: 'available', button: 'Repair', action: 'install',
+        sub: 'Notion is set up to use another copy of Notiskin. Repair to switch it to this one, then restart Notion.',
+      },
+      'unsupported': {
+        badge: 'Not supported yet', tone: 'neutral', button: null,
+        sub: "This version of Notion is built differently, so Notiskin can't theme it yet. Notion itself works as normal.",
+      },
       'notion-missing': {
         badge: 'Notion not found', tone: 'error', button: null,
         sub: 'Put Notion in your Applications folder, then come back here.',
@@ -501,8 +528,8 @@
       showNotif('Open System Settings → Privacy & Security → App Management');
     }
 
-    function renderNotion(status, unavailableReason) {
-      notionState = NOTION_STATES[status] ?? null;
+    function renderNotion(status, unavailableReason, otherCopy = false) {
+      notionState = NOTION_STATES[otherCopy ? 'other-copy' : status] ?? null;
       const badge = document.getElementById('notion-badge');
       const sub = document.getElementById('notion-sub');
       const btn = document.getElementById('notion-btn');
@@ -526,12 +553,114 @@
       try {
         const res = await fetch('/api/notion/status');
         const data = await res.json();
-        renderNotion(data.status, data.error);
+        renderNotion(data.status, data.error, data.otherCopy === true);
+        renderBlockNative(data);
+        renderAutoRepair(data);
         return data;
       } catch {
         renderNotion(null, 'Could not check Notion.');
+        renderBlockNative(null);
+        renderAutoRepair(null);
         return null;
       }
+    }
+
+    // Notion is moving its Mac app to SwiftUI. While this is on, Notion's updater refuses an update that isn't
+    // Electron, because Notiskin can't theme that and there's no easy way back to the old app
+    let blockNativeOn = true;
+    let nativeBusy = false;
+
+    function renderBlockNative(data) {
+      const row = document.getElementById('native-row');
+      // only useful while Notion is still the Electron app Notiskin themes
+      const relevant = data && typeof data.blockNative === 'boolean' && ['not-installed', 'installed', 'needs-repair'].includes(data.status);
+      row.style.display = relevant ? 'flex' : 'none';
+      if (!relevant || nativeBusy) return;
+      blockNativeOn = data.blockNative;
+      const badge = document.getElementById('native-badge');
+      badge.className = `update-badge ${blockNativeOn ? 'up-to-date' : 'neutral'}`;
+      badge.textContent = blockNativeOn ? 'On' : 'Off';
+      document.getElementById('native-sub').textContent = blockNativeOn
+        ? 'Notion keeps updating, but refuses an update that Notiskin can\'t theme, like the SwiftUI Notion that\'s on its way. Once that\'s installed there\'s no easy way back.'
+        : 'Notion installs every update, including a SwiftUI Notion that Notiskin can\'t theme. Once that\'s installed there\'s no easy way back.';
+      const btn = document.getElementById('native-btn');
+      btn.textContent = blockNativeOn ? 'Turn off' : 'Turn on';
+      btn.disabled = notionBusy;
+    }
+
+    async function toggleBlockNative() {
+      if (nativeBusy || notionBusy) return;
+      const on = !blockNativeOn;
+      const btn = document.getElementById('native-btn');
+      nativeBusy = true;
+      btn.disabled = true;
+      btn.textContent = on ? 'Turning on...' : 'Turning off...';
+      showNotionError('');
+      let data = null;
+      try {
+        const res = await fetch('/api/notion/block-native', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on }),
+        });
+        data = await res.json();
+      } catch {}
+      nativeBusy = false;
+      if (data?.ok) {
+        showNotif(data.applied ? 'Saved, applies after Notion restarts' : 'Saved');
+      } else if (data && typeof data.blockNative === 'boolean') {
+        // saved, but Notion couldn't be re-signed yet. The app retries when it next starts
+        const failure = notionFailure('install', data);
+        showNotionError(`Saved, but Notion wasn't re-signed yet. ${failure.message}`, { settingsButton: failure.settingsButton });
+      } else {
+        showNotif('Could not change this setting');
+      }
+      await loadNotionStatus();
+    }
+
+    // the watcher: a background process that repairs Notion after its updates, even with Notiskin closed. Off by default
+    let autoRepairOn = false;
+    let repairBusy = false;
+
+    function renderAutoRepair(data) {
+      const row = document.getElementById('repair-row');
+      const relevant = data && data.autoRepairAvailable === true && typeof data.autoRepair === 'boolean' &&
+        ['not-installed', 'installed', 'needs-repair'].includes(data.status);
+      row.style.display = relevant ? 'flex' : 'none';
+      if (!relevant || repairBusy) return;
+      autoRepairOn = data.autoRepair;
+      const badge = document.getElementById('repair-badge');
+      badge.className = `update-badge ${autoRepairOn ? 'up-to-date' : 'neutral'}`;
+      badge.textContent = autoRepairOn ? 'On' : 'Off';
+      document.getElementById('repair-sub').textContent = autoRepairOn
+        ? 'A small helper runs in the background, even when Notion and Notiskin are closed, and brings your theme back after Notion updates.'
+        : 'Nothing runs in the background. After a Notion update, open Notiskin and click Repair.';
+      const btn = document.getElementById('repair-btn');
+      btn.textContent = autoRepairOn ? 'Turn off' : 'Turn on';
+      btn.disabled = notionBusy;
+    }
+
+    async function toggleAutoRepair() {
+      if (repairBusy || notionBusy) return;
+      const on = !autoRepairOn;
+      const btn = document.getElementById('repair-btn');
+      repairBusy = true;
+      btn.disabled = true;
+      btn.textContent = on ? 'Turning on...' : 'Turning off...';
+      let data = null;
+      try {
+        const res = await fetch('/api/notion/auto-repair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on }),
+        });
+        data = await res.json();
+      } catch {}
+      repairBusy = false;
+      if (!data?.ok) showNotif('Could not change this setting');
+      else if (on && !data.running) showNotif('Saved, starts once Notion is installed from this app');
+      else showNotif(on ? 'Turned on' : 'Turned off, nothing runs in the background');
+      await loadNotionStatus();
     }
 
     function showRestartOffer(message) {
@@ -685,11 +814,12 @@
     }
 
     const stateLabels = {
+      'checking':    'Checking...',
       'up-to-date':  'Up to date',
-      'available':   'Downloading...',
+      'available':   'Update available',
       'downloading': 'Downloading...',
       'ready':       'Ready to install',
-      'error':       'Update error',
+      'error':       "Couldn't check",
     };
 
     fetch('/api/version')
@@ -715,18 +845,34 @@
 
       badge.className = `update-badge ${status.state}`;
       badge.textContent = stateLabels[status.state] ?? status.state;
+      document.getElementById('update-check-btn').style.display = status.state === 'checking' ? 'none' : '';
 
-      if (status.state === 'ready') {
+      // installed by hand until Developer ID signing, see src/updater/index.ts
+      if (status.state === 'available' || status.state === 'ready') {
         installRow.style.display = 'flex';
-        installLabel.textContent = `Version ${status.version} downloaded`;
+        installLabel.textContent = `Notiskin ${status.version} is out`;
         if (banner && bannerText) {
-          bannerText.textContent = `Notiskin ${status.version} ready`;
+          bannerText.textContent = `Notiskin ${status.version} is out`;
           banner.style.display = 'flex';
         }
       } else {
         installRow.style.display = 'none';
         if (banner) banner.style.display = 'none';
       }
+    }
+
+    async function checkForUpdates() {
+      applyStatus({ state: 'checking' });
+      try {
+        await fetch('/api/update/check', { method: 'POST' });
+      } catch {}
+      // the check takes a moment, the answer comes from the status
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const status = await fetch('/api/update-status').then(r => r.json()).catch(() => null);
+        if (status && status.state !== 'checking') return applyStatus(status);
+      }
+      loadUpdateStatus();
     }
 
     async function installUpdate() {

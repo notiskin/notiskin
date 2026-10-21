@@ -1,16 +1,17 @@
 // wrapper text, shell quoting, and status detection, all against temp folders that imitate Notion.app
-const { dataDir } = require('./helpers');
+const { dataDir, infoPlist, makeFramework, makeElectronFramework } = require('./helpers');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('child_process');
-const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, readdirSync, statSync } = require('fs');
-const { join } = require('path');
+const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, readdirSync, statSync, symlinkSync } = require('fs');
+const { join, basename } = require('path');
 const { tmpdir } = require('os');
 
 // unpatch looks for a LaunchAgent in the home folder, keep it away from the real one
 process.env.HOME = mkdtempSync(join(tmpdir(), 'notiskin-home-'));
 
 const patcher = require('../dist/patcher/index');
+const { readConfig, writeConfig } = require('../dist/utils/config');
 const admin = require('../dist/patcher/admin');
 
 const TRICKY = [
@@ -37,6 +38,8 @@ function fakeNotionApp({ binary = '#!/bin/sh\necho real-notion\n' } = {}) {
   const macos = join(app, 'Contents', 'MacOS');
   mkdirSync(macos, { recursive: true });
   executable(join(macos, 'Notion'), binary);
+  // what tells an Electron Notion apart from a native one
+  mkdirSync(join(app, 'Contents', 'Frameworks', 'Electron Framework.framework'), { recursive: true });
   return { app, macos, notion: join(macos, 'Notion'), real: join(macos, 'Notion.real') };
 }
 
@@ -238,6 +241,18 @@ test('status: not-installed, installed, and needs-repair', () => {
   });
 });
 
+test('a Notion without Electron is unsupported and patch leaves it alone', () => {
+  const original = 'x'.repeat(4096);
+  const { app, notion, real } = fakeNotionApp({ binary: original });
+  rmSync(join(app, 'Contents', 'Frameworks'), { recursive: true });
+  withNotionApp(app, () => {
+    assert.equal(patcher.getNotionStatus(), 'unsupported');
+    assert.throws(() => patcher.patchNotion('/usr/local/bin/node', '/x/index.js'), { message: patcher.UNSUPPORTED_MESSAGE });
+    assert.equal(readFileSync(notion, 'utf-8'), original);
+    assert.ok(!existsSync(real));
+  });
+});
+
 test('status: a CLI inside app.asar counts as present when the archive exists', () => {
   const { app, notion, real } = fakeNotionApp();
   const resources = tempDir('notiskin-resources-');
@@ -249,6 +264,46 @@ test('status: a CLI inside app.asar counts as present when the archive exists', 
   withNotionApp(app, () => assert.equal(patcher.getNotionStatus(), 'installed'));
   rmSync(join(resources, 'app.asar'));
   withNotionApp(app, () => assert.equal(patcher.getNotionStatus(), 'needs-repair'));
+});
+
+test('status: a wrapper that runs another copy of Notiskin is noticed, but still counts as installed', () => {
+  const { app, notion, real } = fakeNotionApp();
+  writeFileSync(real, '');
+  const copy = () => {
+    const resources = tempDir('notiskin-copy-');
+    writeFileSync(join(resources, 'notiskin'), '');
+    writeFileSync(join(resources, 'app.asar'), '');
+    return { program: join(resources, 'notiskin'), cli: join(resources, 'app.asar', 'dist', 'cli', 'index.js'), resources };
+  };
+  const installed = copy();
+  const other = copy();
+
+  withNotionApp(app, () => {
+    // nothing installed yet, no wrapper to compare
+    assert.equal(patcher.wrapperRunsOtherCopy(installed.program, installed.cli), false);
+
+    writeFileSync(notion, patcher.makeWrapperScript(installed.program, installed.cli, { appMode: true }));
+    assert.equal(patcher.getNotionStatus(), 'installed');
+    assert.equal(patcher.wrapperRunsOtherCopy(installed.program, installed.cli), false);
+    // the same copy spelled differently, through a symlink or with ..
+    const link = join(tempDir('notiskin-link-'), 'copy');
+    symlinkSync(installed.resources, link);
+    assert.equal(patcher.wrapperRunsOtherCopy(join(link, 'notiskin'), join(link, 'app.asar', 'dist', 'cli', 'index.js')), false);
+    assert.equal(patcher.wrapperRunsOtherCopy(join(installed.resources, '..', basename(installed.resources), 'notiskin'), installed.cli), false);
+
+    // another copy that still exists: status alone can't tell, the app asks separately
+    assert.equal(patcher.getNotionStatus(), 'installed');
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, other.cli), true);
+    assert.equal(patcher.wrapperRunsOtherCopy(installed.program, other.cli), true);
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, installed.cli), true);
+
+    // an old port wrapper is a repair on its own, not another copy
+    writeFileSync(notion, LEGACY_APP_WRAPPER);
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, other.cli), false);
+  });
+  withNotionApp(join(tempDir('notiskin-empty-'), 'Notion.app'), () => {
+    assert.equal(patcher.wrapperRunsOtherCopy(other.program, other.cli), false);
+  });
 });
 
 // as root, patch would try to install a sudoers rule, only run this as a normal user
@@ -284,10 +339,187 @@ test('patch, repair a stale wrapper, and unpatch a temp Notion.app', { skip: roo
       assert.ok(!readFileSync(notion, 'utf-8').includes('--remote-debugging-port'));
       assert.equal(readFileSync(real, 'utf-8'), original);
 
+      // Notion's updater swaps in a whole new Notion.app: no wrapper and no Notion.real, but it still needs a repair
+      rmSync(real);
+      writeFileSync(notion, original);
+      assert.equal(patcher.getNotionStatus(), 'needs-repair');
+      patcher.patchNotion(program, join(tools, 'index.js'), { appMode: true });
+      assert.equal(patcher.getNotionStatus(), 'installed');
+
       patcher.unpatchNotion();
       assert.equal(patcher.getNotionStatus(), 'not-installed');
       assert.equal(readFileSync(notion, 'utf-8'), original);
       assert.ok(!existsSync(real));
+    });
+  } finally {
+    for (const [k, fn] of silence) console[k] = fn;
+  }
+});
+
+function codesign(...args) {
+  return execFileSync('codesign', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+// codesign -dv writes to stderr
+function signatureInfo(path) {
+  return execFileSync('sh', ['-c', 'codesign -dvvv "$1" 2>&1', 'sh', path], { encoding: 'utf-8' });
+}
+
+function designated(path) {
+  // a script app also lists a host requirement, only the designated one matters
+  return codesign('-d', '-r-', path).match(/^(?:# )?designated => (.*)$/m)[1];
+}
+
+function meets(path, requirement) {
+  try {
+    codesign('--verify', `-R=${requirement}`, path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// a signed Notion.app look-alike: a real program as Notion, and a real Electron Framework.framework inside signed on
+// its own, standing in for Notion's frameworks and helpers. Notion itself is never used
+function signedNotionApp(program) {
+  const { app, macos, notion, real } = fakeNotionApp();
+  writeFileSync(join(app, 'Contents', 'Info.plist'), infoPlist('notion.id', 'Notion'));
+  execFileSync('cp', [program, notion]);
+  const frameworks = join(app, 'Contents', 'Frameworks');
+  rmSync(frameworks, { recursive: true });
+  const framework = makeElectronFramework(frameworks);
+  codesign('--force', '--sign', '-', app);
+  return { app, macos, notion, real, framework };
+}
+
+const signSkip = rootSkip || (process.platform !== 'darwin' && 'needs macOS codesign');
+
+test('the patched Notion still accepts Notion-signed updates, and meets its own requirement', { skip: signSkip }, t => {
+  // a tiny real program, the patched Notion has to be something macOS will actually run
+  const build = tempDir('notiskin-cc-');
+  const program = join(build, 'notion');
+  try {
+    execFileSync('cc', ['-x', 'c', '-o', program, '-'], { input: 'int main(void) { return 0; }\n', stdio: ['pipe', 'ignore', 'ignore'] });
+  } catch {
+    return t.skip('no C compiler');
+  }
+  const { app, notion, real, framework } = signedNotionApp(program);
+  const frameworkBefore = signatureInfo(framework).match(/CDHash=\w+/)[0];
+  const silence = ['log', 'warn'].map(k => [k, console[k]]);
+  for (const [k] of silence) console[k] = () => {};
+  try {
+    withNotionApp(app, () => {
+      // the plain ad hoc signing older versions did, which made Notion refuse every update
+      codesign('--force', '--deep', '--sign', '-', app);
+      assert.match(designated(app), /^cdhash /);
+
+      patcher.patchNotion(join(build, 'gone'), join(build, 'gone.js'));
+      assert.equal(patcher.getNotionStatus(), 'needs-repair'); // the made-up CLI paths don't exist
+      for (const path of [real, app]) {
+        const requirement = designated(path);
+        // a real Notion update is signed by Notion's team and passes the first half
+        assert.ok(requirement.includes('certificate leaf[subject.OU] = LBQJ96FQ8D'), requirement);
+        assert.ok(requirement.includes('identifier "notion.id"'), requirement);
+        // the keychain and privacy permissions need the patched Notion to meet its own requirement
+        assert.ok(meets(path, requirement), `${path} meets its own requirement`);
+      }
+      assert.doesNotThrow(() => codesign('--verify', '--deep', '--strict', app));
+      assert.equal(patcher.hasOldSignature(), false);
+
+      // an update that isn't Notion's (plain ad hoc) is still turned away
+      const other = signedNotionApp(program);
+      assert.ok(!meets(other.app, designated(real)));
+
+      // the wrapper starts the re-signed program, and the framework inside was left alone
+      execFileSync(notion, [], { stdio: 'ignore' });
+      assert.equal(signatureInfo(framework).match(/CDHash=\w+/)[0], frameworkBefore);
+
+      // an install signed the old way gets re-signed by the next patch, the wrapper itself unchanged
+      codesign('--force', '--deep', '--sign', '-', app);
+      assert.equal(patcher.hasOldSignature(), true);
+      const wrapper = readFileSync(notion, 'utf-8');
+      patcher.patchNotion(join(build, 'gone'), join(build, 'gone.js'));
+      assert.equal(readFileSync(notion, 'utf-8'), wrapper);
+      assert.equal(patcher.hasOldSignature(), false);
+
+      // on by default: the Notion half also asks for an Electron app. Turning it off re-signs without it
+      assert.ok(designated(real).includes('info[NSPrincipalClass] = AtomApplication'));
+      writeConfig({ ...readConfig(), blockNativeNotion: false });
+      assert.equal(patcher.hasOldSignature(), true, 'a changed setting counts as an old signature');
+      assert.equal(patcher.resignNotion(), 'signed');
+      assert.ok(!designated(real).includes('AtomApplication'));
+      assert.ok(meets(real, designated(real)));
+      assert.equal(patcher.hasOldSignature(), false);
+      writeConfig({ ...readConfig(), blockNativeNotion: true });
+      assert.equal(patcher.resignNotion(), 'signed');
+      assert.ok(designated(real).includes('AtomApplication'));
+
+      // uninstalling holds nothing back, Notion installs every update afterwards
+      patcher.unpatchNotion();
+      assert.ok(!designated(app).includes('AtomApplication'));
+      assert.equal(patcher.resignNotion(), 'not-patched');
+      assert.ok(designated(app).includes('certificate leaf[subject.OU] = LBQJ96FQ8D'));
+      assert.ok(meets(app, designated(app)));
+      assert.doesNotThrow(() => codesign('--verify', '--deep', '--strict', app));
+      execFileSync(notion, [], { stdio: 'ignore' });
+    });
+  } finally {
+    for (const [k, fn] of silence) console[k] = fn;
+  }
+});
+
+// an update can't be signed by Notion here, so swap Notion's half for one ad hoc test apps can meet and check the
+// Electron part on its own: an app without Electron's principal class is refused while the switch is on
+test('the hold-back requirement refuses an app that is not Electron', { skip: signSkip }, () => {
+  const testable = on => patcher.signingRequirement(on).replace(patcher.NOTION_REQUIREMENT, 'identifier "notion.id"').replace(/^designated => /, '');
+  const appWith = principal => {
+    const { app } = fakeNotionApp();
+    rmSync(join(app, 'Contents', 'Frameworks'), { recursive: true });
+    const plist = infoPlist('notion.id', 'Notion').replace('</dict>', principal ? `<key>NSPrincipalClass</key><string>${principal}</string></dict>` : '</dict>');
+    writeFileSync(join(app, 'Contents', 'Info.plist'), plist);
+    codesign('--force', '--sign', '-', app);
+    return app;
+  };
+  const electron = appWith('AtomApplication');
+  const native = appWith('NSApplication');
+  assert.ok(meets(electron, testable(true)));
+  assert.ok(!meets(native, testable(true)));
+  assert.ok(meets(native, testable(false)));
+});
+
+// older versions signed Notion with --deep, which skipped ShipIt (Notion's installer), so it kept Notion's team and
+// couldn't load the ad hoc Mantle next to it: updates were accepted and never installed. Node's own binary is
+// Developer ID signed, so a copy of it plays a ShipIt that still has a team
+test('ShipIt is signed to match the libraries next to it', { skip: signSkip }, t => {
+  if (!/TeamIdentifier=(?!not set)/.test(signatureInfo(process.execPath))) {
+    return t.skip('this Node binary has no team signature');
+  }
+  const build = tempDir('notiskin-cc-');
+  const program = join(build, 'notion');
+  try {
+    execFileSync('cc', ['-x', 'c', '-o', program, '-'], { input: 'int main(void) { return 0; }\n', stdio: ['pipe', 'ignore', 'ignore'] });
+  } catch {
+    return t.skip('no C compiler');
+  }
+  const { app, notion } = signedNotionApp(program);
+  const frameworks = join(app, 'Contents', 'Frameworks');
+  makeFramework(frameworks, 'Mantle');
+  const squirrel = makeFramework(frameworks, 'Squirrel', { ShipIt: process.execPath });
+  const shipIt = join(squirrel, 'Versions', 'A', 'Resources', 'ShipIt');
+  codesign('--force', '--sign', '-', app);
+  assert.match(signatureInfo(shipIt), /TeamIdentifier=(?!not set)/);
+  const silence = ['log', 'warn'].map(k => [k, console[k]]);
+  for (const [k] of silence) console[k] = () => {};
+  try {
+    withNotionApp(app, () => {
+      assert.equal(patcher.shipItMismatch(notion), true);
+      assert.equal(patcher.hasCurrentSignature(notion), false, 'a ShipIt that cannot start counts as an old signature');
+
+      patcher.patchNotion(join(build, 'gone'), join(build, 'gone.js'));
+      assert.equal(patcher.shipItMismatch(notion), false);
+      assert.match(signatureInfo(shipIt), /TeamIdentifier=not set/);
+      assert.doesNotThrow(() => codesign('--verify', '--deep', '--strict', app));
+      assert.equal(patcher.hasOldSignature(), false);
     });
   } finally {
     for (const [k, fn] of silence) console[k] = fn;

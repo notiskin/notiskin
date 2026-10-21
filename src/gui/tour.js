@@ -80,6 +80,20 @@
     },
     {
       page: '/settings.html',
+      target: row('native-btn'),
+      fit: 'content',
+      title: 'Notion updates',
+      text: 'Notion is rebuilding its Mac app, and Notiskin can\'t theme the new one. While this is on, Notion keeps updating but holds that version back, since there\'s no easy way back once it\'s installed.',
+    },
+    {
+      page: '/settings.html',
+      target: row('repair-btn'),
+      fit: 'content',
+      title: 'Repairing after Notion updates',
+      text: 'A Notion update switches Notiskin off until you click Repair. Turn this on and a small helper runs in the background to do that for you. It\'s off by default, so nothing runs when Notiskin is closed.',
+    },
+    {
+      page: '/settings.html',
       target: row('notion-btn'),
       fit: 'content',
       title: 'Install into Notion',
