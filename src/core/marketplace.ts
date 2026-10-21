@@ -13,8 +13,11 @@ export function parseSort(raw: unknown): MarketplaceSort {
   return raw === 'rating' || raw === 'downloads' ? raw : 'newest';
 }
 
-export function parseTag(raw: unknown): string | null {
-  return typeof raw === 'string' && (MARKETPLACE_TAGS as readonly string[]).includes(raw) ? raw : null;
+// "dark,minimal" -> ['dark', 'minimal']; unknown tags are dropped, so Browse never sends a bad filter
+export function parseTags(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  const known = raw.split(',').filter(t => (MARKETPLACE_TAGS as readonly string[]).includes(t));
+  return [...new Set(known)];
 }
 
 export interface MarketplaceItem {

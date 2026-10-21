@@ -53,7 +53,7 @@ import {
   MarketplaceItem,
   MarketplaceSort,
   parseSort,
-  parseTag,
+  parseTags,
   updateFromMarketplace,
 } from '../core/marketplace';
 import { installedEntry } from '../core/installed';
@@ -556,23 +556,24 @@ app.get('/api/state', (_req, res) => {
   });
 });
 
-async function searchMarketplace(table: 'themes' | 'plugins', q: string, sort: MarketplaceSort, tag: string | null) {
+async function searchMarketplace(table: 'themes' | 'plugins', q: string, sort: MarketplaceSort, tags: string[]) {
   let query = publicSupabase().from(table).select('*').eq('status', 'approved');
   if (q) query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%,author_github.ilike.%${q}%`);
-  if (tag) query = query.contains('tags', [tag]);
+  // items that have every picked tag
+  if (tags.length) query = query.contains('tags', tags);
   if (sort === 'rating') query = query.order('avg_rating', { ascending: false }).order('rating_count', { ascending: false });
   if (sort === 'downloads') query = query.order('download_count', { ascending: false });
   return query.order('created_at', { ascending: false }).limit(200);
 }
 
 app.get('/api/themes/search', async (req, res) => {
-  const { data, error } = await searchMarketplace('themes', sanitizeSearch(req.query.q), parseSort(req.query.sort), parseTag(req.query.tag));
+  const { data, error } = await searchMarketplace('themes', sanitizeSearch(req.query.q), parseSort(req.query.sort), parseTags(req.query.tags));
   if (error) return res.status(502).json({ error: error.message });
   res.json({ themes: data ?? [] });
 });
 
 app.get('/api/plugins/search', async (req, res) => {
-  const { data, error } = await searchMarketplace('plugins', sanitizeSearch(req.query.q), parseSort(req.query.sort), parseTag(req.query.tag));
+  const { data, error } = await searchMarketplace('plugins', sanitizeSearch(req.query.q), parseSort(req.query.sort), parseTags(req.query.tags));
   if (error) return res.status(502).json({ error: error.message });
   res.json({ plugins: data ?? [] });
 });

@@ -31,14 +31,15 @@
 
   // must match TAGS in supabase/functions/_shared/details.ts and the tags migration
   const TAGS = ['dark', 'light', 'minimal', 'colorful', 'productivity', 'fun', 'accessibility', 'fonts'];
-  const browseState = { sort: 'newest', tag: '' };
+  const browseState = { sort: 'newest', tags: [] };
 
   function browseQuery(q) {
     const params = new URLSearchParams({ q: q || '', sort: browseState.sort });
-    if (browseState.tag) params.set('tag', browseState.tag);
+    if (browseState.tags.length) params.set('tags', browseState.tags.join(','));
     return params.toString();
   }
 
+  // sort menu, and a Tags button that opens a small card of tag checkboxes
   function mountBrowseControls(container, onChange) {
     container.innerHTML = `
       <div class="ns-browse-controls">
@@ -49,21 +50,56 @@
             <option value="downloads">Most downloaded</option>
           </select>
         </label>
-        <div class="ns-tag-chips" role="group" aria-label="Filter by tag">
-          ${TAGS.map(t => `<button type="button" class="ns-tag-chip" data-tag="${t}" aria-pressed="false">${t}</button>`).join('')}
+        <div class="ns-tag-filter">
+          <button type="button" class="ns-tag-filter-btn" aria-haspopup="true" aria-expanded="false">Tags</button>
+          <div class="ns-tag-popover" role="group" aria-label="Filter by tags" hidden>
+            <div class="ns-tag-popover-head">
+              <span>Show items tagged</span>
+              <button type="button" class="ns-tag-clear">Clear</button>
+            </div>
+            ${TAGS.map(t => `<label class="ns-tag-check"><input type="checkbox" value="${t}"> ${t}</label>`).join('')}
+          </div>
         </div>
       </div>`;
     const select = container.querySelector('select');
     select.value = browseState.sort;
     select.addEventListener('change', () => { browseState.sort = select.value; onChange(); });
-    container.querySelectorAll('.ns-tag-chip').forEach(chip => {
-      chip.setAttribute('aria-pressed', String(chip.dataset.tag === browseState.tag));
-      chip.addEventListener('click', () => {
-        browseState.tag = browseState.tag === chip.dataset.tag ? '' : chip.dataset.tag;
-        container.querySelectorAll('.ns-tag-chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.tag === browseState.tag)));
+
+    const button = container.querySelector('.ns-tag-filter-btn');
+    const popover = container.querySelector('.ns-tag-popover');
+    const boxes = [...popover.querySelectorAll('input[type=checkbox]')];
+    const label = () => {
+      const n = browseState.tags.length;
+      button.textContent = n ? `Tags · ${n}` : 'Tags';
+      button.classList.toggle('active', n > 0);
+    };
+    const open = show => {
+      popover.hidden = !show;
+      button.setAttribute('aria-expanded', String(show));
+    };
+    boxes.forEach(b => {
+      b.checked = browseState.tags.includes(b.value);
+      b.addEventListener('change', () => {
+        browseState.tags = boxes.filter(x => x.checked).map(x => x.value);
+        label();
         onChange();
       });
     });
+    popover.querySelector('.ns-tag-clear').addEventListener('click', () => {
+      if (!browseState.tags.length) return;
+      boxes.forEach(b => { b.checked = false; });
+      browseState.tags = [];
+      label();
+      onChange();
+    });
+    button.addEventListener('click', () => open(popover.hidden));
+    document.addEventListener('click', e => {
+      if (!popover.hidden && !e.target.closest?.('.ns-tag-filter')) open(false);
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !popover.hidden) { open(false); button.focus(); }
+    });
+    label();
   }
 
   // tags, the download count and a More info button for a Browse card
