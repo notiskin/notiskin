@@ -158,6 +158,12 @@ Done (Oct 2026), debug port closed (branch `debug-pipe`):
 - Notion runs with `--remote-debugging-pipe` instead of `--remote-debugging-port=9222`, so no other program or user account on the Mac can connect to it. Old wrappers are repaired by the app on start
 - To check on a real Mac: the checklist in the debug-pipe PR (Dock icon, reopen from the Dock, Quit, notion:// links, Notion's own update relaunch, theme after restart, no listening port)
 
+Phase 3 in progress (plan in `docs/prompts/phase-3-marketplace-v2.md`):
+- Part 1, edge function tests (PR #29): Deno tests with a mocked database, CI job `functions`
+- Part 2, server-side rate limits (PRs #30, #33): live since Oct 21, 2026. Checked on the real backend as notiskin: the 31st rating and the 6th publish in an hour get 429, a normal rating works. #33 fixed the missing service_role grants that broke rating and publishing for a short time after #30's migration went live
+- Part 3, item versions (PR #34): migration applied and submit-version / review-decide / review-pending deployed Oct 21, 2026. Checked on the real backend as notiskin with the "testing" theme and plugin: a theme version went live at once, the app showed Update and updated the file and installed.json; a plugin version waited for review (a second one was refused), showed on Review with a diff, approving it made it live, and the plugin update dialog then updated it. Old versions are archived. Not checked live: a non-author publishing a version (every item belongs to notiskin, needs a second account; the Deno tests cover it). Not in a release yet
+- Still to do: Part 4 (screenshots, tags, sorting, download counts), Part 5 (report button, reviewer action log)
+
 Known until Developer ID signing (Phase 2): a downloaded release shows "notiskin is damaged and can't be opened" on Apple Silicon, and right-click → Open doesn't help. The fix is `xattr -dr com.apple.quarantine /Applications/notiskin.app` (in the README).
 
 Phase 2 in progress:
