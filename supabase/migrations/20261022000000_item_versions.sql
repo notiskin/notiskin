@@ -35,6 +35,8 @@ alter table public.item_versions enable row level security;
 
 revoke all on public.item_versions from anon, authenticated;
 grant select on public.item_versions to anon, authenticated;
+-- the live project gives a new table's service role no read or write access by default
+grant select, insert, update on public.item_versions to service_role;
 
 create policy "item_versions: public reads approved"
   on public.item_versions for select
