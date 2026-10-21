@@ -30,8 +30,6 @@ import {
   listPlugins,
   listThemes,
   quitNotion,
-  toFileStem,
-  writeItem,
   ItemType,
 } from '../core/library';
 import {
