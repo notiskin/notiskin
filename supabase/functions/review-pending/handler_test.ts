@@ -25,6 +25,7 @@ Deno.test('a reviewer gets all four lists', async () => {
   const res = await handle(post({}), db.client);
   assertEquals(res.status, 200);
   assertEquals(await res.json(), {
+    versions: [],
     themes: [{ id: 1 }],
     plugins: [{ id: 2 }],
     rejectedThemes: [{ id: 1 }],
@@ -35,4 +36,19 @@ Deno.test('a reviewer gets all four lists', async () => {
 Deno.test('a failing query is a 500', async () => {
   const db = mockDb({ user: me, results: { ...reviewer, plugins: { error: { code: 'XX000' } } } });
   assertEquals((await handle(post({}), db.client)).status, 500);
+});
+
+Deno.test('pending versions come with the item name and the live code to diff against', async () => {
+  const db = mockDb({
+    user: me,
+    results: {
+      ...reviewer,
+      item_versions: { data: [{ id: 'v2', item_type: 'plugin', item_id: 'p1', version: 2, code: 'new()' }] },
+      plugins: (call) => call.filters.some(f => f[0] === 'in')
+        ? { data: [{ id: 'p1', name: 'clock', js: 'old()' }] }
+        : { data: [] },
+    },
+  });
+  const body = await (await handle(post({}), db.client)).json();
+  assertEquals(body.versions, [{ id: 'v2', item_type: 'plugin', item_id: 'p1', version: 2, code: 'new()', name: 'clock', previous_code: 'old()' }]);
 });
