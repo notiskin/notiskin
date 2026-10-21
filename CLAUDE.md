@@ -36,12 +36,15 @@ src/
   cli/index.ts            — CLI entry point (npm bin target, also the launch-time `inject` command)
   core/library.ts         — Shared theme/plugin logic (paths, name validation, apply, currentPayload). CLI + server both use it
   core/diagnostics.ts     — Redacted bug-report text for Settings → Diagnostics and `notiskin diagnostics`
+  core/installed.ts       — ~/.notiskin/installed.json: which marketplace item and version each installed file came from (atomic writes)
+  core/marketplace.ts     — Install / update / findUpdates on disk, never replaces a file that isn't in the manifest
   electron/main.ts        — Electron main process entry point
   gui/
     server.ts             — Express server; exports startServer() and app
     run.ts                — Dev entry point; calls startServer(true) for standalone mode
     themes.html / plugins.html / review.html / settings.html — GUI pages (Settings has the Notion section: Install / Repair / Uninstall)
     tour.js               — Welcome tour shared by Themes, Plugins and Settings (served at /tour.js, packaged via build.files)
+    versions.js           — Item versions on Themes and Plugins: Update button, Publish a new version, pending versions (served at /versions.js)
     brand.css, fonts/     — The "paper and ink" look: color tokens (light + dark, follows macOS), Fraunces + Inter bundled (SIL OFL). Served from a fixed list in server.ts
   injector/index.ts       — What gets injected (core CSS, theme, window.notiskin, plugins), plugins run once per page load
   injector/daemon.ts      — Long-running injector: the only CDP client, themes every Notion tab, re-applies on reload and on file changes, exits when Notion quits
@@ -63,7 +66,7 @@ supabase/
   functions/_shared/      — Auth verification (http.ts), theme CSS allowlist (css.ts), rate limit numbers + check (limits.ts)
   functions/*/handler.ts  — Edge function logic, exported as handle(req, db) so tests can call it. index.ts next to it is only Deno.serve
   functions/*/handler_test.ts, _shared/*_test.ts, _shared/mock_db.ts — Deno tests with a fake database (`npm run test:functions`, needs Deno; CI job `functions`)
-  migrations/             — SQL migrations (RLS policies, rate_limit_events table)
+  migrations/             — SQL migrations (RLS policies, rate_limit_events, item_versions + approve_item_version())
 
 scripts/check-bundle.js   — electron-builder afterPack hook, fails the build if .env etc. get packaged
 test/                     — node:test suites (npm test builds first)
@@ -88,6 +91,8 @@ test/                     — node:test suites (npm test builds first)
 **Watcher (`src/patcher/watcher.ts`):** An FSEvents watcher installed as a LaunchAgent. Watches the folder holding Notion.app (Notion's updater swaps the whole bundle) and Contents/MacOS, plus a check every 10 minutes. When status is needs-repair it waits for Notion to close and runs `patchNotion()` as the user, no sudo. It repatches with whichever copy it runs, so the packaged app owns it. It runs all the time, even with Notion and Notiskin closed, so the app only keeps one while `autoRepair` is on (Settings → "Repair automatically after Notion updates", tour step, off by default; Remi doesn't want Notiskin running in the background). `ensureWatcher()` in server.ts runs after a successful Install / Repair, on start, and when the switch changes (`POST /api/notion/auto-repair`): with it on it points the watcher at the app (its binary with `ELECTRON_RUN_AS_NODE=1`, watcher.js inside app.asar), only when Notion runs this app (never over another copy, never from a source run); with it off it removes the app's own watcher (0.7.0 set one up for everyone), never one another copy made. `watch:install` from source still points it at that checkout. Not yet checked on a real Mac: whether macOS App Management lets the app's watcher, started by launchd, change Notion.app. If it can't, it notifies "Open Notiskin and click Repair". Diagnostics shows `Watcher: off / on (this copy) / on (another copy)`.
 
 **Rate limits:** `checkRateLimit()` in `functions/_shared/limits.ts` counts a user's rows in `rate_limit_events` (service role only, RLS on, no client access) and answers 429 with Retry-After. Publishing (themes and plugins together) 5 per hour, rating 30 per hour, numbers in `LIMITS`. It runs after input validation so bad requests don't use the limit, and it refuses if the database errors. The app's own `submitLimiter` stays as a first line.
+
+**Item versions:** `themes` / `plugins` keep the live approved code plus a `version` number. Later versions are rows in `item_versions` (pending / approved / rejected, with a changelog), written only by edge functions. `submit-version` lets the author (verified GitHub identity) publish one pending version at a time; themes that pass the allowlist are approved at once, plugins wait for a reviewer. `approve_item_version()` (SQL, service role only) swaps the live code and archives the old version in one transaction; `review-decide` with `version_id` calls it, `review-pending` returns `versions` with the live code so review.html shows a line diff. The app records each marketplace install in `installed.json`; `GET /api/marketplace/updates` compares it with Supabase, `POST /api/marketplace/update` writes the live version (plugins need `confirmed: true`, the GUI shows the plugin warning and changelog first). Installing over a same-named file the user made returns 409 instead of skipping; a pre-manifest install is adopted only when its contents match exactly. Deleting an item forgets it. `/api/submissions` now filters by the token's GitHub identity (RLS also returns everyone's approved items).
 
 **Marketplace (Supabase):** Tables `themes`, `plugins`, `reviewers`, `ratings`. Edge functions in `supabase/functions/` handle submit, review, and rating with the service role after verifying the user. Installing from the Browse tab writes to `~/.notiskin/themes/` or `~/.notiskin/plugins/` — it does **not** auto-activate. The live schema was never fully committed; `supabase/legacy/reconstructed-schema.sql` is the best record, see the notes in it.
 

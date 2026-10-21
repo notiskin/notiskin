@@ -6,6 +6,7 @@
   <title>Notiskin</title>
   <link rel="stylesheet" href="/brand.css">
   <script src="/tour.js"></script>
+  <script src="/versions.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -689,11 +690,14 @@
           </form>
 
           <div id="publish-msg" class="publish-msg"></div>
+
+          <div id="publish-version-section"></div>
         </div>
       </div>
 
       <div id="tab-submissions" hidden>
         <div id="submissions-list"><span class="loading">Loading</span></div>
+        <div id="submissions-versions"></div>
       </div>
 
     </div>
@@ -901,6 +905,10 @@
 
     let currentInstalledThemes = [];
 
+    async function sessionToken() {
+      return (await db.auth.getSession()).data.session?.access_token || null;
+    }
+
     async function switchTab(name) {
       document.getElementById('tab-installed').hidden    = name !== 'installed';
       document.getElementById('tab-browse').hidden       = name !== 'browse';
@@ -909,7 +917,11 @@
       document.querySelectorAll('.tab-btn').forEach(btn =>
         btn.classList.toggle('active', btn.dataset.tab === name)
       );
-      if (name === 'publish') { initCharacterCounters(); return; }
+      if (name === 'publish') {
+        initCharacterCounters();
+        await nsVersions.renderPublishVersion('theme', document.getElementById('publish-version-section'), sessionToken);
+        return;
+      }
       if (name === 'submissions') { await loadSubmissions('theme'); return; }
 
       let themesData;
@@ -967,7 +979,7 @@
       el.innerHTML = defaultCard + themes.map(t => {
         const sid = nameToId[t];
         return `
-          <label class="card${t === activeTheme ? ' active' : ''}" data-name="${esc(filenameToDisplayName(t))}">
+          <label class="card${t === activeTheme ? ' active' : ''}" data-name="${esc(filenameToDisplayName(t))}" data-file="${esc(t)}">
             <input type="radio" name="theme" value="${esc(t)}" ${t === activeTheme ? 'checked' : ''} onchange="switchTheme('${esc(t)}')">
             <div class="card-info">
               <div class="card-name">${esc(filenameToDisplayName(t))}</div>
@@ -977,6 +989,8 @@
           </label>
         `;
       }).join('');
+
+      nsVersions.decorateInstalled('theme', () => loadThemes());
 
       const session = (await db.auth.getSession()).data.session;
       const itemIds = Object.values(nameToId);
@@ -1309,6 +1323,8 @@
         el.innerHTML = "<span class=\"error\">Can't reach the server</span>";
         return;
       }
+
+      nsVersions.renderPendingVersions(type, document.getElementById('submissions-versions'), sessionToken, submissions);
 
       if (!submissions.length) {
         el.innerHTML = '<span class="empty">Nothing submitted yet</span>';

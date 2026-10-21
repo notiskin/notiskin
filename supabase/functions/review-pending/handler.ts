@@ -9,7 +9,7 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
   if (!user) return json(req, { error: 'Invalid or expired sign-in' }, 401);
   if (!(await isReviewer(db, user))) return json(req, { error: 'Not a reviewer' }, 403);
 
-  const [themes, plugins, rejectedThemes, rejectedPlugins] = await Promise.all([
+  const [themes, plugins, rejectedThemes, rejectedPlugins, versions] = await Promise.all([
     db.from('themes').select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100),
     db.from('plugins').select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100),
     db.from('themes')
@@ -22,15 +22,36 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
       .eq('status', 'rejected')
       .order('created_at', { ascending: false })
       .limit(30),
+    db.from('item_versions').select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100),
   ]);
 
-  const failed = [themes, plugins, rejectedThemes, rejectedPlugins].find(r => r.error);
+  const failed = [themes, plugins, rejectedThemes, rejectedPlugins, versions].find(r => r.error);
   if (failed?.error) {
     console.error('review-pending query failed', failed.error);
     return json(req, { error: 'Could not load the review queue' }, 500);
   }
 
+  // each pending version comes with its item's name and the code that is live now, for the diff
+  const pendingVersions = (versions.data ?? []) as Record<string, unknown>[];
+  const ids = (t: string) => pendingVersions.filter(v => v.item_type === t).map(v => v.item_id as string);
+  const [liveThemes, livePlugins] = await Promise.all([
+    ids('theme').length ? db.from('themes').select('id,name,css').in('id', ids('theme')) : { data: [], error: null },
+    ids('plugin').length ? db.from('plugins').select('id,name,js').in('id', ids('plugin')) : { data: [], error: null },
+  ]);
+  if (liveThemes.error || livePlugins.error) {
+    console.error('review-pending live code query failed', liveThemes.error ?? livePlugins.error);
+    return json(req, { error: 'Could not load the review queue' }, 500);
+  }
+  const live = new Map<string, { name: string; code: string }>();
+  for (const t of (liveThemes.data ?? []) as Record<string, string>[]) live.set(`theme:${t.id}`, { name: t.name, code: t.css });
+  for (const p of (livePlugins.data ?? []) as Record<string, string>[]) live.set(`plugin:${p.id}`, { name: p.name, code: p.js });
+  const withLive = pendingVersions.map(v => {
+    const item = live.get(`${v.item_type}:${v.item_id}`);
+    return { ...v, name: item?.name ?? null, previous_code: item?.code ?? '' };
+  });
+
   return json(req, {
+    versions: withLive,
     themes: themes.data ?? [],
     plugins: plugins.data ?? [],
     rejectedThemes: rejectedThemes.data ?? [],

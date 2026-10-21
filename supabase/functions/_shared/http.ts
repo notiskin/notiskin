@@ -84,6 +84,19 @@ export function cleanItemName(raw: unknown): string | null {
   return clean;
 }
 
+// what changed in a new version, required so users can see why they're updating
+export function cleanChangelog(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const clean = raw.trim();
+  return clean.length >= 1 && clean.length <= 500 ? clean : null;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
 export function cleanDescription(raw: unknown): string | null {
   if (raw === undefined || raw === null) return '';
   if (typeof raw !== 'string') return null;
