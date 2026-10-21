@@ -814,6 +814,7 @@ app.post('/api/submit/theme', submitLimiter, (req, res) => proxyToEdgeFunction('
 app.post('/api/submit/plugin', submitLimiter, (req, res) => proxyToEdgeFunction('submit-plugin', req, res));
 app.post('/api/submit/version', submitLimiter, (req, res) => proxyToEdgeFunction('submit-version', req, res));
 app.post('/api/item/details', (req, res) => proxyToEdgeFunction('update-details', req, res));
+app.post('/api/report', submitLimiter, (req, res) => proxyToEdgeFunction('report-item', req, res));
 
 app.post('/api/debug-log', debugLogLimiter, (req, res) => {
   const msg = String((req.body as { msg?: unknown })?.msg ?? '').replace(/[\r\n]+/g, ' ').slice(0, 2000);

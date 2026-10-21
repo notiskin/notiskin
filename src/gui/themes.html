@@ -1115,7 +1115,7 @@
               <div class="card-name">${esc(item.name)}</div>
               ${item.description ? `<div class="card-desc">${esc(item.description)}</div>` : ''}
               <div class="card-meta">by <a href="https://github.com/${esc(item.author_github)}" target="_blank" rel="noopener noreferrer">${esc(item.author_github)}</a></div>
-              ${nsBrowse.browseMetaHtml(item)}
+              ${nsBrowse.browseMetaHtml(browseItems[key])}
             </div>
             <button class="btn-install" data-key="${esc(key)}" onclick="installFromBrowse(this)">Install</button>
           </div>

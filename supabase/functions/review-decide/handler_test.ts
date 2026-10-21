@@ -95,3 +95,76 @@ Deno.test('version decisions: non-reviewers, bad ids, wrong type, already decide
   const broken = { ...pendingVersion, 'rpc.approve_item_version': { error: { message: 'boom' } } };
   assertEquals((await handle(post({ type: 'plugin', version_id: VID, status: 'approved' }), r(broken))).status, 500);
 });
+
+const IID = '00000000-0000-4000-8000-0000000000b1';
+const RID = '00000000-0000-4000-8000-0000000000c1';
+const logged = (db: ReturnType<typeof mockDb>) => db.calls.filter(c => c.table === 'review_actions' && c.op === 'insert').map(c => c.values as Record<string, unknown>);
+
+Deno.test('every item decision is written to the action log', async () => {
+  const db = mockDb({ user: me, results: { ...reviewer, 'themes.update': { data: [{ id: 'abc' }] } } });
+  await handle(post({ ...valid, status: 'rejected', reason: 'broken' }), db.client);
+  const [entry] = logged(db);
+  assertEquals([entry.actor_github, entry.action, entry.item_type, entry.item_id, entry.reason], ['octocat', 'reject', 'theme', 'abc', 'broken']);
+  // rejecting settles the item's open reports
+  const settle = db.calls.find(c => c.table === 'reports' && c.op === 'update')!;
+  assertEquals((settle.values as Record<string, unknown>).status, 'actioned');
+});
+
+Deno.test('version decisions are logged too', async () => {
+  const db = mockDb({ user: me, results: { ...reviewer, ...pendingVersion } });
+  await handle(post({ type: 'plugin', version_id: VID, status: 'approved' }), db.client);
+  assertEquals(logged(db).map(e => [e.action, e.version_id]), [['approve_version', VID]]);
+});
+
+Deno.test('if the log cannot be written the reviewer is told', async () => {
+  const db = mockDb({ user: me, results: { ...reviewer, 'themes.update': { data: [{ id: 'abc' }] }, 'review_actions.insert': { error: { message: 'boom' } } } });
+  const res = await handle(post(valid), db.client);
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error.includes('action log'), true);
+});
+
+Deno.test('a reviewer hides an approved item, which settles its reports and is logged', async () => {
+  const db = mockDb({ user: me, results: { ...reviewer, 'plugins.update': { data: [{ id: IID }] } } });
+  const res = await handle(post({ action: 'hide', type: 'plugin', id: IID, reason: 'reads tokens' }), db.client);
+  assertEquals(res.status, 200);
+  const update = db.calls.find(c => c.table === 'plugins' && c.op === 'update')!;
+  assertEquals(update.values, { status: 'hidden' });
+  assertEquals(update.filters.find(f => f[1] === 'status')?.[2], 'approved');
+  const settle = db.calls.find(c => c.table === 'reports' && c.op === 'update')!;
+  assertEquals((settle.values as Record<string, unknown>).status, 'actioned');
+  assertEquals(logged(db).map(e => [e.action, e.item_id, e.reason]), [['hide', IID, 'reads tokens']]);
+});
+
+Deno.test('unhiding puts a hidden item back and dismisses its reports', async () => {
+  const db = mockDb({ user: me, results: { ...reviewer, 'themes.update': { data: [{ id: IID }] } } });
+  await handle(post({ action: 'unhide', type: 'theme', id: IID }), db.client);
+  const update = db.calls.find(c => c.table === 'themes' && c.op === 'update')!;
+  assertEquals([update.values, update.filters.find(f => f[1] === 'status')?.[2]], [{ status: 'approved' }, 'hidden']);
+  assertEquals((db.calls.find(c => c.table === 'reports' && c.op === 'update')!.values as Record<string, unknown>).status, 'dismissed');
+  assertEquals(logged(db).map(e => e.action), ['unhide']);
+});
+
+Deno.test('hide and unhide refuse items in the wrong state, bad ids and unknown actions', async () => {
+  const r = (results: Record<string, unknown> = {}) => mockDb({ user: me, results: { ...reviewer, ...results } as never });
+  assertEquals((await handle(post({ action: 'hide', type: 'theme', id: IID }), r({ 'themes.update': { data: [] } }).client)).status, 409);
+  assertEquals((await handle(post({ action: 'hide', type: 'theme', id: 'x' }), r().client)).status, 400);
+  assertEquals((await handle(post({ action: 'hide', type: 'other', id: IID }), r().client)).status, 400);
+  assertEquals((await handle(post({ action: 'delete', type: 'theme', id: IID }), r().client)).status, 400);
+});
+
+Deno.test('dismissing one report is logged with the report id', async () => {
+  const db = mockDb({ user: me, results: { ...reviewer, 'reports.update': { data: [{ item_type: 'theme', item_id: IID }] } } });
+  const res = await handle(post({ action: 'dismiss_report', report_id: RID }), db.client);
+  assertEquals(res.status, 200);
+  assertEquals(logged(db).map(e => [e.action, e.report_id, e.item_id]), [['dismiss_report', RID, IID]]);
+  const gone = mockDb({ user: me, results: { ...reviewer, 'reports.update': { data: [] } } });
+  assertEquals((await handle(post({ action: 'dismiss_report', report_id: RID }), gone.client)).status, 404);
+});
+
+Deno.test('non-reviewers cannot hide, unhide or dismiss', async () => {
+  for (const body of [{ action: 'hide', type: 'theme', id: IID }, { action: 'unhide', type: 'theme', id: IID }, { action: 'dismiss_report', report_id: RID }]) {
+    const db = mockDb({ user: me });
+    assertEquals((await handle(post(body), db.client)).status, 403);
+    assertEquals(db.calls.some(c => c.op === 'update' || c.op === 'insert'), false);
+  }
+});
