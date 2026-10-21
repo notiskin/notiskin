@@ -47,6 +47,8 @@ import {
 import { installWatcher, uninstallWatcher } from '../patcher/agent';
 import { AdminAction, errorFromOutput } from '../patcher/admin';
 import { diagnosticsReport } from '../core/diagnostics';
+import { findUpdates, installedIds, installFromMarketplace, LatestInfo, MarketplaceItem, updateFromMarketplace } from '../core/marketplace';
+import { installedEntry } from '../core/installed';
 
 let pagesDir = join(__dirname, '..', '..', 'src', 'gui');
 
@@ -661,7 +663,24 @@ app.post('/api/apply', async (_req, res) => {
   }
 });
 
-// the server fetches the code itself, so only approved marketplace items can ever be written to disk
+// the server fetches the code itself, so only approved marketplace items (their live, approved version)
+// can ever be written to disk
+async function fetchApprovedItem(type: ItemType, id: string): Promise<MarketplaceItem | null> {
+  const table = type === 'theme' ? 'themes' : 'plugins';
+  const codeColumn = type === 'theme' ? 'css' : 'js';
+  const { data, error } = await publicSupabase()
+    .from(table)
+    .select(`id, name, version, ${codeColumn}`)
+    .eq('id', id)
+    .eq('status', 'approved')
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const row = data as Record<string, unknown> | null;
+  const code = row?.[codeColumn];
+  if (!row || typeof row.name !== 'string' || typeof code !== 'string') return null;
+  return { id: String(row.id), name: row.name, code, version: Number.isInteger(row.version) ? (row.version as number) : 1 };
+}
+
 app.post('/api/marketplace/install', async (req, res) => {
   const { type, id } = (req.body ?? {}) as { type?: unknown; id?: unknown };
   if (!isItemType(type)) return res.status(400).json({ success: false, error: 'type must be "theme" or "plugin"' });
@@ -670,37 +689,105 @@ app.post('/api/marketplace/install', async (req, res) => {
   }
   if (!ID_PATTERN.test(String(id))) return res.status(400).json({ success: false, error: 'Invalid item id' });
 
-  const table = type === 'theme' ? 'themes' : 'plugins';
-  const codeColumn = type === 'theme' ? 'css' : 'js';
-  const { data, error } = await publicSupabase()
-    .from(table)
-    .select(`name, ${codeColumn}`)
-    .eq('id', id)
-    .eq('status', 'approved')
-    .maybeSingle();
-  if (error) return res.status(502).json({ success: false, error: error.message });
-  const row = data as Record<string, unknown> | null;
-  const code = row?.[codeColumn];
-  if (!row || typeof row.name !== 'string' || typeof code !== 'string') {
-    return res.status(404).json({ success: false, error: 'That item is not available in the marketplace.' });
+  let item: MarketplaceItem | null;
+  try {
+    item = await fetchApprovedItem(type, String(id));
+  } catch (err) {
+    return res.status(502).json({ success: false, error: errorMessage(err) });
   }
-
-  const stem = toFileStem(row.name);
-  if (!isValidItemName(stem)) return res.status(400).json({ success: false, error: 'Item has an unusable name' });
+  if (!item) return res.status(404).json({ success: false, error: 'That item is not available in the marketplace.' });
 
   try {
-    if (!itemExists(type as ItemType, stem)) writeItem(type as ItemType, stem, code);
-    const needsWarning = type === 'plugin' && !readConfig().acknowledgedPlugins.includes(stem);
-    res.json({ success: true, name: stem, needsWarning });
+    const result = installFromMarketplace(type, item);
+    if (result.outcome === 'conflict') {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: `You already have a ${type} called "${result.name}" that didn't come from this marketplace item. Rename or delete it first.`,
+      });
+    }
+    const needsWarning = type === 'plugin' && !readConfig().acknowledgedPlugins.includes(result.name);
+    res.json({ success: true, name: result.name, needsWarning });
   } catch (err) {
     res.json({ success: false, error: errorMessage(err) });
   }
+});
+
+// installed marketplace items with a newer approved version, with what changed
+app.get('/api/marketplace/updates', async (_req, res) => {
+  const updates = [];
+  try {
+    for (const type of ['theme', 'plugin'] as const) {
+      const ids = installedIds(type);
+      if (ids.length === 0) continue;
+      const table = type === 'theme' ? 'themes' : 'plugins';
+      const [items, versions] = await Promise.all([
+        publicSupabase().from(table).select('id, version').in('id', ids).eq('status', 'approved'),
+        publicSupabase()
+          .from('item_versions')
+          .select('item_id, version, changelog')
+          .eq('item_type', type)
+          .in('item_id', ids)
+          .eq('status', 'approved')
+          .order('version', { ascending: false }),
+      ]);
+      if (items.error) throw new Error(items.error.message);
+      if (versions.error) throw new Error(versions.error.message);
+      const latest = new Map<string, LatestInfo>();
+      for (const row of (items.data ?? []) as { id: string; version: number }[]) {
+        latest.set(String(row.id), { version: Number(row.version) || 1, changes: [] });
+      }
+      for (const v of (versions.data ?? []) as { item_id: string; version: number; changelog: string }[]) {
+        latest.get(String(v.item_id))?.changes.push({ version: v.version, changelog: v.changelog ?? '' });
+      }
+      updates.push(...findUpdates(type, latest));
+    }
+    res.json({ updates });
+  } catch (err) {
+    res.status(502).json({ error: errorMessage(err) });
+  }
+});
+
+// updates an installed marketplace item to its live version. Plugins run code, so the GUI shows the
+// plugin warning and the changes first and sends confirmed: true
+app.post('/api/marketplace/update', async (req, res) => {
+  const { type, name, confirmed } = (req.body ?? {}) as { type?: unknown; name?: unknown; confirmed?: unknown };
+  if (!isItemType(type)) return res.status(400).json({ success: false, error: 'type must be "theme" or "plugin"' });
+  if (!isValidItemName(name)) return res.status(400).json({ success: false, error: 'Invalid name' });
+  if (type === 'plugin' && confirmed !== true) {
+    return res.status(400).json({ success: false, error: 'Confirm the plugin update first.' });
+  }
+  const entry = installedEntry(type, name);
+  if (!entry) return res.status(404).json({ success: false, error: `That ${type} didn't come from the marketplace.` });
+
+  let item: MarketplaceItem | null;
+  try {
+    item = await fetchApprovedItem(type, entry.id);
+  } catch (err) {
+    return res.status(502).json({ success: false, error: errorMessage(err) });
+  }
+  if (!item) return res.status(404).json({ success: false, error: 'That item is no longer in the marketplace.' });
+
+  try {
+    updateFromMarketplace(type, name, item);
+  } catch (err) {
+    return res.json({ success: false, error: errorMessage(err) });
+  }
+
+  // the injector re-applies theme files on its own; an enabled plugin needs a reload to run the new code
+  const config = readConfig();
+  try {
+    if (type === 'theme' && config.activeTheme === name) await serialized(() => applyConfig());
+    if (type === 'plugin' && config.enabledPlugins.includes(name)) await serialized(() => applyConfig({ reload: true }));
+  } catch {}
+  res.json({ success: true, name, version: item.version });
 });
 
 app.get('/api/review/pending', (req, res) => proxyToEdgeFunction('review-pending', req, res));
 app.post('/api/review/decide', (req, res) => proxyToEdgeFunction('review-decide', req, res));
 app.post('/api/submit/theme', submitLimiter, (req, res) => proxyToEdgeFunction('submit-theme', req, res));
 app.post('/api/submit/plugin', submitLimiter, (req, res) => proxyToEdgeFunction('submit-plugin', req, res));
+app.post('/api/submit/version', submitLimiter, (req, res) => proxyToEdgeFunction('submit-version', req, res));
 
 app.post('/api/debug-log', debugLogLimiter, (req, res) => {
   const msg = String((req.body as { msg?: unknown })?.msg ?? '').replace(/[\r\n]+/g, ' ').slice(0, 2000);
@@ -727,6 +814,24 @@ app.get('/api/submissions', async (req, res) => {
     .order('created_at', { ascending: false });
   if (error) return res.status(502).json({ error: error.message });
   res.json({ submissions: data ?? [] });
+});
+
+// your new versions that are waiting for review or were rejected (approved ones are live already).
+// Row level security only shows unapproved versions to their author
+app.get('/api/submissions/versions', async (req, res) => {
+  const token = bearerToken(req);
+  if (!token) return res.status(401).json({ error: 'No auth token' });
+  const type = req.query.type;
+  if (type !== 'theme' && type !== 'plugin') return res.status(400).json({ error: 'type must be theme or plugin' });
+
+  const { data, error } = await userSupabase(token)
+    .from('item_versions')
+    .select('id,item_id,version,changelog,status,rejection_reason,created_at')
+    .eq('item_type', type)
+    .in('status', ['pending', 'rejected'])
+    .order('created_at', { ascending: false });
+  if (error) return res.status(502).json({ error: error.message });
+  res.json({ versions: data ?? [] });
 });
 
 app.delete('/api/submissions/:id', async (req, res) => {
