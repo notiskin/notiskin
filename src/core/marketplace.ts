@@ -100,7 +100,53 @@ export function findUpdates(
   return updates.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// marketplace item ids are UUIDs; anything else in the manifest can't be asked about (Postgres would
+// refuse the whole query over it)
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ids of installed marketplace items of one type, to ask Supabase about
 export function installedIds(type: ItemType, manifest: InstalledManifest = readInstalled()): string[] {
-  return [...new Set(Object.entries(manifest).filter(([k]) => k.startsWith(`${type}:`)).map(([, e]) => e.id))];
+  const ids = Object.entries(manifest).filter(([k]) => k.startsWith(`${type}:`)).map(([, e]) => e.id);
+  return [...new Set(ids.filter(id => UUID_PATTERN.test(id)))];
+}
+
+// what the marketplace says about an installed item: still live, hidden after reports while a reviewer
+// looks, rejected by a reviewer, or gone (not in the answer at all)
+export type ItemStatus = 'approved' | 'hidden' | 'rejected';
+export type PulledReason = 'hidden' | 'rejected' | 'removed';
+
+export interface PulledItem {
+  type: ItemType;
+  name: string;
+  id: string;
+  reason: PulledReason;
+}
+
+// installed items whose marketplace item was hidden, rejected or removed, for one type. statuses is keyed
+// by item id and must hold every id the marketplace answered for; an id it left out counts as removed.
+// Only for showing a warning: nothing here turns anything off or deletes it
+export function findPulled(
+  type: ItemType,
+  statuses: Map<string, ItemStatus>,
+  manifest: InstalledManifest = readInstalled(),
+): PulledItem[] {
+  const pulled: PulledItem[] = [];
+  for (const [key, entry] of Object.entries(manifest)) {
+    if (!key.startsWith(`${type}:`)) continue;
+    const name = key.slice(type.length + 1);
+    if (!UUID_PATTERN.test(entry.id) || !itemExists(type, name)) continue;
+    const status = statuses.get(entry.id);
+    if (status === 'approved') continue;
+    pulled.push({ type, name, id: entry.id, reason: status ?? 'removed' });
+  }
+  return pulled.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// item_statuses() takes at most this many ids per call
+export const STATUS_BATCH = 200;
+
+export function inBatches<T>(list: T[], size = STATUS_BATCH): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < list.length; i += size) batches.push(list.slice(i, i + size));
+  return batches;
 }
