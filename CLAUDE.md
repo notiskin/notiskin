@@ -124,7 +124,8 @@ test/                     — node:test suites (npm test builds first)
 - The local server binds 127.0.0.1 and every `/api` call needs the per-launch `X-Notiskin-Token` header (injected into pages by server.ts, added automatically by a fetch wrapper). New pages must be served through `sendPage()`.
 - Never trust `user_metadata` for identity, users can edit it. Edge functions use `verifyUser()` (GitHub identity), RLS uses `public.current_github_username()`, and the GUI shows `githubUsername(user)` from the identity.
 - Sign-in only happens in Settings (always shows GitHub's account picker). The Review link only shows for reviewers: Settings checks once per sign-in and saves `notiskin.reviewer` in localStorage, every page reads it right after the sidebar. Cosmetic only, the edge functions do the real check.
-- The Supabase migrations were never applied with the CLI (there's no migration history table on the live project). Before the first `supabase db push`, run `supabase migration repair --status applied 20261016000000 20261017000000`, never push the baseline onto the live database.
+- On the live Supabase project a new table gives the service role no read or write access by default (only TRUNCATE, REFERENCES, TRIGGER), and a local Postgres won't show this. Every migration that adds a table the edge functions use must `grant select, insert, ...` to `service_role` itself. Forgetting it broke rating and publishing for everyone right after `rate_limit_events` went live (fixed by 20261021000001).
+- Migration history on the live project was repaired on Oct 21, 2026 (baseline and hardening marked applied), so `supabase db push --linked` is safe now; always `--dry-run` first. `supabase db dump` needs Docker, `supabase db query --linked` works without it.
 
 ---
 
