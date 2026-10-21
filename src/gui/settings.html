@@ -369,7 +369,9 @@
     const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_4B-pmRj4FBVVqIsvlF1fjQ_Lzby0Yrq';
 
-    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // PKCE: sign-in finishes in the default browser, which only gets a one-time code; the verifier
+    // that turns it into a session stays in this window's storage
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { flowType: 'pkce' } });
 
     // the GitHub identity, not user_metadata, which users can edit
     function githubUsername(user) {
@@ -432,23 +434,80 @@
       }
     }
 
+    // GitHub sign-in happens in the default browser (Google sign-in and passkeys don't work inside the
+    // app window). The browser lands on /auth/callback, the server holds the one-time code, we poll for it
+    let signInPoll = null;
+
+    function stopSignInPoll() {
+      if (signInPoll) clearTimeout(signInPoll);
+      signInPoll = null;
+    }
+
+    async function signInFailed(message) {
+      stopSignInPoll();
+      showNotif(message);
+      renderAccount(null);
+    }
+
+    async function waitForBrowserSignIn() {
+      let result;
+      try {
+        result = await fetch('/api/auth/result').then(r => r.json());
+      } catch {
+        return signInFailed("Can't reach Notiskin");
+      }
+      if (result.state === 'waiting') {
+        signInPoll = setTimeout(waitForBrowserSignIn, 1500);
+        return;
+      }
+      stopSignInPoll();
+      if (result.state === 'done') {
+        const { error } = await db.auth.exchangeCodeForSession(result.code);
+        // success arrives through onAuthStateChange (SIGNED_IN)
+        if (error) signInFailed('Sign in failed. Try again.');
+        return;
+      }
+      if (result.state === 'failed') return signInFailed(result.error || 'Sign in was cancelled');
+      if (result.state === 'expired') return signInFailed('Sign in took too long. Try again.');
+      renderAccount(null);
+    }
+
     async function toggleSignIn() {
       const btn = document.getElementById('account-btn');
-      btn.disabled = true;
       if (accountSession) {
+        btn.disabled = true;
         await db.auth.signOut();
         return;
       }
-      btn.textContent = 'Signing in...';
-      const { error } = await db.auth.signInWithOAuth({
-        provider: 'github',
-        // always show GitHub's account picker, so switching accounts works
-        options: { redirectTo: window.location.origin + '/settings.html', queryParams: { prompt: 'select_account' } },
-      });
-      if (error) {
-        showNotif('Sign in failed');
+      // a second click while waiting cancels
+      if (signInPoll) {
+        stopSignInPoll();
+        await fetch('/api/auth/cancel', { method: 'POST' }).catch(() => {});
         renderAccount(null);
+        return;
       }
+      btn.textContent = 'Opening your browser';
+      btn.disabled = true;
+      const { data, error } = await db.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: window.location.origin + '/auth/callback',
+          skipBrowserRedirect: true,
+          // always show GitHub's account picker, so switching accounts works
+          queryParams: { prompt: 'select_account' },
+        },
+      });
+      if (error || !data?.url) return signInFailed('Sign in failed');
+      const res = await fetch('/api/auth/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: data.url }),
+      }).catch(() => null);
+      if (!res || !res.ok) return signInFailed("Couldn't open your browser");
+      btn.disabled = false;
+      btn.textContent = 'Cancel';
+      document.getElementById('account-label').textContent = 'Finish signing in in your browser';
+      signInPoll = setTimeout(waitForBrowserSignIn, 1500);
     }
 
     db.auth.onAuthStateChange((event, session) => {
