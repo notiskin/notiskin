@@ -43,7 +43,7 @@ Deno.test('a safe theme is auto-approved and the author comes from the verified 
   const res = await handle(post({ ...valid, author_github: 'someone-else' }), db.client);
   assertEquals(res.status, 200);
   assertEquals(await res.json(), { ok: true, autoApproved: true });
-  const insert = db.calls.find(c => c.op === 'insert')!;
+  const insert = db.calls.find(c => c.op === 'insert' && c.table !== 'rate_limit_events')!;
   assertEquals(insert.table, 'themes');
   const row = insert.values as Record<string, unknown>;
   assertEquals(row.status, 'approved');
@@ -58,7 +58,7 @@ Deno.test('a theme that fails the allowlist waits for review', async () => {
   assertEquals(res.status, 200);
   const body = await res.json();
   assertEquals(body.autoApproved, false);
-  const row = db.calls.find(c => c.op === 'insert')!.values as Record<string, unknown>;
+  const row = db.calls.find(c => c.op === 'insert' && c.table !== 'rate_limit_events')!.values as Record<string, unknown>;
   assertEquals(row.status, 'pending');
 });
 
@@ -72,4 +72,16 @@ Deno.test('other database errors are a 500 with a friendly message', async () =>
   const res = await handle(post(valid), db.client);
   assertEquals(res.status, 500);
   assertEquals((await res.text()).includes('secret detail'), false);
+});
+
+Deno.test('over the limit: 429 and no theme is saved', async () => {
+  const db = mockDb({ user: me, results: { rate_limit_events: { count: 5 } } });
+  assertEquals((await handle(post(valid), db.client)).status, 429);
+  assertEquals(db.calls.some(c => c.table === 'themes'), false);
+});
+
+Deno.test('bad input does not use up the limit', async () => {
+  const db = mockDb({ user: me });
+  await handle(post({ ...valid, name: '!!' }), db.client);
+  assertEquals(db.calls.some(c => c.table === 'rate_limit_events'), false);
 });

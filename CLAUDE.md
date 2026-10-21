@@ -59,10 +59,10 @@ src/
     sleep.ts
 
 supabase/
-  functions/_shared/      — Auth verification (http.ts) and theme CSS allowlist (css.ts)
+  functions/_shared/      — Auth verification (http.ts), theme CSS allowlist (css.ts), rate limit numbers + check (limits.ts)
   functions/*/handler.ts  — Edge function logic, exported as handle(req, db) so tests can call it. index.ts next to it is only Deno.serve
   functions/*/handler_test.ts, _shared/*_test.ts, _shared/mock_db.ts — Deno tests with a fake database (`npm run test:functions`, needs Deno; CI job `functions`)
-  migrations/             — SQL migrations (RLS policies)
+  migrations/             — SQL migrations (RLS policies, rate_limit_events table)
 
 scripts/check-bundle.js   — electron-builder afterPack hook, fails the build if .env etc. get packaged
 test/                     — node:test suites (npm test builds first)
@@ -85,6 +85,8 @@ test/                     — node:test suites (npm test builds first)
 **Patcher (`src/patcher/index.ts`):** Replaces the Notion executable with a wrapper shell script that sets up the pipe, starts `inject` in the background and `exec`s `Notion.real --remote-debugging-pipe` (exec keeps the pid, so the pipe folder is named after Notion). If the Notiskin program is gone or any step fails, it runs plain `exec Notion.real "$@"` with no debugging. The original binary is renamed to `Notion.real`. Also manages re-signing with `codesign`. `patchNotion()` and `unpatchNotion()` are the main exports. App mode (`{ appMode: true }`, used when the CLI runs on Electron's binary) adds `ELECTRON_RUN_AS_NODE=1` to the inject line only, never to `Notion.real`. Wrappers from before the pipe (they contain `--remote-debugging-port`) count as `needs-repair`, `hasLegacyWrapper()` finds them. Patching again rewrites a wrapper that differs, which is how Repair fixes a moved Notiskin or an old wrapper. When run as root it gives `Notion.app` back to its previous owner, and the CLI gives `dist/` back to `SUDO_USER`. `getNotionStatus()` (not-installed, installed, needs-repair, notion-missing) needs no root. `NOTISKIN_NOTION_APP` overrides the Notion location, for tests only.
 
 **Watcher (`src/patcher/watcher.ts`):** An FSEvents watcher installed as a LaunchAgent. Watches for Notion updates (which overwrite the wrapper), then repatches when Notion is next closed.
+
+**Rate limits:** `checkRateLimit()` in `functions/_shared/limits.ts` counts a user's rows in `rate_limit_events` (service role only, RLS on, no client access) and answers 429 with Retry-After. Publishing (themes and plugins together) 5 per hour, rating 30 per hour, numbers in `LIMITS`. It runs after input validation so bad requests don't use the limit, and it refuses if the database errors. The app's own `submitLimiter` stays as a first line.
 
 **Marketplace (Supabase):** Tables `themes`, `plugins`, `reviewers`, `ratings`. Edge functions in `supabase/functions/` handle submit, review, and rating with the service role after verifying the user. Installing from the Browse tab writes to `~/.notiskin/themes/` or `~/.notiskin/plugins/` — it does **not** auto-activate. The live schema was never fully committed; `supabase/legacy/reconstructed-schema.sql` is the best record, see the notes in it.
 

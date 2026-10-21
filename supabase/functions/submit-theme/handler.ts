@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.108.2';
 import { adminClient, cleanDescription, cleanItemName, json, normalizeName, preflight, readJson, verifyUser } from '../_shared/http.ts';
+import { checkRateLimit } from '../_shared/limits.ts';
 import { validateThemeCss } from '../_shared/css.ts';
 
 export async function handle(req: Request, db: SupabaseClient = adminClient()): Promise<Response> {
@@ -20,6 +21,9 @@ export async function handle(req: Request, db: SupabaseClient = adminClient()): 
   if (typeof body.css !== 'string' || !body.css.trim()) return json(req, { error: 'Theme CSS is empty.' }, 400);
   if (body.css.length > 20_000) return json(req, { error: 'Theme CSS is too long.' }, 400);
   const css = body.css;
+
+  const limited = await checkRateLimit(req, db, user, 'submit');
+  if (limited) return limited;
 
   // valid themes are auto-approved, anything else waits for a human reviewer
   const problem = validateThemeCss(css);
