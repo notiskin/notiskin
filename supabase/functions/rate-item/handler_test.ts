@@ -1,12 +1,12 @@
 import { assertEquals } from 'jsr:@std/assert@1';
-import { mockDb, post } from '../_shared/mock_db.ts';
+import { type FakeResult, mockDb, post } from '../_shared/mock_db.ts';
 import { handle } from './handler.ts';
 
 const me = { id: 'u1', github: 'octocat' };
 const valid = { item_id: 'abc', item_type: 'theme', rating: 4 };
 
 // the item lookup and the ratings list both read "select", so tests answer per table
-function db(extra: Record<string, { data?: unknown; error?: { code?: string } | null }> = {}) {
+function db(extra: Record<string, FakeResult> = {}) {
   return mockDb({ user: me, results: { themes: { data: { id: 'abc' } }, ratings: { data: [{ rating: 4 }, { rating: 2 }] }, ...extra } });
 }
 
@@ -73,4 +73,10 @@ Deno.test('plugins are rated on the plugins table', async () => {
 Deno.test('write failures are a 500 with a friendly message', async () => {
   const d = db({ 'ratings.upsert': { error: { code: 'XX000' } } });
   assertEquals((await handle(post(valid), d.client)).status, 500);
+});
+
+Deno.test('over the limit: 429 and no rating is written', async () => {
+  const d = db({ rate_limit_events: { count: 30 } });
+  assertEquals((await handle(post(valid), d.client)).status, 429);
+  assertEquals(d.calls.some(c => c.table === 'ratings' || c.op === 'update'), false);
 });
