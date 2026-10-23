@@ -12,14 +12,22 @@ const html = '<!doctype html><html><head><title>fake notion</title>' +
   '<script>window.__styleAtStart = document.getElementById("notiskin-styles")?.textContent ?? null;' +
   'window.__styledAtStart = window.__styleAtStart !== null</script>' +
   '<style>:root{--c-texPri:rgb(1,2,3);--c-redTexSec:rgb(200,0,0);--c-bluTexSec:rgb(0,0,200);' +
-  '--c-redBacSec:rgb(250,200,200);--ca-yelBacSecTra:rgba(250,250,0,0.3)}</style></head>' +
-  '<body><div class="notion-app-inner"><div class="notion-frame">hello' +
+  '--c-redBacSec:rgb(250,200,200);--ca-yelBacSecTra:rgba(250,250,0,0.3);' +
+  '--c-bacPri:rgb(10,10,10);--ca-borSecTra:rgb(20,20,20);--ca-borPriTra:rgb(30,30,30);--c-yelBacEle:rgb(40,40,40)}</style></head>' +
+  '<body><div class="notion-app-inner" style="font-family: ui-sans-serif, -apple-system, sans-serif"><div class="notion-frame">hello' +
   // how Notion marks text: plain has its default token, colored text and blocks point at a hue token
   '<div id="plain" style="color: var(--c-texPri)">plain</div>' +
   '<span id="red-text" style="color:var(--c-redTexSec)">red</span>' +
   '<span id="highlight" style="background:var(--ca-yelBacSecTra);color:var(--c-redTexSec)">highlight</span>' +
   '<div id="blue-block" style="color: var(--c-bluTexSec)"><span id="blue-child">blue child</span></div>' +
   '<div id="red-bg" style="background: var(--c-redBacSec)">red background</div>' +
+  // databases, a bordered callout, and the inline fonts Notion sets on titles and code
+  '<div class="notion-table-view-header-row" id="th" style="background: var(--c-bacPri)">header</div>' +
+  '<div class="notion-table-view-row"><div class="notion-table-view-cell" id="tc" style="border-inline-end: 1px solid var(--ca-borSecTra); border-bottom: 1px solid var(--ca-borSecTra)">cell</div></div>' +
+  '<div class="notion-board-group"><div class="notion-collection-item"><div id="card" style="border-radius: 10px; background: var(--c-yelBacEle)">card</div></div></div>' +
+  '<div class="notion-callout-block"><div><div id="callout" style="border-radius: 10px; border: 1px solid var(--ca-borPriTra)">callout</div></div></div>' +
+  '<div id="title-block" class="notion-selectable notion-page-block" style="font-family: ui-sans-serif, -apple-system, sans-serif">title</div>' +
+  '<span id="code" style="font-family: &quot;SFMono-Regular&quot;, Menlo, monospace">code</span>' +
   '</div></div></body></html>';
 
 function openWindow(win) {

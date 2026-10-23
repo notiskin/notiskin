@@ -30,6 +30,45 @@ const COLOR_CSS = [
   }),
 ].join('\n');
 
+// borders, radius and database views. None of these variables is set by default, each rule falls back to
+// the color Notion itself uses (read from the real app) or, where Notion's own value varies per element,
+// layers a transparent gradient over it, so a theme that sets nothing changes nothing.
+// The three table / board colors are layered with background-image, so they should be plain colors
+const LOOK_CSS = `
+.notion-table-view-cell { border-color: var(--ns-border-color, var(--ca-borSecTra)) !important; }
+.notion-callout-block [style*="border: 1px solid var(--ca-borPriTra)"] { border-color: var(--ns-border-color, var(--ca-borPriTra)) !important; }
+.notion-callout-block [style*="border: 1px solid"] { border-radius: var(--ns-radius, 10px) !important; }
+.notion-board-group .notion-collection-item > div:first-child { border-radius: var(--ns-radius, 10px) !important; }
+.notion-table-view-header-row { background-image: linear-gradient(var(--ns-table-header-bg, transparent), var(--ns-table-header-bg, transparent)) !important; }
+.notion-table-view-row:hover .notion-table-view-cell { background-image: linear-gradient(var(--ns-table-row-hover-bg, transparent), var(--ns-table-row-hover-bg, transparent)) !important; }
+.notion-board-group .notion-collection-item > div:first-child { background-image: linear-gradient(var(--ns-board-card-bg, transparent), var(--ns-board-card-bg, transparent)) !important; }
+`;
+
+// fonts: Notion sets font-family inline (its sans stack on the page root, the title and a few more, its mono
+// stack on code), so a plain inherited font does nothing and the override has to be !important.
+// Only emitted for the font variables a theme actually sets: with none set, every font stays Notion's
+export function fontCss(themeCss: string): string {
+  const sets = (name: string) => new RegExp(`${name}\\s*:`).test(themeCss);
+  const body = sets('--ns-font');
+  const title = sets('--ns-font-title');
+  const code = sets('--ns-font-code');
+  const rules: string[] = [];
+  if (body) rules.push(`.notion-app-inner, [style*="font-family: ui-sans-serif"] { font-family: var(--ns-font) !important; }`);
+  if (body || title) {
+    rules.push(
+      `.notion-page-block:not(.notion-collection-item), .notion-header-block, .notion-sub_header-block, .notion-sub_sub_header-block { font-family: var(--ns-font-title, var(--ns-font)) !important; }`
+    );
+  }
+  if (code) rules.push(`[style*="SFMono-Regular"], .notion-code-block, .notion-code-block * { font-family: var(--ns-font-code) !important; }`);
+  return rules.join('\n');
+}
+
+// core CSS plus whatever the theme asks for
+export function coreCssFor(themeCss: string): string {
+  const fonts = fontCss(themeCss);
+  return fonts ? `${CORE_CSS}\n${fonts}\n` : CORE_CSS;
+}
+
 export const CORE_CSS = `
 :root {
   --ns-bg: transparent;
@@ -62,6 +101,7 @@ ${COLOR_CSS}
 .notion-callout-block { background: var(--ns-callout-bg) !important; }
 .notion-divider-block hr { border-color: var(--ns-divider-color) !important; }
 .notion-quote-block { border-left-color: var(--ns-quote-border-color) !important; }
+${LOOK_CSS}
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--ns-scrollbar-track); }
 ::-webkit-scrollbar-thumb { background: var(--ns-scrollbar-thumb); border-radius: 3px; }
@@ -148,13 +188,13 @@ export interface PluginEntry {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function injectCoreCSSOnClient(client: any): Promise<void> {
+async function injectCoreCSSOnClient(cssContent: string, client: any): Promise<void> {
   const expression = `(function () {
     var prev = document.getElementById('notiskin-core-styles');
     if (prev) prev.remove();
     var el = document.createElement('style');
     el.id = 'notiskin-core-styles';
-    el.textContent = ${JSON.stringify(CORE_CSS)};
+    el.textContent = ${JSON.stringify(coreCssFor(cssContent))};
     (document.head || document.documentElement).appendChild(el);
     'ok';
   })()`;
@@ -228,7 +268,7 @@ export function earlyStyleScript(cssContent: string): string {
     function attach() {
       var root = document.head || document.documentElement;
       if (!root) return false;
-      add(root, 'notiskin-core-styles', ${JSON.stringify(CORE_CSS)});
+      add(root, 'notiskin-core-styles', ${JSON.stringify(coreCssFor(cssContent))});
       add(root, 'notiskin-styles', ${JSON.stringify(cssContent)});
       return true;
     }
@@ -274,7 +314,7 @@ async function injectPluginOnClient(plugin: PluginEntry, client: any): Promise<b
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function injectEverything(cssContent: string, plugins: PluginEntry[], client: any): Promise<void> {
   if (cssContent.trim()) {
-    await injectCoreCSSOnClient(client);
+    await injectCoreCSSOnClient(cssContent, client);
     await injectCSSOnClient(cssContent, client);
   } else {
     // no theme means stock Notion, the core CSS on its own would still restyle the page

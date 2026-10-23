@@ -242,6 +242,84 @@ test('a theme can set the colored text palette', { skip }, async () => {
   await everyPage(s => /#abcdef/.test(s.theme ?? '') && s.theme.length < 100, 'the theme back');
 });
 
+const LOOK = `(() => {
+  const st = id => getComputedStyle(document.getElementById(id));
+  return {
+    headerBg: st('th').backgroundColor, headerImage: st('th').backgroundImage,
+    cellBorder: st('tc').borderBottomColor,
+    cardBg: st('card').backgroundColor, cardImage: st('card').backgroundImage, cardRadius: st('card').borderTopLeftRadius,
+    calloutBorder: st('callout').borderTopColor, calloutRadius: st('callout').borderTopLeftRadius,
+    rootFont: getComputedStyle(document.querySelector('.notion-app-inner')).fontFamily,
+    titleFont: st('title-block').fontFamily, codeFont: st('code').fontFamily,
+    dark: matchMedia('(prefers-color-scheme: dark)').matches, plain: st('plain').color,
+  };
+})()`;
+
+const setTheme = async (css, expect) => {
+  lib.writeItem('theme', 'Test', css);
+  await everyPage(s => (s.theme ?? '').includes(expect), `the theme with ${expect}`);
+};
+
+test('a theme that sets none of the new variables changes nothing about databases, borders or fonts', { skip }, async () => {
+  await setTheme(':root { --ns-bg: #abcdef; }', '#abcdef');
+  for (const w of await evalAll(LOOK)) {
+    const v = w.value;
+    assert.equal(v.headerBg, 'rgb(10, 10, 10)');
+    assert.match(v.headerImage, /linear-gradient\(rgba\(0, 0, 0, 0\), rgba\(0, 0, 0, 0\)\)/, 'a transparent layer, no visible change');
+    assert.equal(v.cellBorder, 'rgb(20, 20, 20)');
+    assert.equal(v.cardBg, 'rgb(40, 40, 40)');
+    assert.equal(v.cardRadius, '10px');
+    assert.equal(v.calloutBorder, 'rgb(30, 30, 30)');
+    assert.equal(v.calloutRadius, '10px');
+    assert.match(v.titleFont, /^ui-sans-serif/);
+    assert.match(v.codeFont, /SFMono-Regular/);
+  }
+});
+
+test('border color, radius and database colors', { skip }, async () => {
+  await setTheme(`:root {
+    --ns-border-color: rgb(1, 2, 3);
+    --ns-radius: 3px;
+    --ns-table-header-bg: rgb(4, 5, 6);
+    --ns-board-card-bg: rgb(7, 8, 9);
+  }`, '--ns-board-card-bg');
+  for (const w of await evalAll(LOOK)) {
+    const v = w.value;
+    assert.equal(v.cellBorder, 'rgb(1, 2, 3)');
+    assert.equal(v.calloutBorder, 'rgb(1, 2, 3)');
+    assert.equal(v.calloutRadius, '3px');
+    assert.equal(v.cardRadius, '3px');
+    assert.match(v.headerImage, /rgb\(4, 5, 6\)/);
+    assert.equal(v.headerBg, 'rgb(10, 10, 10)', "Notion's own background is still underneath");
+    assert.match(v.cardImage, /rgb\(7, 8, 9\)/);
+    assert.equal(v.cardBg, 'rgb(40, 40, 40)');
+  }
+});
+
+test('fonts: quoted names reach the page, and only the font variables a theme sets are overridden', { skip }, async () => {
+  await setTheme(':root { --ns-font: "Inter Display", Georgia, serif; }', 'Inter Display');
+  for (const w of await evalAll(LOOK)) {
+    assert.match(w.value.rootFont, /Inter Display/);
+    assert.match(w.value.titleFont, /Inter Display/, 'titles follow the body font unless --ns-font-title is set');
+    assert.match(w.value.codeFont, /SFMono-Regular/, 'code keeps its own font unless --ns-font-code is set');
+  }
+  await setTheme(':root { --ns-font-title: Georgia, serif; --ns-font-code: "Fira Code", monospace; }', 'Fira Code');
+  for (const w of await evalAll(LOOK)) {
+    assert.match(w.value.rootFont, /^ui-sans-serif/, 'body untouched');
+    assert.match(w.value.titleFont, /^Georgia/);
+    assert.match(w.value.codeFont, /Fira Code/);
+  }
+});
+
+test('a prefers-color-scheme block in a theme follows the scheme the page is in', { skip }, async () => {
+  await setTheme(`:root { --ns-text: rgb(1, 1, 1); }
+@media (prefers-color-scheme: dark) { :root { --ns-text: rgb(2, 2, 2); } }
+@media (prefers-color-scheme: light) { :root { --ns-text: rgb(3, 3, 3); } }`, 'prefers-color-scheme');
+  for (const w of await evalAll(LOOK)) assert.equal(w.value.plain, w.value.dark ? 'rgb(2, 2, 2)' : 'rgb(3, 3, 3)');
+  lib.writeItem('theme', 'Test', ':root { --ns-bg: #abcdef; }');
+  await everyPage(s => /#abcdef/.test(s.theme ?? '') && s.theme.length < 100, 'the theme back');
+});
+
 test('big themes and replies far bigger than the pipe buffer go through', { skip }, async () => {
   const big = ':root { --ns-bg: #fedcba; }\n/* ' + 'x'.repeat(300_000) + ' */';
   lib.writeItem('theme', 'Test', big);
