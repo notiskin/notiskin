@@ -56,7 +56,9 @@ export function fontCss(themeCss: string): string {
   if (body) rules.push(`.notion-app-inner, [style*="font-family: ui-sans-serif"] { font-family: var(--ns-font) !important; }`);
   if (body || title) {
     rules.push(
-      `.notion-page-block:not(.notion-collection-item), .notion-header-block, .notion-sub_header-block, .notion-sub_sub_header-block { font-family: var(--ns-font-title, var(--ns-font)) !important; }`
+      `.notion-page-block:not(.notion-collection-item), .notion-header-block, .notion-sub_header-block, .notion-sub_sub_header-block { font-family: var(--ns-font-title, var(--ns-font)) !important; }`,
+      // the text inside a heading carries Notion's sans stack inline too (checked on the real app, its stack even names Apple Color Emoji, so only a style that starts with it counts as emoji), but code and emoji inside it keep their own
+      `:is(.notion-header-block, .notion-sub_header-block, .notion-sub_sub_header-block) *:not([style*="SFMono-Regular"], [style*='font-family: "Apple Color Emoji"']) { font-family: var(--ns-font-title, var(--ns-font)) !important; }`
     );
   }
   if (code) rules.push(`[style*="SFMono-Regular"], .notion-code-block, .notion-code-block * { font-family: var(--ns-font-code) !important; }`);
