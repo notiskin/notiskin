@@ -78,6 +78,8 @@ An admin password can't get past App Management: macOS checks which app asks, no
 
 ## Writing a theme
 
+You can make a theme without writing CSS: on the Themes page, **New theme** (or **Edit** on a theme you have) opens an editor with a color picker for each part of Notion, grouped as page, sidebar, text, code, accents and databases, and a Dark tab for the dark version. Notion shows your changes while you pick, and goes back to your normal theme when you close the editor (or if Notiskin quits). **Save** writes a file to `~/.notiskin/themes`, **Save and publish** takes it to the Publish tab, or to a new version if you already published a theme with that name. The CSS itself is under "The CSS itself" and the pickers only change the lines they own, so comments, fonts and anything else in the file stay as they were.
+
 Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain only those variables, with color values (hex, `rgb()`, `hsl()`, `color-mix()`, gradients, `var()`, `calc()`). `url()`, `@import`, quotes and backslashes are rejected, with two exceptions: the font variables may hold font names in double quotes, and the `:root` block can be wrapped in `@media (prefers-color-scheme: dark)` or `light` (nothing else is allowed inside `@media`, at most one of each).
 
 ```css

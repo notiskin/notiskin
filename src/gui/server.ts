@@ -23,13 +23,17 @@ import {
   applyConfig,
   CLI_SCRIPT,
   deleteItem,
+  endThemePreview,
   isItemType,
   isNotionRunning,
   isValidItemName,
   itemExists,
   listPlugins,
   listThemes,
+  previewTheme,
   quitNotion,
+  writeItem,
+  itemPath,
   ItemType,
 } from '../core/library';
 import {
@@ -471,6 +475,7 @@ const ASSETS: Record<string, string> = {
   '/brand.css': 'css',
   '/tour.js': 'js',
   '/marketplace.js': 'js',
+  '/theme-editor.js': 'js',
   '/fonts/fraunces.woff2': 'font/woff2',
   '/fonts/inter.woff2': 'font/woff2',
 };
@@ -669,6 +674,58 @@ app.post('/api/theme/:name', async (req, res) => {
   } catch (err) {
     res.json({ ok: false, error: errorMessage(err) });
   }
+});
+
+// the theme editor. A theme made here is an ordinary file in ~/.notiskin/themes, the editor only writes the file and previews CSS
+app.get('/api/theme-editor/:name', (req, res) => {
+  const { name } = req.params;
+  if (!itemExists('theme', name)) return res.status(404).json({ error: 'Theme not found' });
+  res.json({
+    name,
+    css: readFileSync(itemPath('theme', name), 'utf-8'),
+    // files installed from the marketplace are updated by the marketplace, an edit would be overwritten or lost
+    fromMarketplace: !!installedEntry('theme', name),
+  });
+});
+
+app.post('/api/theme-editor/save', async (req, res) => {
+  const { name, css, replace } = req.body ?? {};
+  if (!isValidItemName(name)) return res.status(400).json({ error: 'Use letters, numbers, spaces, dashes, dots and underscores in the name.' });
+  if (typeof css !== 'string' || !css.trim()) return res.status(400).json({ error: 'The theme is empty.' });
+  if (installedEntry('theme', name)) {
+    return res.status(409).json({ error: 'That theme came from the marketplace. Save it under a new name to make your own copy.', reason: 'marketplace' });
+  }
+  if (itemExists('theme', name) && replace !== true) {
+    return res.status(409).json({ error: 'You already have a theme with that name.', reason: 'exists' });
+  }
+  try {
+    writeItem('theme', name, css);
+  } catch (err) {
+    return res.status(400).json({ error: errorMessage(err) });
+  }
+  // the injector watches the folder, this only makes sure the active theme is on screen before the answer
+  if (readConfig().activeTheme === name) {
+    try { await serialized(() => applyConfig()); } catch {}
+  }
+  res.json({ ok: true, name });
+});
+
+// shows the editor's CSS in Notion without changing the config, the editor repeats it every few seconds
+// and it ends by itself if the editor goes away. Never restarts Notion
+app.post('/api/theme-editor/preview', async (req, res) => {
+  const { css } = req.body ?? {};
+  if (typeof css !== 'string' || !css.trim()) return res.status(400).json({ error: 'Nothing to preview.' });
+  if (readConfig().safeMode) return res.json({ ok: false, live: false, safeMode: true });
+  try {
+    res.json(await previewTheme(css));
+  } catch (err) {
+    res.json({ ok: false, live: false, error: errorMessage(err) });
+  }
+});
+
+app.post('/api/theme-editor/preview/end', async (_req, res) => {
+  try { await endThemePreview(); } catch {}
+  res.json({ ok: true });
 });
 
 app.delete('/api/themes/:name', async (req, res) => {

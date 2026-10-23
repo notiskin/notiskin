@@ -749,3 +749,82 @@ test('browser sign-in routes need the session token', async () => {
   assert.equal((await request('GET', '/api/auth/result')).status, 403);
   assert.equal((await request('POST', '/api/auth/start', { body: { url: 'x' } })).status, 403);
 });
+
+test('the theme editor script is served, and the Themes page loads it', async () => {
+  const res = await request('GET', '/theme-editor.js');
+  assert.equal(res.status, 200);
+  assert.match(res.headers['content-type'], /javascript/);
+  assert.match(res.text, /nsThemeEditor/);
+  assert.match((await request('GET', '/')).text, /<script src="\/theme-editor\.js"><\/script>/);
+});
+
+test('theme editor: save writes a theme file, reads it back, and never overwrites by accident', async () => {
+  const { readFileSync } = require('fs');
+  const lib = require('../dist/core/library');
+  const css = ':root {\n  --ns-bg: #123456;\n}\n';
+
+  assert.equal((await request('GET', '/api/theme-editor/Mine', { headers: authed() })).status, 404);
+
+  const saved = await request('POST', '/api/theme-editor/save', { headers: authed(), body: { name: 'Mine', css } });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.ok, true);
+  assert.equal(readFileSync(lib.itemPath('theme', 'Mine'), 'utf-8'), css);
+
+  const read = await request('GET', '/api/theme-editor/Mine', { headers: authed() });
+  assert.deepEqual(read.json, { name: 'Mine', css, fromMarketplace: false });
+
+  // a second new theme with the same name asks first, a replace says so
+  const again = await request('POST', '/api/theme-editor/save', { headers: authed(), body: { name: 'Mine', css: ':root { --ns-bg: red; }' } });
+  assert.equal(again.status, 409);
+  assert.equal(again.json.reason, 'exists');
+  assert.equal(readFileSync(lib.itemPath('theme', 'Mine'), 'utf-8'), css);
+  const replaced = await request('POST', '/api/theme-editor/save', { headers: authed(), body: { name: 'Mine', css: ':root { --ns-bg: red; }', replace: true } });
+  assert.equal(replaced.status, 200);
+  assert.match(readFileSync(lib.itemPath('theme', 'Mine'), 'utf-8'), /red/);
+  lib.deleteItem('theme', 'Mine');
+});
+
+test('theme editor: bad names, empty CSS and files from the marketplace are refused', async () => {
+  const lib = require('../dist/core/library');
+  const { recordInstall } = require('../dist/core/installed');
+  const post = body => request('POST', '/api/theme-editor/save', { headers: authed(), body });
+  for (const name of ['', '../evil', '.hidden', 'a/b', 'x'.repeat(81), 42, undefined]) {
+    assert.equal((await post({ name, css: ':root { --ns-bg: red; }' })).status, 400, JSON.stringify(name));
+  }
+  assert.equal((await post({ name: 'ok', css: '   ' })).status, 400);
+  assert.equal((await post({ name: 'ok', css: 5 })).status, 400);
+  assert.equal(lib.itemExists('theme', 'ok'), false);
+
+  lib.writeItem('theme', 'from-store', ':root { --ns-bg: #fff; }');
+  recordInstall('theme', 'from-store', { id: 'abc', version: 1 });
+  const res = await post({ name: 'from-store', css: ':root { --ns-bg: red; }', replace: true });
+  assert.equal(res.status, 409);
+  assert.equal(res.json.reason, 'marketplace');
+  assert.equal((await request('GET', '/api/theme-editor/from-store', { headers: authed() })).json.fromMarketplace, true);
+  lib.deleteItem('theme', 'from-store');
+
+  // the editor endpoints need the token like every other call, and path tricks never reach the disk
+  assert.equal((await request('POST', '/api/theme-editor/save', { body: { name: 'a', css: 'x' } })).status, 403);
+  assert.equal((await request('GET', '/api/theme-editor/..%2F..%2Fconfig', { headers: authed() })).status, 404);
+});
+
+test('theme editor: with no Notion running a preview says so and starts nothing', async () => {
+  const res = await request('POST', '/api/theme-editor/preview', { headers: authed(), body: { css: ':root { --ns-bg: #fff; }' } });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json, { ok: true, live: false });
+  assert.equal((await request('POST', '/api/theme-editor/preview', { headers: authed(), body: { css: '' } })).status, 400);
+  assert.equal((await request('POST', '/api/theme-editor/preview', { headers: authed(), body: {} })).status, 400);
+  assert.equal((await request('POST', '/api/theme-editor/preview/end', { headers: authed() })).json.ok, true);
+  assert.equal((await request('POST', '/api/theme-editor/preview', { body: { css: 'x' } })).status, 403);
+});
+
+test('theme editor: safe mode keeps the preview out of Notion', async () => {
+  const { readConfig, writeConfig } = require('../dist/utils/config');
+  writeConfig({ ...readConfig(), safeMode: true });
+  try {
+    const res = await request('POST', '/api/theme-editor/preview', { headers: authed(), body: { css: ':root { --ns-bg: #fff; }' } });
+    assert.deepEqual(res.json, { ok: false, live: false, safeMode: true });
+  } finally {
+    writeConfig({ ...readConfig(), safeMode: false });
+  }
+});

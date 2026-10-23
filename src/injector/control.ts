@@ -10,17 +10,23 @@ export type ControlRequest =
   | { cmd: 'apply' }
   // reload every Notion tab, plugins can't be un-run any other way
   | { cmd: 'reload' }
+  // the theme editor's live preview: this CSS replaces the theme in every tab until preview-end, or until nobody
+  // has repeated the request for a few seconds (the editor closed, the app quit). The config is never touched
+  | { cmd: 'preview'; css: string }
+  | { cmd: 'preview-end' }
   | { cmd: 'status' };
 
 export interface ControlReply {
   ok: boolean;
   error?: string;
   tabs?: number;
+  previewing?: boolean;
   pid?: number;
   runDir?: string;
 }
 
-const MAX_REQUEST_BYTES = 4096;
+// a preview carries a whole theme
+const MAX_REQUEST_BYTES = 128 * 1024;
 
 export function startControlServer(handle: (req: ControlRequest) => Promise<ControlReply>): Promise<net.Server> {
   ensureRunDir();

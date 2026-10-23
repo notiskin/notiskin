@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/brand.css">
   <script src="/tour.js"></script>
   <script src="/marketplace.js"></script>
+  <script src="/theme-editor.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -378,6 +379,51 @@
       opacity: 0.8;
     }
 
+
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .section-head h2 { margin-bottom: 0; }
+    .btn-edit {
+      background: transparent;
+      color: var(--text-3);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      padding: 3px 9px;
+      flex-shrink: 0;
+    }
+    .btn-edit:hover { color: var(--text); }
+
+    /* theme editor */
+    #theme-editor[hidden] { display: none; }
+    .te-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
+    .te-head h2 { margin-bottom: 0; }
+    .te-back { background: transparent; color: var(--text-3); padding: 4px 0; }
+    .te-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
+    @media (max-width: 900px) { .te-grid { grid-template-columns: minmax(0, 1fr); } }
+    .te-side { position: sticky; top: 16px; }
+    .te-side .theme-preview { height: 260px; }
+    .te-modes { display: flex; gap: 0; margin: 4px 0 6px; border-bottom: 1px solid var(--border); }
+    .te-mode { background: none; color: var(--text-3); border-bottom: 2px solid transparent; border-radius: 0; margin-bottom: -1px; }
+    .te-mode.active { color: var(--text); border-bottom-color: var(--accent); }
+    .te-scope-note { font-size: 12px; color: var(--text-3); margin-bottom: 14px; min-height: 16px; }
+    .te-group { border: 0; padding: 0; margin: 0 0 16px; }
+    .te-group legend { font-family: var(--font-display); font-size: 15px; font-weight: 520; color: var(--text); padding: 0; margin-bottom: 6px; }
+    .te-row { display: grid; grid-template-columns: minmax(0, 1fr) 34px 150px 22px; gap: 8px; align-items: center; padding: 3px 0; }
+    .te-label { font-size: 13px; color: var(--text-2); }
+    .te-swatch { width: 34px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: none; cursor: pointer; }
+    .te-row.empty .te-swatch { opacity: 0.35; }
+    .te-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 4px 6px; }
+    .te-clear { background: transparent; color: var(--text-3); padding: 0 4px; font-size: 16px; line-height: 1; }
+    .te-row.empty .te-clear { visibility: hidden; }
+    .te-advanced { margin-top: 8px; }
+    .te-advanced summary { cursor: pointer; font-size: 13px; color: var(--text-2); margin-bottom: 8px; }
+    #te-css { width: 100%; min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .te-live { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+    .te-live-note { font-size: 12px; color: var(--text-3); margin: 4px 0 14px; min-height: 16px; }
+    .te-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .te-msg { font-size: 12px; margin-top: 10px; color: var(--text-3); }
+    .te-msg.ok { color: var(--success, var(--text-2)); }
+    .te-msg.error { color: var(--danger); }
+
     .notice-warn {
       background: var(--warning-soft);
       border: 1px solid var(--warning-border);
@@ -623,6 +669,8 @@
         <button onclick="turnOffSafeMode()" style="background:var(--warning-soft); color:var(--warning); border:1px solid var(--warning-border);">Turn off</button>
       </div>
 
+      <div id="theme-editor" hidden></div>
+
       <div class="tabs">
         <button class="tab-btn active" data-tab="installed" onclick="switchTab('installed')">Installed</button>
         <button class="tab-btn" data-tab="browse" onclick="switchTab('browse')">Browse</button>
@@ -632,7 +680,10 @@
 
       <div id="tab-installed">
         <section>
-          <h2>Your themes</h2>
+          <div class="section-head">
+            <h2>Your themes</h2>
+            <button type="button" class="btn-ghost" id="new-theme-btn" onclick="newTheme()">New theme</button>
+          </div>
           <input type="text" id="installed-search-themes" placeholder="Search" style="margin-bottom:12px">
           <div id="themes-list"><span class="loading">Loading</span></div>
         </section>
@@ -1019,6 +1070,7 @@
               <div class="card-name">${esc(filenameToDisplayName(t))}</div>
             </div>
             ${sid ? buildRateBtn(sid, 'theme') : ''}
+            <button class="btn-edit" title="Edit this theme" onclick="editTheme(event, '${esc(t)}')">Edit</button>
             <button class="btn-delete" title="Delete theme" onclick="deleteTheme(event, '${esc(t)}')">×</button>
           </label>
         `;
@@ -1059,6 +1111,65 @@
       }
     }
 
+    // ---- theme editor ----
+    // the editor (theme-editor.js) draws itself into #theme-editor and takes over the page until it is closed
+    nsThemeEditor.init({
+      api,
+      mockup: themeMockupHtml(),
+      onClose() {
+        document.querySelector('.tabs').style.display = '';
+        switchTab('installed');
+      },
+      onPublish: (name, css) => publishFromEditor(name, css),
+    });
+
+    function showEditor(opts) {
+      document.querySelector('.tabs').style.display = 'none';
+      ['installed', 'browse', 'publish', 'submissions'].forEach(t => { document.getElementById(`tab-${t}`).hidden = true; });
+      nsThemeEditor.open(opts);
+    }
+
+    function newTheme() {
+      showEditor({ name: '', css: nsThemeEditor.START_CSS('my theme'), isNew: true });
+    }
+
+    async function editTheme(event, name) {
+      event.preventDefault();
+      event.stopPropagation();
+      const res = await api('GET', `/theme-editor/${encodeURIComponent(name)}`);
+      if (res.error) { showNotif(res.error); return; }
+      if (res.fromMarketplace) {
+        // an installed theme is updated by the marketplace, so editing makes a copy next to it
+        showNotif('Installed from the marketplace, so this makes your own copy');
+        showEditor({ name: `${name} copy`, css: res.css, isNew: true });
+      } else {
+        showEditor({ name, css: res.css, isNew: false });
+      }
+    }
+
+    // "Save and publish": the editor has saved the file, the Publish tab does the rest (a new theme, or a new version of one you own)
+    async function publishFromEditor(name, css) {
+      await switchTab('publish');
+      const display = name.replace(/[-_.]/g, ' ').replace(/[^a-z0-9 ]/gi, '').replace(/ +/g, ' ').trim().toLowerCase();
+      const fill = (id, value) => {
+        const input = document.getElementById(id);
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+        return input;
+      };
+      const select = document.getElementById('v-item-theme');
+      const own = select && [...select.options].find(o => o.textContent.replace(/ \(now version.*$/, '') === display);
+      if (own) {
+        select.value = own.value;
+        fill('v-code-theme', css).closest('form').scrollIntoView({ block: 'center' });
+        showNotif('Say what changed, then publish the new version');
+        return;
+      }
+      fill('f-name', display.slice(0, 50));
+      fill('f-code', css).scrollIntoView({ block: 'center' });
+      showNotif('Add a description, then submit');
+    }
+
     async function deleteTheme(event, name) {
       event.preventDefault();
       event.stopPropagation();
@@ -1086,13 +1197,9 @@
 
     function normalizeName(n) { return n.toLowerCase().replace(/[\s\-_]/g, ''); }
 
-    function renderBrowseThemeCard(item) {
-      const key = `theme:${item.name}`;
-      browseItems[key] = { ...item, type: 'theme' };
-      const previewId = `preview-${esc(item.name)}`;
+    // the mock Notion page the theme previews draw (Browse cards and the editor)
+    function themeMockupHtml() {
       return `
-        <div class="card">
-          <div class="theme-preview" id="${previewId}">
             <div class="ns-mockup">
               <div class="ns-sidebar">
                 <div class="ns-sidebar-item ns-sidebar-item--active">📄 My Page</div>
@@ -1121,6 +1228,17 @@
                 </div>
               </div>
             </div>
+      `;
+    }
+
+    function renderBrowseThemeCard(item) {
+      const key = `theme:${item.name}`;
+      browseItems[key] = { ...item, type: 'theme' };
+      const previewId = `preview-${esc(item.name)}`;
+      return `
+        <div class="card">
+          <div class="theme-preview" id="${previewId}">
+            ${themeMockupHtml()}
           </div>
           <div class="card-row">
             <div class="card-info">
