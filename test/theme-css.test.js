@@ -45,3 +45,13 @@ test('rejects empty, huge, and non-string input', () => {
 test('rejects unclosed comments', () => {
   assert.ok(validateThemeCss(':root { --ns-bg: red; } /* oops'));
 });
+
+test('accepts the colored text palette, both text and background', () => {
+  const css = `:root {
+  --ns-color-red: #e03e3e;
+  --ns-color-red-bg: color-mix(in srgb, var(--ns-bg) 80%, red);
+  --ns-color-blue: rgb(11, 110, 153);
+  --ns-color-yellow-bg: linear-gradient(90deg, #dfab01 0%, #ffdc49 100%);
+}`;
+  assert.equal(validateThemeCss(css), null);
+});

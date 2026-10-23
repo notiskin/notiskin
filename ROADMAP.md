@@ -23,36 +23,53 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 
 ## Phase 2: Distribution (weeks 4–6, about 8–10 hours plus Apple's wait)
 
+Only Developer ID signing is left: [plan](docs/prompts/phase-2-developer-id.md), on hold until the Apple account is sorted.
+
 - ✅ New look: "paper and ink" (warm paper, ink, vermilion, Fraunces), light and dark following macOS
 - ✅ App icon: an ink rounded square with a cream page peeling back to vermilion, also the sidebar logo
 - ✅ Intel Mac builds: separate downloads for Apple Silicon and Intel
-- Apple Developer ID signing and notarization ($99/year): removes "damaged app" warnings and makes auto-update work
+- Apple Developer ID signing and notarization ($99/year): removes "damaged app" warnings, keeps the App Management permission across updates, and lets updates install themselves
 - ✅ The microphone works in a patched Notion: macOS asked for permission and AI Meeting Notes recorded (checked Oct 21, 2026 on 7.40.0). Notion has no camera feature to check
 - ✅ A real Notion update repaired with one click: 7.39.0 updated itself to 7.40.0 on Oct 21, 2026, Settings showed Needs repair, Repair brought the theme back
 - ✅ First-run walkthrough: a short tour of every page that ends at Install into Notion, replayable from Settings → Help
 
-## Phase 3: Marketplace v2 (weeks 6–10, about 25–30 hours)
+## ✅ Phase 3: Marketplace v2 (done October 2026, released in 0.8.0)
 
-- [x] Item versions: authors publish updates, installed items show "update available", plugin updates are re-reviewed with a diff
-- [x] Tags, an optional GitHub link (instead of screenshots, which would use paid storage), sort by rating or downloads, download counts
-- [x] Report button and a reviewer action log
-- [x] Rate limits enforced server-side
-- [x] Tests for the edge functions (Deno, mocked database, runs in CI)
+Detailed plan: [docs/prompts/phase-3-marketplace-v2.md](docs/prompts/phase-3-marketplace-v2.md). Everything was checked on the live backend with real accounts.
+
+- ✅ Tests for the edge functions (Deno, mocked database, runs in CI)
+- ✅ Rate limits enforced server-side (publishing, rating, reporting, editing details)
+- ✅ Item versions: authors publish updates, installed items show "update available", plugin updates are re-reviewed with a diff
+- ✅ Tags, an optional GitHub link (instead of screenshots, which would use paid storage), sorting by rating or downloads, download counts, and a Tags button on Browse
+- ✅ Report button, automatic hiding after 3 "harmful" reports from accounts at least a day old, and an append-only reviewer action log
+- ✅ A warning on installed items that later get pulled from the marketplace
+- ✅ GitHub sign-in in the default browser, so Google sign-in and passkeys work
 
 ## Phase 4: Creator tools (weeks 10–14, about 25 hours)
 
+Detailed plan: [docs/prompts/phase-4-creator-tools.md](docs/prompts/phase-4-creator-tools.md)
+
+- ✅ Keep Notion's colored text instead of flattening it, plus a colored text palette themes can set (`--ns-color-red` … `--ns-color-pink` and `-bg` versions)
 - Theme editor with color pickers and live preview in Notion
 - More theme variables: fonts, borders, database views, light/dark variants
-- Stop themes from flattening Notion's colored text (the core CSS forces one text color today)
 - Plugin settings API (`notiskin.settings`) with settings forms in the app
 - Plugin developer mode with auto-reload from a local folder
 - Docs site
 
 ## Phase 5: Code health (ongoing, about 10 hours)
 
+Detailed plan: [docs/prompts/phase-5-code-health.md](docs/prompts/phase-5-code-health.md)
+
 - Pull duplicated code out of the four GUI pages into one shared script: the escape helper, the Supabase client, the update banner, and about 40 inline `onclick` handlers. Removing the inline handlers also allows a strict Content Security Policy
 - Browser tests for the GUI
 - Type definitions for plugin authors
+
+## Checks on a real Mac
+
+Small things not yet seen end to end:
+
+- The watcher repairing a real Notion update by itself ("Repair automatically after Notion updates" is off by default; one-click Repair after an update is proven)
+- The rest of the DevTools-pipe checklist from the debug-pipe PR: reopening Notion from the Dock, `notion://` links, Notion relaunching itself after its own update
 
 ## Later, maybe
 
@@ -64,4 +81,4 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 
 - Disabling a plugin removes it from the current tab right away. Other open tabs drop it on their next reload.
 - Installing into Notion needs App Management for Notiskin. Until releases are signed with a Developer ID, macOS may forget that permission after a Notiskin update (remove Notiskin from the list and add it again).
-- The long-running injector has been tested against a fake Notion (an Electron app in `test/fixtures/fake-notion`), not yet against the real Notion's tabs.
+- Until Developer ID signing, a downloaded release says it "is damaged" and needs the `xattr` command from the README, and updates are downloaded and installed by hand.

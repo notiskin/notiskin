@@ -202,6 +202,46 @@ test('editing the theme file updates every tab live', { skip }, async () => {
   await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'live update');
 });
 
+const COLORS = `(() => {
+  const c = id => getComputedStyle(document.getElementById(id)).color;
+  const bg = id => getComputedStyle(document.getElementById(id)).backgroundColor;
+  return { plain: c('plain'), red: c('red-text'), highlight: c('highlight'), highlightBg: bg('highlight'),
+    blueChild: c('blue-child'), redBg: bg('red-bg') };
+})()`;
+
+test('plain text takes the theme color, text Notion colored keeps its own', { skip }, async () => {
+  lib.writeItem('theme', 'Test', ':root { --ns-text: rgb(9, 9, 9); }');
+  await everyPage(s => /rgb\(9, 9, 9\)/.test(s.theme ?? ''), 'the text color theme');
+  for (const w of await evalAll(COLORS)) {
+    assert.equal(w.value.plain, 'rgb(9, 9, 9)');
+    assert.equal(w.value.red, 'rgb(200, 0, 0)');
+    assert.equal(w.value.highlight, 'rgb(200, 0, 0)');
+    assert.equal(w.value.blueChild, 'rgb(0, 0, 200)', 'text inside a colored block');
+    assert.equal(w.value.redBg, 'rgb(250, 200, 200)', 'a block Notion colored');
+  }
+});
+
+test('a theme can set the colored text palette', { skip }, async () => {
+  lib.writeItem('theme', 'Test', `:root {
+    --ns-text: rgb(9, 9, 9);
+    --ns-color-red: rgb(0, 128, 0);
+    --ns-color-red-bg: rgb(1, 2, 3);
+    --ns-color-blue: rgb(5, 5, 5);
+    --ns-color-yellow-bg: rgb(7, 7, 7);
+  }`);
+  await everyPage(s => /--ns-color-red/.test(s.theme ?? ''), 'the palette theme');
+  for (const w of await evalAll(COLORS)) {
+    assert.equal(w.value.plain, 'rgb(9, 9, 9)');
+    assert.equal(w.value.red, 'rgb(0, 128, 0)');
+    assert.equal(w.value.highlight, 'rgb(0, 128, 0)');
+    assert.equal(w.value.highlightBg, 'rgb(7, 7, 7)');
+    assert.equal(w.value.blueChild, 'rgb(5, 5, 5)', 'inside a block the theme recolored');
+    assert.equal(w.value.redBg, 'rgb(1, 2, 3)');
+  }
+  lib.writeItem('theme', 'Test', ':root { --ns-bg: #abcdef; }');
+  await everyPage(s => /#abcdef/.test(s.theme ?? '') && s.theme.length < 100, 'the theme back');
+});
+
 test('big themes and replies far bigger than the pipe buffer go through', { skip }, async () => {
   const big = ':root { --ns-bg: #fedcba; }\n/* ' + 'x'.repeat(300_000) + ' */';
   lib.writeItem('theme', 'Test', big);
