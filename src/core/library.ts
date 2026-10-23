@@ -268,3 +268,27 @@ export async function applyConfig(opts: ApplyOptions = {}): Promise<boolean> {
   if (!reply.ok) throw new Error(reply.error ?? 'The injector could not apply your settings.');
   return true;
 }
+
+export interface PreviewResult {
+  ok: boolean;
+  // false when Notion isn't running (or has no pipe), so there was nothing to show it in
+  live: boolean;
+  error?: string;
+}
+
+// shows CSS in every Notion tab without touching the config, it ends by itself a few seconds after the last call
+// never starts or restarts Notion, only an injector for a Notion that is already running
+export async function previewTheme(css: string): Promise<PreviewResult> {
+  const req: ControlRequest = { cmd: 'preview', css };
+  let reply = await askInjector(req);
+  if (!reply && findNotionRun()) {
+    ensureInjector();
+    reply = await waitForInjector(req, 10_000);
+  }
+  if (!reply) return { ok: true, live: false };
+  return { ok: reply.ok, live: reply.ok, error: reply.error };
+}
+
+export async function endThemePreview(): Promise<void> {
+  await askInjector({ cmd: 'preview-end' });
+}
