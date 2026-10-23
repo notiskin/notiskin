@@ -265,6 +265,7 @@
     </div>
   </div>
 
+  <script src="/marketplace.js"></script>
   <script src="/vendor/supabase.js"></script>
   <script>
     const SUPABASE_URL = 'https://rdsoztlxtbfwdjcfqhmt.supabase.co';
@@ -314,15 +315,7 @@
       await loadQueue();
     }
 
-    function applyThemePreview(containerId, css) {
-      const container = document.getElementById(containerId);
-      if (!container) return;
-      const varRegex = /(--[\w-]+)\s*:\s*([^;]+);/g;
-      let match;
-      while ((match = varRegex.exec(css)) !== null) {
-        container.style.setProperty(match[1].trim(), match[2].trim());
-      }
-    }
+    const applyThemePreview = nsTheme.applyPreview;
 
     function themeCard(item) {
       const previewId = `preview-${item.id}`;

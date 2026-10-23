@@ -55,3 +55,17 @@ test('accepts the colored text palette, both text and background', () => {
 }`;
   assert.equal(validateThemeCss(css), null);
 });
+
+test('accepts quoted font names only in the font variables', () => {
+  assert.equal(validateThemeCss(':root { --ns-font: "Inter Display", Georgia, serif; --ns-font-code: "JetBrains Mono", monospace; }'), null);
+  assert.ok(validateThemeCss(':root { --ns-bg: "red"; }'));
+  assert.ok(validateThemeCss(':root { --ns-font: url(https://evil.test/x.woff); }'));
+  assert.ok(validateThemeCss(':root { --ns-font: "a(b)"; }'));
+});
+
+test('accepts a dark variant in a prefers-color-scheme block, nothing else in @media', () => {
+  assert.equal(validateThemeCss(':root { --ns-bg: #fff; } @media (prefers-color-scheme: dark) { :root { --ns-bg: #111; } }'), null);
+  assert.ok(validateThemeCss('@media (min-width: 1px) { :root { --ns-bg: red; } }'));
+  assert.ok(validateThemeCss('@media (prefers-color-scheme: dark) { body { display: none; } }'));
+  assert.ok(validateThemeCss('@media (prefers-color-scheme: dark) { :root { --ns-bg: url(x); } }'));
+});

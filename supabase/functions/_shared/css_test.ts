@@ -61,3 +61,71 @@ Deno.test('function names are checked case-insensitively', () => {
   ok(':root { --ns-a: RGB(1,2,3); }');
   bad(':root { --ns-a: URL(x); }');
 });
+
+Deno.test('font variables accept quoted names and plain words, up to 8', () => {
+  ok(':root { --ns-font: "Inter Display", "Helvetica Neue", Arial, sans-serif; }');
+  ok(':root { --ns-font-title: Georgia, serif; --ns-font-code: "JetBrains Mono", monospace; }');
+  ok(':root{--ns-font:"Fira-Code"}');
+  ok(':root { --ns-font: a, b, c, d, e, f, g, h; }');
+  bad(':root { --ns-font: a, b, c, d, e, f, g, h, i; }');
+});
+
+Deno.test('font variables still refuse anything that could load or escape', () => {
+  bad(':root { --ns-font: url(https://evil.example/x.woff); }');
+  bad(':root { --ns-font: "a", url(x); }');
+  bad(":root { --ns-font: 'Inter'; }");
+  bad(':root { --ns-font: "Inter; } body { display: none; } :root { --ns-x: "; }');
+  bad(':root { --ns-font: "a\\"; }');
+  bad(String.raw`:root { --ns-font: "\75rl(x)"; }`);
+  bad(':root { --ns-font: "a(b)"; }');
+  bad(':root { --ns-font: "a:b"; }');
+  bad(':root { --ns-font: "a;b"; }');
+  bad(':root { --ns-font: "a{b}"; }');
+  bad(':root { --ns-font: "a/b"; }');
+  bad(':root { --ns-font: "a" "b"; }');
+  bad(':root { --ns-font: var(--ns-x); }');
+  bad(':root { --ns-font: ; }');
+  bad(`:root { --ns-font: "${'a'.repeat(41)}"; }`);
+});
+
+Deno.test('quotes stay banned in every other variable, including look-alike names', () => {
+  bad(':root { --ns-bg: "red"; }');
+  bad(':root { --ns-fonts: "Inter"; }');
+  bad(':root { --ns-font-size: "Inter"; }');
+  bad(':root { --ns-font2: "Inter"; }');
+  bad(':root { --ns-bg: image-set("https://evil.example/x.png" 1x); }');
+});
+
+Deno.test('a dark or light variant may wrap :root in a prefers-color-scheme block', () => {
+  ok(`:root { --ns-bg: #fff; }
+@media (prefers-color-scheme: dark) { :root { --ns-bg: #111; --ns-text: #eee; } }`);
+  ok(`@media (prefers-color-scheme:light){:root{--ns-bg:#fff}}
+@media (prefers-color-scheme:dark){:root{--ns-bg:#000}}`);
+  ok(`/* both */ :root { --ns-font: "Inter", sans-serif; }
+@media (prefers-color-scheme: dark) { :root { --ns-font: Georgia, serif; } }`);
+});
+
+Deno.test('the prefers-color-scheme wrapper is the only @media allowed, and holds nothing but :root', () => {
+  bad('@media (min-width: 1px) { :root { --ns-bg: red; } }');
+  bad('@media screen { :root { --ns-bg: red; } }');
+  bad('@media (prefers-color-scheme: dark) and (min-width: 1px) { :root { --ns-bg: red; } }');
+  bad('@media (prefers-color-scheme: dark), print { :root { --ns-bg: red; } }');
+  bad('@media not (prefers-color-scheme: dark) { :root { --ns-bg: red; } }');
+  bad('@media (prefers-color-scheme: sepia) { :root { --ns-bg: red; } }');
+  bad('@media (prefers-color-scheme: dark) { body { display: none; } }');
+  bad('@media (prefers-color-scheme: dark) { :root { --ns-bg: red; } body { display: none; } }');
+  bad('@media (prefers-color-scheme: dark) { :root { --ns-bg: red; } :root { color: red; } }');
+  bad('@media (prefers-color-scheme: dark) { :root { --ns-bg: url(x); } }');
+  bad('@media (prefers-color-scheme: dark) { @media (prefers-color-scheme: dark) { :root { --ns-bg: red; } } }');
+  bad('@media (prefers-color-scheme: dark) { :root { --ns-bg: red; }');
+  bad('@media (prefers-color-scheme: dark) { }');
+  bad('@media (prefers-color-scheme: dark) { :root { } } body { display: none; }');
+  bad('@import "x"; @media (prefers-color-scheme: dark) { :root { --ns-bg: red; } }');
+  bad('@media (prefers-color-scheme: dark) { :root { --ns-bg: red; } } @media print { :root { --ns-bg: blue; } }');
+});
+
+Deno.test('no more than one dark and one light block', () => {
+  const dark = '@media (prefers-color-scheme: dark) { :root { --ns-bg: #000; } }';
+  ok(`${dark} @media (prefers-color-scheme: light) { :root { --ns-bg: #fff; } }`);
+  bad(`${dark} ${dark} ${dark}`);
+});
