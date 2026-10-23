@@ -828,3 +828,66 @@ test('theme editor: safe mode keeps the preview out of Notion', async () => {
     writeConfig({ ...readConfig(), safeMode: false });
   }
 });
+
+const SETTINGS_PLUGIN = `/**
+ * @notiskin-setting {"key":"size","type":"number","label":"Size","default":14,"min":8,"max":32}
+ * @notiskin-setting {"key":"mode","type":"select","label":"Mode","default":"a","options":["a","b"]}
+ * @notiskin-setting {"key":"broken","type":"nope","label":"Broken","default":1}
+ */
+console.log('never run by the server');
+`;
+
+test('plugin settings: only plugins that declare some get a Settings button, read without running them', async () => {
+  const lib = require('../dist/core/library');
+  lib.writeItem('plugin', 'with-settings', SETTINGS_PLUGIN);
+  lib.writeItem('plugin', 'plain', 'console.log(1);');
+  const list = await request('GET', '/api/plugins', { headers: authed() });
+  assert.deepEqual(list.json.withSettings, ['with-settings']);
+
+  const res = await request('GET', '/api/plugin-settings/with-settings', { headers: authed() });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.settings.map(s => s.key), ['size', 'mode']);
+  assert.deepEqual(res.json.values, { size: 14, mode: 'a' });
+  assert.equal(res.json.problems.length, 1, 'the broken line is reported, not fatal');
+  assert.equal(res.json.enabled, false);
+  assert.equal((await request('GET', '/api/plugin-settings/nope', { headers: authed() })).status, 404);
+  assert.equal((await request('GET', '/api/plugin-settings/with-settings')).status, 403, 'needs the token');
+});
+
+test('plugin settings: saving checks every value against the declaration and keeps the rest', async () => {
+  const { readConfig } = require('../dist/utils/config');
+  const post = body => request('POST', '/api/plugin-settings/with-settings', { headers: authed(), body });
+
+  const saved = await post({ values: { size: 20 } });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.json.values, { size: 20, mode: 'a' });
+  assert.deepEqual(readConfig().pluginSettings['with-settings'], { size: 20 });
+
+  // a second save adds to it, it doesn't replace it
+  assert.deepEqual((await post({ values: { mode: 'b' } })).json.values, { size: 20, mode: 'b' });
+  assert.deepEqual(readConfig().pluginSettings['with-settings'], { size: 20, mode: 'b' });
+
+  for (const values of [{ size: 99 }, { size: '20' }, { mode: 'z' }, { nope: 1 }, { broken: 1 }, { size: 20, mode: 'z' }]) {
+    const res = await post({ values });
+    assert.equal(res.status, 400, JSON.stringify(values));
+    assert.ok(res.json.error);
+  }
+  for (const body of [{}, { values: 5 }, { values: [1] }, { values: null }]) assert.equal((await post(body)).status, 400);
+  assert.deepEqual(readConfig().pluginSettings['with-settings'], { size: 20, mode: 'b' }, 'a refused save changes nothing');
+
+  const reset = await post({ reset: true });
+  assert.deepEqual(reset.json.values, { size: 14, mode: 'a' });
+  assert.equal(readConfig().pluginSettings['with-settings'], undefined);
+  assert.equal((await request('POST', '/api/plugin-settings/missing', { headers: authed(), body: { reset: true } })).status, 404);
+  assert.equal((await request('POST', '/api/plugin-settings/with-settings', { body: { reset: true } })).status, 403);
+});
+
+test('plugin settings: deleting the plugin forgets its values', async () => {
+  const lib = require('../dist/core/library');
+  const { readConfig } = require('../dist/utils/config');
+  await request('POST', '/api/plugin-settings/with-settings', { headers: authed(), body: { values: { size: 12 } } });
+  assert.ok(readConfig().pluginSettings['with-settings']);
+  await request('DELETE', '/api/plugins/with-settings', { headers: authed() });
+  assert.equal(readConfig().pluginSettings['with-settings'], undefined);
+  lib.deleteItem('plugin', 'plain');
+});
