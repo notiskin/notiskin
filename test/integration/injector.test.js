@@ -149,6 +149,9 @@ before(async () => {
     loadPayload: () => lib.currentPayload(readConfig()),
     watchPaths: [dataDir, join(dataDir, 'themes'), join(dataDir, 'plugins')],
     controlSocket: true,
+    canPreview: () => !readConfig().safeMode,
+    // short so the test can watch a preview run out
+    previewTtlMs: 1500,
     log: msg => logs.push(msg),
   });
 });
@@ -375,6 +378,66 @@ test('clearing the theme restores stock styling', { skip }, async () => {
   await everyPage(s => s.theme === null && s.core === false, 'styles removed');
   writeConfig({ ...readConfig(), activeTheme: 'Test' });
   await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'theme back');
+});
+
+test('the editor preview shows in every tab without touching the config, and ends when it is not repeated', { skip }, async () => {
+  const before = JSON.stringify(readConfig());
+  const css = ':root { --ns-bg: #13579b; }';
+  const reply = await askInjector({ cmd: 'preview', css });
+  assert.equal(reply.ok, true);
+  assert.equal(reply.previewing, true);
+  await everyPage(s => /#13579b/.test(s.theme ?? ''), 'the preview in every tab');
+  assert.equal(JSON.stringify(readConfig()), before, 'the config is untouched');
+  assert.match(lib.activeThemeCss(readConfig()), /#abcdef/, 'the theme file is untouched');
+  assert.equal((await askInjector({ cmd: 'status' })).previewing, true);
+
+  // the same request again is the editor's heartbeat, it keeps the preview alive past the 1.5 s limit
+  for (let i = 0; i < 3; i++) {
+    await new Promise(r => setTimeout(r, 700));
+    assert.equal((await askInjector({ cmd: 'preview', css })).ok, true);
+  }
+  assert.ok((await states()).every(s => /#13579b/.test(s.theme ?? '')), 'still showing after 2 s of heartbeats');
+
+  // nobody repeats it (the editor closed, the app quit): the theme comes back by itself
+  await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'the theme back after the preview ran out');
+  assert.equal((await askInjector({ cmd: 'status' })).previewing, false);
+});
+
+test('ending the preview puts the theme back at once, a preview over a reload stays, and nothing restarts Notion', { skip }, async () => {
+  const pid = fake.pid;
+  await askInjector({ cmd: 'preview', css: ':root { --ns-bg: #24680a; }' });
+  await everyPage(s => /#24680a/.test(s.theme ?? ''), 'the preview');
+  await evalAll('location.reload()');
+  const [state] = await everyPage(s => /#24680a/.test(s.theme ?? '') && s.styledAtStart, 'the preview after a reload, in place before the page ran');
+  assert.match(state.styleAtStart, /#24680a/);
+
+  const ended = await askInjector({ cmd: 'preview-end' });
+  assert.equal(ended.ok, true);
+  assert.equal(ended.previewing, false);
+  await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'the theme back');
+  // ending twice, or with nothing running, is fine
+  assert.equal((await askInjector({ cmd: 'preview-end' })).ok, true);
+  assert.equal(fake.pid, pid);
+  assert.ok(alive(pid), 'Notion kept running');
+});
+
+test('a preview is refused for empty CSS and in safe mode, and safe mode drops one that is showing', { skip }, async () => {
+  assert.equal((await askInjector({ cmd: 'preview', css: '   ' })).ok, false);
+  assert.equal((await askInjector({ cmd: 'preview' })).ok, false);
+
+  await askInjector({ cmd: 'preview', css: ':root { --ns-bg: #35790c; }' });
+  await everyPage(s => /#35790c/.test(s.theme ?? ''), 'the preview');
+  writeConfig({ ...readConfig(), safeMode: true });
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  for (const s of await states()) assert.equal(s.theme, null, 'safe mode shows no theme and no preview');
+  const refused = await askInjector({ cmd: 'preview', css: ':root { --ns-bg: #35790c; }' });
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /Safe mode/);
+  for (const s of await states()) assert.equal(s.theme, null);
+
+  writeConfig({ ...readConfig(), safeMode: false });
+  await askInjector({ cmd: 'preview-end' });
+  await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'the theme back');
 });
 
 test('stopping the injector leaves Notion as it was', { skip }, async () => {

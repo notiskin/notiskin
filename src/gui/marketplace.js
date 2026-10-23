@@ -561,14 +561,17 @@
   // ---- theme previews ----
   // sets a theme's --ns-* variables on a preview box. A theme may carry @media (prefers-color-scheme: dark | light)
   // blocks, only the one that matches the app's own scheme counts, like it does in Notion
-  function applyPreview(containerId, css) {
+  function applyPreview(containerId, css, scheme, reset) {
     const container = document.getElementById(containerId);
     if (!container) return;
+    // the editor shows a version it picks, everywhere else it is the scheme the app is in
+    const dark = scheme ? scheme === 'dark' : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // a repeated call (the editor) starts clean, so a variable that was removed doesn't stay
+    if (reset) [...container.style].filter(p => p.startsWith('--ns-')).forEach(p => container.style.removeProperty(p));
     css = String(css).replace(/\/\*[\s\S]*?\*\//g, '');
-    const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const schemeBlocks = /@media\s*\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)\s*\{([\s\S]*?\})\s*\}/g;
-    const base = String(css).replace(schemeBlocks, '');
-    const matching = [...String(css).matchAll(schemeBlocks)].filter(m => (m[1] === 'dark') === dark).map(m => m[2]);
+    const base = css.replace(schemeBlocks, '');
+    const matching = [...css.matchAll(schemeBlocks)].filter(m => (m[1] === 'dark') === dark).map(m => m[2]);
     // quoted font names hold no ';', so splitting on it is safe
     for (const text of [base, ...matching]) {
       for (const decl of text.split(/[;{}]/)) {

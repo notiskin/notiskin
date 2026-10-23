@@ -30,6 +30,14 @@
     },
     {
       page: '/',
+      target: '#new-theme-btn',
+      fit: 'content',
+      before: () => window.switchTab?.('installed'),
+      title: 'Make your own theme',
+      text: 'New theme opens an editor with a color picker for each part of Notion. Notion shows your changes live while you pick, and goes back when you close the editor. Edit on any theme card opens that theme the same way, and Save and publish sends it to the marketplace.',
+    },
+    {
+      page: '/',
       target: '.tab-btn[data-tab="browse"]',
       fit: 'content',
       title: 'Browse',
