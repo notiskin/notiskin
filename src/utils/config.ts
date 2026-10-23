@@ -21,10 +21,13 @@ export interface NotiskinConfig {
   // what the user picked in a plugin's Settings, by plugin name then setting key. A plugin only gets the keys it
   // declares, and gets its declared default for anything missing here
   pluginSettings: Record<string, Record<string, SettingValue>>;
+  // developer mode (off unless turned on): plugins run straight from this folder, and Notion's tabs reload when a file is saved
+  developerMode: boolean;
+  developerFolder: string;
 }
 
 function defaultConfig(): NotiskinConfig {
-  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false, blockNativeNotion: true, autoRepair: false, pluginSettings: {} };
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false, blockNativeNotion: true, autoRepair: false, pluginSettings: {}, developerMode: false, developerFolder: '' };
 }
 
 function stringArray(value: unknown): string[] {
@@ -44,6 +47,9 @@ export function parseConfig(raw: unknown): NotiskinConfig {
     blockNativeNotion: obj.blockNativeNotion !== false,
     autoRepair: obj.autoRepair === true,
     pluginSettings: parsePluginSettings(obj.pluginSettings),
+    developerMode: obj.developerMode === true,
+    // a folder is a full path, anything else is dropped
+    developerFolder: typeof obj.developerFolder === 'string' && obj.developerFolder.startsWith('/') && obj.developerFolder.length <= 1024 ? obj.developerFolder : '',
   };
 }
 

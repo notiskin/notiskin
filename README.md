@@ -157,6 +157,15 @@ notiskin.addToolbarButton('Hello', () => alert('hi'));
 
 Keep `MutationObserver`s tightly scoped and guard against triggering yourself, or you can freeze Notion.
 
+### Developer mode
+
+To write a plugin without installing it each time, turn on **Settings → Developer** and pick a folder. Every `.js` file in it runs in Notion like an installed plugin (it is always on, there is no switch), and **saving a file reloads Notion's tabs** so the new code runs. The files stay where they are, nothing is copied into `~/.notiskin/plugins`, and they never show up in Browse or Publish: they are listed on the Plugins tab under "Developer plugins" with a `dev` label, and a plugin that declares settings gets its Settings button there too.
+
+- only plain `.js` files with a simple name count (letters, numbers, spaces, dashes, dots, underscores), the size limit is the same as for installed plugins, and a link or a folder called `x.js` is skipped, with the reason shown in Settings
+- turning it on asks first, since the folder's files run with full access to Notion. Only choose a folder you control
+- safe mode pauses developer plugins like any other, and stops watching the folder
+- turning developer mode off, or changing the folder, reloads Notion's tabs too, because a plugin that has run can't be un-run
+
 ### Plugin settings
 
 A plugin can offer options. Declare them in a comment at the very top of the file, one line per setting, as JSON after `@notiskin-setting`:

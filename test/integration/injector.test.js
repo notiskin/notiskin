@@ -150,6 +150,11 @@ before(async () => {
     watchPaths: [dataDir, join(dataDir, 'themes'), join(dataDir, 'plugins')],
     controlSocket: true,
     canPreview: () => !readConfig().safeMode,
+    // what `notiskin inject` passes: developer mode's folder, never in safe mode
+    devFolder: () => {
+      const c = readConfig();
+      return c.developerMode && !c.safeMode && c.developerFolder ? c.developerFolder : null;
+    },
     // short so the test can watch a preview run out
     previewTtlMs: 1500,
     log: msg => logs.push(msg),
@@ -507,6 +512,66 @@ test('a plugin that does not declare settings still runs in the global scope, wi
   assert.ok((await evalAll('window.leaked')).every(w => w.value === 'global'), 'a top-level var is still a global');
   writeConfig({ ...readConfig(), enabledPlugins: ['counter'] });
   lib.deleteItem('plugin', 'plain-global');
+  await lib.applyConfig();
+});
+
+test('developer mode: plugins run from the folder, a saved file reloads every tab, and turning it off lets go of the folder', { skip }, async () => {
+  const { writeFileSync, mkdtempSync, rmSync } = require('fs');
+  const dir = mkdtempSync(join(tmpdir(), 'notiskin-dev-int-'));
+  const write = (file, text) => writeFileSync(join(dir, file), text);
+  const version = async () => (await evalAll('window.__devVersion ?? null')).map(w => w.value);
+  const settle = ms => new Promise(r => setTimeout(r, ms));
+  const marked = async () => (await states()).every(s => s.marker === true);
+
+  write('hello.js', 'window.__devVersion = 1; window.__devRuns = (window.__devRuns || 0) + 1;');
+  writeConfig({ ...readConfig(), developerMode: true, developerFolder: dir });
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  await waitFor(async () => (await version()).every(v => v === 1), 'the folder\'s plugin to run in every tab');
+  assert.ok((await evalAll('window.__devRuns')).every(w => w.value === 1), 'once per page load');
+
+  // saving the file: every tab reloads (the marker we set is gone) and runs the new code
+  await evalAll('window.__beforeReload = true');
+  write('hello.js', 'window.__devVersion = 2;');
+  await waitFor(async () => (await version()).every(v => v === 2), 'the saved file to run');
+  assert.ok((await states()).every(s => s.marker === null), 'the tabs reloaded');
+
+  // files that aren't plugins don't reload anything: notes, editor backups, swap files
+  await evalAll('window.__beforeReload = true');
+  write('notes.txt', 'x');
+  write('hello.js~', 'x');
+  write('.hello.js.swp', 'x');
+  await settle(1500);
+  assert.equal(await marked(), true, 'no reload for a file that is not a .js plugin');
+
+  // a new file in the folder is a new plugin
+  write('second.js', 'window.__devSecond = true;');
+  await waitFor(async () => (await evalAll('window.__devSecond === true')).every(w => w.value === true), 'the new file to run');
+  assert.ok((await version()).every(v => v === 2));
+
+  // safe mode pauses it and stops watching: saving does nothing
+  writeConfig({ ...readConfig(), safeMode: true });
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  assert.ok((await version()).every(v => v === null), 'nothing from the folder runs in safe mode');
+  await evalAll('window.__beforeReload = true');
+  write('hello.js', 'window.__devVersion = 3;');
+  await settle(1500);
+  assert.equal(await marked(), true, 'no reload in safe mode');
+  writeConfig({ ...readConfig(), safeMode: false });
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  await waitFor(async () => (await version()).every(v => v === 3), 'the folder back after safe mode');
+
+  // turning it off reloads the tabs without the plugins, and the folder is no longer watched
+  writeConfig({ ...readConfig(), developerMode: false });
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  assert.ok((await version()).every(v => v === null), 'gone');
+  await evalAll('window.__beforeReload = true');
+  write('hello.js', 'window.__devVersion = 4;');
+  await settle(1500);
+  assert.equal(await marked(), true, 'no reload once developer mode is off');
+  assert.ok((await version()).every(v => v === null));
+
+  writeConfig({ ...readConfig(), developerFolder: '' });
+  rmSync(dir, { recursive: true });
   await lib.applyConfig();
 });
 
