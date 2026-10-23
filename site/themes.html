@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Making themes · Notiskin docs</title>
+<meta name="description" content="How to make, test and publish a Notion theme with Notiskin: every variable, fonts, light and dark, and the marketplace rules.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side">
+<a class="wordmark" href="index.html">notiskin</a>
+<nav aria-label="Docs">
+<a href="index.html">Start here</a>
+<a href="themes.html" aria-current="page">Making themes</a>
+<div class="toc"><a href="#quick">Make one in two minutes</a><a href="#format">How a theme is written</a><a href="#variables">Every variable</a><a href="#colored">Colored text</a><a href="#fonts">Fonts</a><a href="#darklight">Light and dark</a><a href="#examples">Examples</a><a href="#rules">What the marketplace accepts</a><a href="#publish">Publishing and versions</a><a href="#after">After it is listed</a></div>
+<a href="plugins.html">Making plugins</a>
+<h2>More</h2>
+<a href="https://github.com/notiskin/notiskin">Source on GitHub</a>
+<a href="https://github.com/notiskin/notiskin/releases">Downloads</a>
+<a href="https://github.com/notiskin/notiskin/issues">Report a problem</a>
+</nav>
+</aside>
+<main>
+
+<h1>Making themes</h1>
+<p class="lede">A theme is a short list of colors and a few other choices. Notiskin turns it into styling for Notion. You can make one with pickers, or by writing the list yourself.</p>
+
+<h2 id="quick">Make one in two minutes</h2>
+<ol>
+<li>Open Notiskin, go to <strong>Themes</strong> and press <strong>New theme</strong>.</li>
+<li>Give it a name, then pick colors. Notion changes while you pick, and goes back to your normal theme when you close the editor. The small preview next to the pickers shows the same thing if Notion isn't open.</li>
+<li>Press <strong>Save</strong>. The theme is now a file in your themes folder (<code>~/.notiskin/themes</code>) and shows under Your themes. Pick it to use it.</li>
+<li>To make a dark version, switch to the <strong>Dark</strong> tab and pick colors there. Notion uses them when it is in dark mode.</li>
+<li><strong>Edit</strong> on a theme card opens the same editor on a theme you already have. A theme you installed from the marketplace is updated by the marketplace, so editing one makes your own copy next to it.</li>
+</ol>
+<p>The editor only changes the lines it owns. Open "The CSS itself" under the pickers to see or write the file by hand, comments and anything the pickers don't know stay exactly as you wrote them.</p>
+
+<h2 id="format">How a theme is written</h2>
+<p>A theme is a CSS file with one block called <code>:root</code>. Inside it, you set variables that start with <code>--ns-</code>:</p>
+<pre><code>/* Midnight */
+:root {
+  --ns-bg: #1a1a1a;
+  --ns-sidebar-bg: #111111;
+  --ns-text: #e0e0e0;
+  --ns-title-text: #ffffff;
+  --ns-link-color: #7eb8f7;
+}</code></pre>
+<p>That is the whole format. Colors can be written any way CSS allows: <code>#1a1a1a</code>, <code>rgb(26, 26, 26)</code>, <code>hsl(0 0% 10%)</code>, <code>oklch(...)</code>, <code>color-mix(...)</code>, gradients, or another variable with <code>var(--ns-bg)</code>.</p>
+<div class="note"><p>A theme you keep for yourself can contain any CSS at all. The strict rules in <a href="#rules">What the marketplace accepts</a> only apply when you publish it.</p></div>
+
+<h2 id="variables">Every variable</h2>
+<h3>Colors for the page</h3>
+<p>These work as an overlay on Notion: while a theme is on, the ones in this table that you leave out fall back to the value in the last column. For backgrounds that means you see through to what is behind Notion, so set every background you care about.</p>
+<div class="table-wrap"><table><thead><tr><th>Variable</th><th>What it changes</th><th>If you leave it out</th></tr></thead><tbody><tr><td><code>--ns-bg</code></td><td>The page background</td><td>See-through</td></tr><tr><td><code>--ns-sidebar-bg</code></td><td>The sidebar background</td><td>See-through</td></tr><tr><td><code>--ns-topbar-bg</code></td><td>The bar at the top of a page</td><td>See-through</td></tr><tr><td><code>--ns-hover-bg</code></td><td>A block while the cursor is over it</td><td>See-through</td></tr><tr><td><code>--ns-callout-bg</code></td><td>Callout blocks</td><td>See-through</td></tr><tr><td><code>--ns-code-block-bg</code></td><td>Code blocks</td><td>See-through</td></tr><tr><td><code>--ns-inline-code-bg</code></td><td>Inline code</td><td>See-through</td></tr><tr><td><code>--ns-inline-code-color</code></td><td>Text of inline code</td><td>Notion's normal text color</td></tr><tr><td><code>--ns-text</code></td><td>Plain text everywhere (not text Notion colored, see below)</td><td>Notion's normal text color</td></tr><tr><td><code>--ns-title-text</code></td><td>The page title</td><td>Notion's normal text color</td></tr><tr><td><code>--ns-link-color</code></td><td>Links and their underline</td><td>Notion's normal text color</td></tr><tr><td><code>--ns-divider-color</code></td><td>Divider blocks</td><td>Notion's normal color</td></tr><tr><td><code>--ns-quote-border-color</code></td><td>The bar beside a quote</td><td>Notion's normal color</td></tr><tr><td><code>--ns-scrollbar-thumb</code></td><td>The scrollbar handle</td><td>#aaaaaa</td></tr><tr><td><code>--ns-scrollbar-track</code></td><td>The scrollbar track</td><td>See-through</td></tr></tbody></table></div>
+<h3>Borders, corners, databases and fonts</h3>
+<p>These are different: leave one out and Notion keeps drawing that part the way it normally does.</p>
+<div class="table-wrap"><table><thead><tr><th>Variable</th><th>What it changes</th><th>If you leave it out</th></tr></thead><tbody><tr><td><code>--ns-border-color</code></td><td>Borders of database table cells and of callouts</td><td>Notion's own</td></tr><tr><td><code>--ns-radius</code></td><td>Corner radius of callouts and board cards, like <code>6px</code></td><td><code>10px</code>, what Notion uses</td></tr><tr><td><code>--ns-table-header-bg</code></td><td>The header row of a table view</td><td>Notion's own</td></tr><tr><td><code>--ns-table-row-hover-bg</code></td><td>A table row while the cursor is over it</td><td>Notion's own</td></tr><tr><td><code>--ns-board-card-bg</code></td><td>Cards in a board view</td><td>Notion's own</td></tr><tr><td><code>--ns-font</code></td><td>The main font: body text, the sidebar, menus</td><td>Notion's font</td></tr><tr><td><code>--ns-font-title</code></td><td>The page title and headings</td><td>Follows <code>--ns-font</code></td></tr><tr><td><code>--ns-font-code</code></td><td>Code blocks and inline code</td><td>Notion's code font</td></tr></tbody></table></div>
+<p>The three database colors (<code>--ns-table-header-bg</code>, <code>--ns-table-row-hover-bg</code>, <code>--ns-board-card-bg</code>) are painted over what Notion draws, so give them a plain color and not a gradient.</p>
+
+<h2 id="colored">Colored text</h2>
+<p>When someone colors text in Notion (red words, a highlight, a colored callout), Notiskin leaves it alone. Only plain text takes <code>--ns-text</code>. If you want to recolor those too, give your theme a palette. Every color has a text version and a background version, and none is set unless you set it:</p>
+<div class="table-wrap"><table><thead><tr><th>Text color</th><th>Background</th><th>What it recolors</th></tr></thead><tbody><tr><td><code>--ns-color-gray</code></td><td><code>--ns-color-gray-bg</code></td><td>Text, highlights and blocks Notion colored gray</td></tr><tr><td><code>--ns-color-brown</code></td><td><code>--ns-color-brown-bg</code></td><td>Text, highlights and blocks Notion colored brown</td></tr><tr><td><code>--ns-color-orange</code></td><td><code>--ns-color-orange-bg</code></td><td>Text, highlights and blocks Notion colored orange</td></tr><tr><td><code>--ns-color-yellow</code></td><td><code>--ns-color-yellow-bg</code></td><td>Text, highlights and blocks Notion colored yellow</td></tr><tr><td><code>--ns-color-green</code></td><td><code>--ns-color-green-bg</code></td><td>Text, highlights and blocks Notion colored green</td></tr><tr><td><code>--ns-color-blue</code></td><td><code>--ns-color-blue-bg</code></td><td>Text, highlights and blocks Notion colored blue</td></tr><tr><td><code>--ns-color-purple</code></td><td><code>--ns-color-purple-bg</code></td><td>Text, highlights and blocks Notion colored purple</td></tr><tr><td><code>--ns-color-pink</code></td><td><code>--ns-color-pink-bg</code></td><td>Text, highlights and blocks Notion colored pink</td></tr><tr><td><code>--ns-color-red</code></td><td><code>--ns-color-red-bg</code></td><td>Text, highlights and blocks Notion colored red</td></tr></tbody></table></div>
+<pre><code>:root {
+  --ns-color-red: #ff7369;      /* red text */
+  --ns-color-red-bg: #502c29;   /* red highlights and red blocks */
+}</code></pre>
+
+<h2 id="fonts">Fonts</h2>
+<p>Three variables take a font list. Names with spaces go in double quotes, and you can list up to 8, best first, ending with a general family like <code>serif</code> or <code>sans-serif</code>:</p>
+<pre><code>:root {
+  --ns-font: "Inter Display", "Helvetica Neue", sans-serif;
+  --ns-font-title: Georgia, serif;
+  --ns-font-code: "JetBrains Mono", Menlo, monospace;
+}</code></pre>
+<p>A font list can only pick a font that is already installed on the Mac that is using the theme. Nothing is downloaded, so choose fonts most people have, and end with a general family so there is a fallback. If you set no font variable, every font stays Notion's. Setting <code>--ns-font</code> changes titles too, unless you set <code>--ns-font-title</code>. Emoji and code keep their own fonts.</p>
+
+<h2 id="darklight">Light and dark</h2>
+<p>Put what is shared in <code>:root</code>, and what differs in a block that follows the Mac's (and Notion's) light or dark setting. Notion's own Light / Dark choice counts, not only macOS.</p>
+<pre><code>:root {
+  --ns-bg: #ffffff;
+  --ns-text: #1a1a1a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ns-bg: #1a1a1a;
+    --ns-text: #e0e0e0;
+  }
+}</code></pre>
+<p>You can use <code>dark</code> and <code>light</code> once each. In the editor, the <strong>Dark</strong> tab writes this block for you.</p>
+
+<h2 id="examples">Examples</h2>
+<h3>A warm paper theme with a serif font</h3>
+<pre><code>/* Paper */
+:root {
+  --ns-bg: #fdf6e3;
+  --ns-sidebar-bg: #eee8d5;
+  --ns-topbar-bg: #fdf6e3;
+  --ns-hover-bg: #e6dfc8;
+  --ns-text: #586e75;
+  --ns-title-text: #073642;
+  --ns-link-color: #268bd2;
+  --ns-callout-bg: #eee8d5;
+  --ns-code-block-bg: #eee8d5;
+  --ns-inline-code-bg: #eee8d5;
+  --ns-inline-code-color: #cb4b16;
+  --ns-divider-color: #d8d1b8;
+  --ns-quote-border-color: #93a1a1;
+  --ns-font: Georgia, serif;
+  --ns-radius: 4px;
+}</code></pre>
+<h3>One file for light and dark, with a recolored red</h3>
+<pre><code>/* Duo */
+:root {
+  --ns-bg: #ffffff;
+  --ns-sidebar-bg: #f5f5f4;
+  --ns-text: #2b2b2b;
+  --ns-color-red: #c92a2a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ns-bg: #161616;
+    --ns-sidebar-bg: #101010;
+    --ns-text: #dcdcdc;
+    --ns-color-red: #ff8787;
+  }
+}</code></pre>
+
+<h2 id="rules">What the marketplace accepts</h2>
+<p>Every theme you publish is checked by software first. A theme that passes is listed straight away, and it is used by everyone who installs it, so the check is strict. A theme that doesn't pass isn't rejected: it waits for a person to read it, and the reason is shown in your Submissions.</p>
+<h3>What passes</h3>
+<ul>
+<li>Only variables whose names start with <code>--ns-</code> (letters, numbers and dashes after that), inside <code>:root</code>.</li>
+<li>Optionally the whole <code>:root</code> block wrapped in <code>@media (prefers-color-scheme: dark)</code> or <code>light</code>, at most one of each. Nothing else may be inside, and no other media query is allowed.</li>
+<li>Values made of letters, numbers, spaces and <code># % . , + - * / ( ) !</code>.</li>
+<li>Functions from this list only: <code>rgb rgba hsl hsla hwb lab lch oklab oklch color color-mix var calc min max clamp</code> and the gradients (<code>linear-gradient</code>, <code>radial-gradient</code>, <code>conic-gradient</code> and their <code>repeating-</code> versions).</li>
+<li>The three font variables (<code>--ns-font</code>, <code>--ns-font-title</code>, <code>--ns-font-code</code>) may hold up to 8 font names: a name in <strong>double</strong> quotes (letters, numbers, spaces and dashes, up to 40 characters) or a plain word like <code>Georgia</code>. Nothing else in them: no brackets, colons, semicolons, slashes or <code>var()</code>.</li>
+<li>No more than 20,000 characters in total.</li>
+</ul>
+<h3>What waits for a person</h3>
+<p>Anything else: <code>url()</code>, <code>image-set()</code>, <code>@import</code>, other selectors or properties, quotes in any variable that isn't a font variable, backslashes, other functions, and nested rules. Images are not allowed in marketplace themes on purpose.</p>
+
+<h2 id="publish">Publishing and versions</h2>
+<ol>
+<li>Sign in with GitHub in <strong>Settings</strong>. Publishing and rating need an account, installing doesn't.</li>
+<li>In the editor press <strong>Save and publish</strong> (or open the <strong>Publish</strong> tab and paste the CSS). Give it a name (letters, numbers and spaces, up to 50), a description, up to 3 tags, and optionally a link to a GitHub repository or gist.</li>
+<li>Press Submit. A theme that passes the check is listed at once. Otherwise it waits for a reviewer. <strong>Submissions</strong> shows where each one is and why.</li>
+</ol>
+<p>The tags to choose from are: dark, light, minimal, colorful, productivity, fun, accessibility, fonts. You can publish 5 things per hour (themes and plugins together).</p>
+<h3>New versions</h3>
+<p>Once a theme is listed you can improve it. On the Publish tab, <strong>Publish a new version</strong> takes the new CSS and a line about what changed. A new theme version that passes the check goes live at once, and everyone who installed the theme sees an <strong>Update</strong> button. If it doesn't pass, it waits for review and the version people have stays live meanwhile. You can have one waiting version at a time, and only you can publish versions of your own theme.</p>
+<p>Tags and the link can be changed later without review, from the same Publish tab.</p>
+
+<h2 id="after">After it is listed</h2>
+<ul>
+<li>People find it in Browse, sorted by newest, top rated or most downloaded, and filtered by tag. Installing adds it to their themes, it doesn't switch to it.</li>
+<li>Anyone signed in can report a theme. When three different accounts that are at least a day old report one as harmful, it is hidden from Browse automatically until a reviewer looks. Reviewers can also hide an item. Copies people already installed aren't touched, and they see a warning on the card.</li>
+<li>Download counts count one install per person per day, and only for signed-in installs.</li>
+</ul>
+
+<footer>Notiskin is open source (MIT). These pages live in the <code>site/</code> folder of the repository, fixes are welcome.</footer>
+</main>
+</div>
+</body>
+</html>
