@@ -36,6 +36,7 @@ import {
   itemPath,
   ItemType,
 } from '../core/library';
+import { checkSettingValue, parseSettingDeclarations, resolveSettings } from '../core/plugin-settings';
 import {
   appBundlePath,
   findNotionBinary,
@@ -650,8 +651,63 @@ app.get('/api/themes', (_req, res) => {
   res.json({ themes: listThemes(), activeTheme: readConfig().activeTheme });
 });
 
+// what a plugin declares in its header comment, read as text, the plugin is never run for this
+function pluginSettingsOf(name: string) {
+  const { settings, problems } = parseSettingDeclarations(readFileSync(itemPath('plugin', name), 'utf-8'));
+  return { settings, problems, values: resolveSettings(settings, readConfig().pluginSettings[name]) };
+}
+
 app.get('/api/plugins', (_req, res) => {
-  res.json({ plugins: listPlugins(), enabledPlugins: readConfig().enabledPlugins });
+  const plugins = listPlugins();
+  res.json({
+    plugins,
+    enabledPlugins: readConfig().enabledPlugins,
+    // the ones that get a Settings button
+    withSettings: plugins.filter(name => pluginSettingsOf(name).settings.length > 0),
+  });
+});
+
+app.get('/api/plugin-settings/:name', (req, res) => {
+  const { name } = req.params;
+  if (!itemExists('plugin', name)) return res.status(404).json({ error: 'Plugin not found' });
+  const { settings, problems, values } = pluginSettingsOf(name);
+  res.json({ name, settings, problems, values, enabled: readConfig().enabledPlugins.includes(name) });
+});
+
+// saves what the user picked (only keys the plugin declares, every value checked) and shows it in Notion right away,
+// no reload, a plugin that listens with notiskin.settings.onChange hears about it. { reset: true } goes back to the defaults
+app.post('/api/plugin-settings/:name', async (req, res) => {
+  const { name } = req.params;
+  if (!itemExists('plugin', name)) return res.status(404).json({ error: 'Plugin not found' });
+  const { settings } = pluginSettingsOf(name);
+  const body = req.body ?? {};
+  const config = readConfig();
+  const saved = { ...(config.pluginSettings[name] ?? {}) };
+
+  if (body.reset === true) {
+    delete config.pluginSettings[name];
+  } else {
+    const incoming = body.values;
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return res.status(400).json({ error: 'Nothing to save.' });
+    const errors: string[] = [];
+    for (const [key, value] of Object.entries(incoming)) {
+      const decl = settings.find(d => d.key === key);
+      if (!decl) {
+        errors.push(`This plugin has no setting called "${key}".`);
+        continue;
+      }
+      const checked = checkSettingValue(decl, value);
+      if (checked.ok) saved[key] = checked.value;
+      else errors.push(checked.error);
+    }
+    if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+    config.pluginSettings[name] = saved;
+  }
+  writeConfig(config);
+  if (config.enabledPlugins.includes(name)) {
+    try { await serialized(() => applyConfig()); } catch {}
+  }
+  res.json({ ok: true, values: pluginSettingsOf(name).values });
 });
 
 app.post('/api/theme/clear', async (_req, res) => {

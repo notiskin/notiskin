@@ -22,6 +22,7 @@ import { ensureRunDir, findNotionRun } from '../injector/pipe';
 import { askInjector, ControlReply, ControlRequest } from '../injector/control';
 import { sleep } from '../utils/sleep';
 import { forgetInstall } from './installed';
+import { parseSettingDeclarations, resolveSettings } from './plugin-settings';
 
 export type ItemType = 'theme' | 'plugin';
 
@@ -98,6 +99,8 @@ export function deleteItem(type: ItemType, name: string): boolean {
   if (type === 'plugin') {
     config.enabledPlugins = config.enabledPlugins.filter(p => p !== name);
     config.acknowledgedPlugins = config.acknowledgedPlugins.filter(p => p !== name);
+    // a plugin made later with this name starts from its own defaults
+    delete config.pluginSettings[name];
   }
   writeConfig(config);
   return true;
@@ -116,7 +119,10 @@ export function loadEnabledPlugins(config: NotiskinConfig, warn: (msg: string) =
       warn(`Plugin '${name}' is enabled but its file is missing, skipping.`);
       continue;
     }
-    entries.push({ name, content: readFileSync(itemPath('plugin', name), 'utf-8') });
+    const content = readFileSync(itemPath('plugin', name), 'utf-8');
+    const { settings } = parseSettingDeclarations(content);
+    // a plugin that declares settings gets its values (the user's, else its defaults) and runs with its own notiskin.settings
+    entries.push({ name, content, ...(settings.length ? { settings: resolveSettings(settings, config.pluginSettings[name]) } : {}) });
   }
   return entries;
 }

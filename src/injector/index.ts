@@ -136,8 +136,8 @@ if (!window.notiskin) {
     });
     _contentObserver.observe(document.body, { childList: true, subtree: true });
 
-    return {
-      version: '1.0.0',
+    const api = {
+      version: '1.1.0',
       onPageChange(fn) { _pageChangeListeners.push(fn); },
       onBlockLoad(fn) { _blockLoadListeners.push(fn); },
       getPageTitle() {
@@ -172,6 +172,43 @@ if (!window.notiskin) {
         }
       }
     };
+
+    // plugin settings. A plugin that declares settings gets its own notiskin (see injectPluginOnClient), whose
+    // settings read that plugin's values. The injector pushes the values on every pass, so a change made in the
+    // app reaches a running plugin without a reload
+    const _settings = {};
+    const _settingListeners = {};
+    function settingsFor(plugin) {
+      return {
+        get(key) { const v = _settings[plugin]; return v ? v[key] : undefined; },
+        getAll() { return Object.assign({}, _settings[plugin]); },
+        onChange(fn) {
+          (_settingListeners[plugin] = _settingListeners[plugin] || []).push(fn);
+          return () => {
+            const list = _settingListeners[plugin] || [];
+            const i = list.indexOf(fn);
+            if (i >= 0) list.splice(i, 1);
+          };
+        }
+      };
+    }
+    api.settings = settingsFor(null);
+    Object.defineProperty(api, '__forPlugin', {
+      value: name => Object.create(api, { settings: { value: settingsFor(name), enumerable: true } })
+    });
+    Object.defineProperty(api, '__updateSettings', {
+      value: (plugin, values) => {
+        const before = _settings[plugin] || {};
+        _settings[plugin] = Object.assign({}, values);
+        for (const key of Object.keys(values)) {
+          if (!(key in before) || before[key] === values[key]) continue;
+          (_settingListeners[plugin] || []).slice().forEach(fn => {
+            try { fn(key, values[key], Object.assign({}, values)); } catch(e) { console.error('[notiskin] settings.onChange error:', e); }
+          });
+        }
+      }
+    });
+    return api;
   })();
 }
 `;
@@ -187,6 +224,8 @@ interface EvaluateResult {
 export interface PluginEntry {
   name: string;
   content: string;
+  // only for a plugin that declares settings: the values it gets now (the user's, else its defaults)
+  settings?: Record<string, boolean | string | number>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -295,7 +334,7 @@ async function injectPluginOnClient(plugin: PluginEntry, client: any): Promise<b
   if (check.result.value === true) return false;
 
   const result = (await client.send('Runtime.evaluate', {
-    expression: plugin.content,
+    expression: pluginExpression(plugin),
   })) as EvaluateResult;
 
   // mark even on failure, a plugin that threw halfway shouldn't be re-run on top of itself
@@ -313,6 +352,24 @@ async function injectPluginOnClient(plugin: PluginEntry, client: any): Promise<b
   return true;
 }
 
+// a plugin that declares settings runs inside a function that is handed its own `notiskin`, so notiskin.settings
+// knows whose values to read, also later from a callback. Every other plugin is evaluated as it always was
+// (top-level declarations stay global). A page from before this version has no __forPlugin, it gets the plain notiskin
+export function pluginExpression(plugin: PluginEntry): string {
+  if (!plugin.settings) return plugin.content;
+  const name = JSON.stringify(plugin.name);
+  return `(function (notiskin) {\n${plugin.content}\n}).call(window, window.notiskin && window.notiskin.__forPlugin ? window.notiskin.__forPlugin(${name}) : window.notiskin);`;
+}
+
+// the values go in on every pass, a running plugin hears about the ones that changed through notiskin.settings.onChange
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function pushSettingsOnClient(plugin: PluginEntry, client: any): Promise<void> {
+  if (!plugin.settings) return;
+  await client.send('Runtime.evaluate', {
+    expression: `window.notiskin && window.notiskin.__updateSettings && window.notiskin.__updateSettings(${JSON.stringify(plugin.name)}, ${JSON.stringify(plugin.settings)})`,
+  });
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function injectEverything(cssContent: string, plugins: PluginEntry[], client: any): Promise<void> {
   if (cssContent.trim()) {
@@ -327,6 +384,7 @@ export async function injectEverything(cssContent: string, plugins: PluginEntry[
 
   for (const plugin of plugins) {
     try {
+      await pushSettingsOnClient(plugin, client);
       const ran = await injectPluginOnClient(plugin, client);
       console.log(`[injector] Plugin '${plugin.name}' ${ran ? 'injected successfully' : 'already running, skipped'}.`);
     } catch (err: unknown) {
