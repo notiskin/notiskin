@@ -78,7 +78,7 @@ An admin password can't get past App Management: macOS checks which app asks, no
 
 ## Writing a theme
 
-Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain only those variables, with color values (hex, `rgb()`, `hsl()`, `color-mix()`, gradients, `var()`, `calc()`). `url()`, `@import`, quotes and backslashes are rejected.
+Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain only those variables, with color values (hex, `rgb()`, `hsl()`, `color-mix()`, gradients, `var()`, `calc()`). `url()`, `@import`, quotes and backslashes are rejected, with two exceptions: the font variables may hold font names in double quotes, and the `:root` block can be wrapped in `@media (prefers-color-scheme: dark)` or `light` (nothing else is allowed inside `@media`, at most one of each).
 
 ```css
 :root {
@@ -97,6 +97,41 @@ Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain on
   --ns-quote-border-color: #555555;
   --ns-scrollbar-thumb: #444444;
   --ns-scrollbar-track: transparent;
+}
+```
+
+Every variable is optional. What each one changes:
+
+| Variable | Changes |
+| --- | --- |
+| `--ns-bg`, `--ns-sidebar-bg`, `--ns-topbar-bg` | page, sidebar and top bar background |
+| `--ns-text`, `--ns-title-text` | plain text and the page title (text Notion colored keeps its color, see below) |
+| `--ns-hover-bg` | background of a hovered block |
+| `--ns-link-color` | links and their underline |
+| `--ns-inline-code-bg`, `--ns-inline-code-color` | inline code |
+| `--ns-code-block-bg` | code blocks |
+| `--ns-callout-bg` | callouts |
+| `--ns-divider-color`, `--ns-quote-border-color` | dividers, the left border of quotes |
+| `--ns-scrollbar-thumb`, `--ns-scrollbar-track` | scrollbar |
+| `--ns-border-color` | borders of database table cells and callouts |
+| `--ns-radius` | corner radius of callouts and board cards, like `6px` (Notion uses `10px`) |
+| `--ns-table-header-bg` | the header row of table views |
+| `--ns-table-row-hover-bg` | a hovered row of a table view |
+| `--ns-board-card-bg` | cards in board views |
+| `--ns-font` | the main font |
+| `--ns-font-title` | the page title and headings (follows `--ns-font` if you don't set it) |
+| `--ns-font-code` | code blocks and inline code |
+
+The three database colors (`--ns-table-header-bg`, `--ns-table-row-hover-bg`, `--ns-board-card-bg`) are painted over what Notion draws, so use a plain color, not a gradient. Anything you don't set stays as Notion draws it.
+
+Fonts take a list of up to 8 names, quoted when they have spaces. They pick fonts that are installed on the Mac, nothing is downloaded: `--ns-font: "Inter Display", "Helvetica Neue", sans-serif;`. If you set no font variable at all, Notion's fonts stay.
+
+Light and dark versions go in one file. Put the shared values in `:root` and what differs in a block that follows the Mac's (Notion's) light or dark setting:
+
+```css
+:root { --ns-bg: #ffffff; --ns-text: #1a1a1a; }
+@media (prefers-color-scheme: dark) {
+  :root { --ns-bg: #1a1a1a; --ns-text: #e0e0e0; }
 }
 ```
 

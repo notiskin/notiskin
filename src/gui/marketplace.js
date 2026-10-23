@@ -558,6 +558,27 @@
         </div>`).join('')}`;
   }
 
+  // ---- theme previews ----
+  // sets a theme's --ns-* variables on a preview box. A theme may carry @media (prefers-color-scheme: dark | light)
+  // blocks, only the one that matches the app's own scheme counts, like it does in Notion
+  function applyPreview(containerId, css) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    css = String(css).replace(/\/\*[\s\S]*?\*\//g, '');
+    const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const schemeBlocks = /@media\s*\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)\s*\{([\s\S]*?\})\s*\}/g;
+    const base = String(css).replace(schemeBlocks, '');
+    const matching = [...String(css).matchAll(schemeBlocks)].filter(m => (m[1] === 'dark') === dark).map(m => m[2]);
+    // quoted font names hold no ';', so splitting on it is safe
+    for (const text of [base, ...matching]) {
+      for (const decl of text.split(/[;{}]/)) {
+        const m = decl.match(/^\s*(--[\w-]+)\s*:\s*([^]+?)\s*$/);
+        if (m) container.style.setProperty(m[1], m[2]);
+      }
+    }
+  }
+
+  window.nsTheme = { applyPreview };
   window.nsVersions = { decorateInstalled, renderPublishVersion, renderPendingVersions, changesHtml };
   window.nsBrowse = { browseQuery, mountBrowseControls, browseMetaHtml, authHeader, tagPickerHtml, wireTagPicker };
 })();
