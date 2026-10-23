@@ -1,7 +1,36 @@
 // what gets injected into a Notion page: core CSS, the theme, window.notiskin, and plugins
 // the daemon (daemon.ts) decides when and where, over Notion's DevTools pipe
 
-const CORE_CSS = `
+// Notion marks colored text and blocks with inline styles that point at its own color tokens:
+// color:var(--c-redTexSec) on a span (or color: var(--c-redTexSec) on a colored block like a callout),
+// background:var(--ca-yelBacSecTra) on a highlight, background: var(--c-redBacSec) on a block.
+// Plain text has no such token, so only plain text takes --ns-text. A theme can recolor the rest with
+// --ns-color-<name> (text) and --ns-color-<name>-bg (backgrounds), unset means Notion's own color stays.
+const NOTION_HUES: Array<[string, string]> = [
+  ['gra', 'gray'], ['bro', 'brown'], ['ora', 'orange'], ['yel', 'yellow'], ['gre', 'green'],
+  ['blu', 'blue'], ['pur', 'purple'], ['pin', 'pink'], ['red', 'red'],
+];
+
+const coloredText = NOTION_HUES.flatMap(([hue]) => [
+  `[style*="color:var(--c-${hue}Tex"]`,
+  `[style*="color: var(--c-${hue}Tex"]`,
+]);
+
+const COLOR_CSS = [
+  `.notion-app-inner :not(${[...coloredText, ...coloredText.map(sel => `${sel} *`)].join(', ')}) { color: var(--ns-text) !important; }`,
+  ...NOTION_HUES.flatMap(([hue, name]) => {
+    const text = `var(--ns-color-${name}, var(--c-${hue}TexSec))`;
+    const block = `var(--ns-color-${name}-bg, var(--c-${hue}BacSec))`;
+    const mark = `var(--ns-color-${name}-bg, var(--ca-${hue}BacSecTra))`;
+    return [
+      `[style*="color:var(--c-${hue}TexSec)"], [style*="color: var(--c-${hue}TexSec)"] { color: ${text} !important; fill: ${text} !important; }`,
+      `[style*="background: var(--c-${hue}BacSec)"], [style*="background:var(--c-${hue}BacSec)"] { background: ${block} !important; }`,
+      `[style*="background:var(--ca-${hue}BacSecTra)"], [style*="background: var(--ca-${hue}BacSecTra)"] { background: ${mark} !important; }`,
+    ];
+  }),
+].join('\n');
+
+export const CORE_CSS = `
 :root {
   --ns-bg: transparent;
   --ns-sidebar-bg: transparent;
@@ -24,7 +53,7 @@ const CORE_CSS = `
 .notion-page-content, .notion-scroller { background: var(--ns-bg) !important; }
 .notion-sidebar { background: var(--ns-sidebar-bg) !important; }
 .notion-topbar { background: var(--ns-topbar-bg) !important; }
-.notion-app-inner * { color: var(--ns-text) !important; }
+${COLOR_CSS}
 .notion-page-block > [placeholder="Untitled"], .notion-title { color: var(--ns-title-text) !important; }
 .notion-selectable:hover { background: var(--ns-hover-bg) !important; }
 .notion-link-token { color: var(--ns-link-color) !important; border-bottom-color: var(--ns-link-color) !important; }
