@@ -352,6 +352,13 @@
           </div>
           <button class="btn-install" onclick="window.notiskinTour?.start()">Take the tour</button>
         </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Documentation</div>
+            <div class="settings-row-sub">How to make themes and plugins, every variable, and how publishing and review work</div>
+          </div>
+          <button class="btn-install" id="docs-btn" onclick="openDocs('')">Open the docs</button>
+        </div>
       </div>
 
       <div class="settings-section">
@@ -1045,6 +1052,15 @@
 
     async function installUpdate() {
       await fetch('/api/update/install', { method: 'POST' });
+    }
+
+    const DOCS_URL = 'https://notiskin.github.io/notiskin/';
+    async function openDocs(page) {
+      await fetch('/api/open-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: DOCS_URL + page })
+      });
     }
 
     async function openReleasesPage() {

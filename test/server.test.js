@@ -2,7 +2,7 @@ require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName, repairLegacyWrapper, ensureWatcher, marketplaceRemote, clearMarketplaceCache } = require('../dist/gui/server');
+const { app, sanitizeSearch, notionSetup, setupFailureReason, appManagementName, repairLegacyWrapper, ensureWatcher, isOpenableUrl, marketplaceRemote, clearMarketplaceCache } = require('../dist/gui/server');
 
 let server;
 let port;
@@ -99,10 +99,22 @@ test('marketplace install validates its input before touching the network', asyn
   assert.equal(badId.status, 400);
 });
 
-test('open-external only allows GitHub https links', async () => {
-  for (const url of ['file:///etc/passwd', 'http://github.com', 'https://evil.test', 'not a url']) {
+test('open-external only allows GitHub https links and Notiskin\'s own docs', async () => {
+  const bad = [
+    'file:///etc/passwd', 'http://github.com', 'https://evil.test', 'not a url',
+    // the docs are one project on github.io, not the whole domain, and a look-alike host or a smuggled login is not them
+    'https://notiskin.github.io/other/', 'https://notiskin.github.io/', 'https://evil.github.io/notiskin/', 'http://notiskin.github.io/notiskin/',
+    'https://notiskin.github.io.evil.test/notiskin/', 'https://user:pw@notiskin.github.io/notiskin/', 'https://notiskin.github.io:8443/notiskin/',
+    'https://notiskin.github.io/notiskinx/',
+  ];
+  for (const url of bad) {
     const res = await request('POST', '/api/open-external', { headers: authed(), body: { url } });
     assert.equal(res.status, 400, url);
+    assert.equal(isOpenableUrl(new URL(url.includes('://') ? url : 'https://x.test')), false, url);
+  }
+  // what is allowed (not opened here, that would start a browser)
+  for (const url of ['https://github.com/notiskin/notiskin', 'https://gist.github.com/x/1', 'https://notiskin.github.io/notiskin/', 'https://notiskin.github.io/notiskin/themes.html#rules']) {
+    assert.equal(isOpenableUrl(new URL(url)), true, url);
   }
 });
 

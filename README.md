@@ -76,6 +76,10 @@ Terminal needs App Management (System Settings → Privacy & Security) to change
 
 An admin password can't get past App Management: macOS checks which app asks, not which user, and a command run through the admin password dialog loses track of the app that started it. That's why the app installs as you instead of asking for a password.
 
+## Documentation
+
+Guides for making themes and plugins (every variable, the `notiskin` object, settings, developer mode, how publishing and review work) are at **https://notiskin.github.io/notiskin/**. The pages live in the [`site/`](site/) folder and are published from there, and the app links to them from the Publish tabs and Settings → Help.
+
 ## Writing a theme
 
 You can make a theme without writing CSS: on the Themes page, **New theme** (or **Edit** on a theme you have) opens an editor with a color picker for each part of Notion, grouped as page, sidebar, text, code, accents and databases, and a Dark tab for the dark version. Notion shows your changes while you pick, and goes back to your normal theme when you close the editor (or if Notiskin quits). **Save** writes a file to `~/.notiskin/themes`, **Save and publish** takes it to the Publish tab, or to a new version if you already published a theme with that name. The CSS itself is under "The CSS itself" and the pickers only change the lines they own, so comments, fonts and anything else in the file stay as they were.
@@ -102,7 +106,7 @@ Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain on
 }
 ```
 
-Every variable is optional. What each one changes:
+Every variable is optional. The first group (backgrounds, text, links, code, callouts, dividers, the quote bar, the scrollbar) works as an overlay on Notion: one you leave out falls back to see-through (backgrounds) or to Notion's normal color, so set the ones you care about. The newer ones (borders, radius, database colors, fonts, the colored-text palette) leave Notion as it was when you don't set them. What each one changes:
 
 | Variable | Changes |
 | --- | --- |
@@ -124,8 +128,7 @@ Every variable is optional. What each one changes:
 | `--ns-font-title` | the page title and headings (follows `--ns-font` if you don't set it) |
 | `--ns-font-code` | code blocks and inline code |
 
-The three database colors (`--ns-table-header-bg`, `--ns-table-row-hover-bg`, `--ns-board-card-bg`) are painted over what Notion draws, so use a plain color, not a gradient. Anything you don't set stays as Notion draws it.
-
+The three database colors (`--ns-table-header-bg`, `--ns-table-row-hover-bg`, `--ns-board-card-bg`) are painted over what Notion draws, so use a plain color, not a gradient. 
 Fonts take a list of up to 8 names, quoted when they have spaces. They pick fonts that are installed on the Mac, nothing is downloaded: `--ns-font: "Inter Display", "Helvetica Neue", sans-serif;`. If you set no font variable at all, Notion's fonts stay.
 
 Light and dark versions go in one file. Put the shared values in `:root` and what differs in a block that follows the Mac's (Notion's) light or dark setting:

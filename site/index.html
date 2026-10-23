@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiskin · Notiskin docs</title>
+<meta name="description" content="Documentation for Notiskin: themes and plugins for the Notion desktop app on a Mac.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side">
+<a class="wordmark" href="index.html">notiskin</a>
+<nav aria-label="Docs">
+<a href="index.html" aria-current="page">Start here</a>
+<div class="toc"><a href="#use">Using Notiskin</a><a href="#make">Making your own</a><a href="#about">About</a></div>
+<a href="themes.html">Making themes</a>
+<a href="plugins.html">Making plugins</a>
+<h2>More</h2>
+<a href="https://github.com/notiskin/notiskin">Source on GitHub</a>
+<a href="https://github.com/notiskin/notiskin/releases">Downloads</a>
+<a href="https://github.com/notiskin/notiskin/issues">Report a problem</a>
+</nav>
+</aside>
+<main>
+
+<h1>Notiskin</h1>
+<p class="lede">Themes and plugins for the Notion desktop app on a Mac. Notiskin changes how Notion looks and works on your computer. It never changes your pages.</p>
+
+<div class="cards">
+<a class="card" href="themes.html"><strong>Making themes</strong><span>Pickers or CSS, every variable, fonts, light and dark, and what the marketplace accepts.</span></a>
+<a class="card" href="plugins.html"><strong>Making plugins</strong><span>The notiskin object, settings, developer mode, safety, review and publishing.</span></a>
+</div>
+
+<h2 id="use">Using Notiskin</h2>
+<ol>
+<li><a href="https://github.com/notiskin/notiskin/releases">Download Notiskin</a> and drag it into Applications. Builds aren't signed yet, so macOS says the app is damaged. The README has the one command that fixes it.</li>
+<li>Open it, go to <strong>Settings</strong> and press <strong>Install into Notion</strong>. Give Notiskin permission in System Settings → Privacy &amp; Security → App Management if macOS asks, then press the button again.</li>
+<li>Pick a theme in <strong>Themes</strong>. Browse has themes and plugins other people made.</li>
+</ol>
+<p>If something goes wrong, <strong>Safe mode</strong> in Settings pauses every theme and plugin at once, and <strong>Settings → Diagnostics</strong> makes a report you can paste into a bug report with your Notion links and name hidden.</p>
+
+<h2 id="make">Making your own</h2>
+<ul>
+<li>A <strong>theme</strong> is a list of colors. Press <strong>New theme</strong> on the Themes page to make one with pickers and see it in Notion while you work. <a href="themes.html">Read more</a>.</li>
+<li>A <strong>plugin</strong> is a JavaScript file. Turn on <strong>Settings → Developer</strong> to run plugins from a folder and have Notion reload when you save. <a href="plugins.html">Read more</a>.</li>
+</ul>
+
+<h2 id="about">About</h2>
+<p>Notiskin is open source and MIT licensed, made in the open at <a href="https://github.com/notiskin/notiskin">github.com/notiskin/notiskin</a>. Themes and plugins are shared through a marketplace that runs on Supabase, and sign-in is with GitHub. It works by starting Notion with a private debugging pipe and adding a style or a script to the page that is already open. It doesn't edit Notion's files.</p>
+
+<footer>Notiskin is open source (MIT). These pages live in the <code>site/</code> folder of the repository, fixes are welcome.</footer>
+</main>
+</div>
+</body>
+</html>
