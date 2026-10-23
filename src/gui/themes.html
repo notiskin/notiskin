@@ -288,7 +288,7 @@
       border-radius: 8px;
       border: 1px solid #e0e0e0;
       font-size: 11px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: var(--ns-font, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
       background: var(--ns-bg, #ffffff);
       color: var(--ns-text, #1a1a1a);
       margin-bottom: 10px;
@@ -336,26 +336,39 @@
       gap: 5px;
       overflow: hidden;
     }
-    .ns-title { font-size: 15px; font-weight: 700; color: var(--ns-title-text, #1a1a1a); line-height: 1.2; }
+    .ns-title { font-family: var(--ns-font-title, var(--ns-font, inherit)); font-size: 15px; font-weight: 700; color: var(--ns-title-text, #1a1a1a); line-height: 1.2; }
     .ns-divider { height: 1px; background: var(--ns-divider-color, #e0e0e0); margin: 2px 0; }
     .ns-paragraph { color: var(--ns-text, #37352f); line-height: 1.4; font-size: 10px; }
     .ns-callout {
       background: var(--ns-callout-bg, #f1f1ef);
-      border-radius: 4px;
+      border: 1px solid var(--ns-border-color, transparent);
+      border-radius: var(--ns-radius, 4px);
       padding: 4px 7px;
       font-size: 10px;
       color: var(--ns-text, #37352f);
     }
     .ns-code {
       background: var(--ns-code-block-bg, #f7f6f3);
-      border-radius: 4px;
+      border-radius: var(--ns-radius, 4px);
       padding: 4px 7px;
-      font-family: monospace;
+      font-family: var(--ns-font-code, monospace);
       font-size: 9px;
       color: var(--ns-inline-code-color, #e03e3e);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    .ns-db { display: flex; gap: 6px; align-items: stretch; font-size: 9px; }
+    .ns-table { flex: 1; border: 1px solid var(--ns-border-color, #e0e0e0); }
+    .ns-table-row { display: flex; padding: 2px 5px; border-top: 1px solid var(--ns-border-color, #e0e0e0); }
+    .ns-table-row--head { background: var(--ns-table-header-bg, #ffffff); border-top: 0; opacity: 0.8; }
+    .ns-table-row--hover { background: var(--ns-table-row-hover-bg, #ebebea); }
+    .ns-card {
+      width: 38%;
+      background: var(--ns-board-card-bg, #ffffff);
+      border-radius: var(--ns-radius, 6px);
+      box-shadow: 0 0 0 1px var(--ns-border-color, #e0e0e0);
+      padding: 3px 6px;
     }
     .ns-quote {
       border-left: 3px solid var(--ns-quote-border-color, #9a9a9a);
@@ -1069,15 +1082,7 @@
 
     const browseItems = {};
 
-    function applyThemePreview(containerId, css) {
-      const container = document.getElementById(containerId);
-      if (!container) return;
-      const varRegex = /(--[\w-]+)\s*:\s*([^;]+);/g;
-      let match;
-      while ((match = varRegex.exec(css)) !== null) {
-        container.style.setProperty(match[1].trim(), match[2].trim());
-      }
-    }
+    const applyThemePreview = nsTheme.applyPreview;
 
     function normalizeName(n) { return n.toLowerCase().replace(/[\s\-_]/g, ''); }
 
@@ -1106,6 +1111,13 @@
                   <div class="ns-callout">💡 This is a callout block with a background color.</div>
                   <div class="ns-code">const hello = "world"; // inline code block</div>
                   <div class="ns-quote">A quote block with a colored left border.</div>
+                  <div class="ns-db">
+                    <div class="ns-table">
+                      <div class="ns-table-row ns-table-row--head">Name</div>
+                      <div class="ns-table-row ns-table-row--hover">Row under the cursor</div>
+                    </div>
+                    <div class="ns-card">Board card</div>
+                  </div>
                 </div>
               </div>
             </div>
