@@ -440,6 +440,76 @@ test('a preview is refused for empty CSS and in safe mode, and safe mode drops o
   await everyPage(s => /#abcdef/.test(s.theme ?? ''), 'the theme back');
 });
 
+const SETTINGS_PLUGIN = `/**
+ * @notiskin-setting {"key":"size","type":"number","label":"Size","default":14,"min":8,"max":32}
+ * @notiskin-setting {"key":"on","type":"toggle","label":"On","default":true}
+ */
+window.__demo = { runs: (window.__demo ? window.__demo.runs : 0) + 1, log: [], first: notiskin.settings.get('size'),
+  all: notiskin.settings.getAll(), own: notiskin !== window.notiskin, version: notiskin.version, pageChange: typeof notiskin.onPageChange };
+window.__demoOff = notiskin.settings.onChange((key, value, all) => { window.__demo.log.push([key, value, all.size, notiskin.settings.get('size')]); });
+// a callback that runs later still reads this plugin's values
+setTimeout(() => { window.__demo.later = notiskin.settings.get('on'); }, 0);
+window.__demoGet = () => notiskin.settings.get('size');
+`;
+
+const demo = async () => (await evalAll('JSON.stringify(window.__demo || null)')).map(w => JSON.parse(w.value));
+
+test('plugin settings: values reach the page with the plugin, and a change reaches it without a reload', { skip }, async () => {
+  lib.writeItem('plugin', 'settings-demo', SETTINGS_PLUGIN);
+  writeConfig({ ...readConfig(), enabledPlugins: ['counter', 'settings-demo'], pluginSettings: { 'settings-demo': { size: 20 } } });
+  assert.equal(await lib.applyConfig(), true);
+  await waitFor(async () => (await demo()).every(d => d && d.runs === 1), 'the plugin to run in every tab');
+  for (const d of await demo()) {
+    assert.equal(d.first, 20, 'the saved value, not the default');
+    assert.deepEqual(d.all, { size: 20, on: true }, 'the default for what was never saved');
+    assert.equal(d.own, true, 'it got its own notiskin');
+    assert.equal(d.version, '1.1.0');
+    assert.equal(d.pageChange, 'function', 'every existing method is still there');
+    assert.equal(d.later, true, 'a callback later on reads the same plugin\'s values');
+  }
+  assert.ok((await states()).every(s => s.runs === 1), 'the plugin without settings ran once, as before');
+
+  // a change made in the app: no reload, the plugin hears about the key that changed, and get() already has it
+  await evalAll('window.__beforeReload = true');
+  writeConfig({ ...readConfig(), pluginSettings: { 'settings-demo': { size: 24 } } });
+  assert.equal(await lib.applyConfig(), true);
+  await waitFor(async () => (await demo()).every(d => d.log.length === 1), 'onChange to fire');
+  for (const d of await demo()) {
+    assert.deepEqual(d.log, [['size', 24, 24, 24]]);
+    assert.equal(d.runs, 1, 'the plugin did not run again');
+  }
+  assert.ok((await states()).every(s => s.marker === true), 'no reload');
+
+  // the same values again change nothing and tell nobody
+  assert.equal(await lib.applyConfig(), true);
+  assert.ok((await demo()).every(d => d.log.length === 1));
+
+  // stop listening: the next change only updates the value
+  await evalAll('window.__demoOff()');
+  writeConfig({ ...readConfig(), pluginSettings: { 'settings-demo': { size: 9 } } });
+  assert.equal(await lib.applyConfig(), true);
+  await waitFor(async () => (await evalAll('window.__demoGet()')).every(w => w.value === 9), 'the new value');
+  assert.ok((await demo()).every(d => d.log.length === 1), 'nobody was told, nobody was listening');
+
+  // safe mode pauses it with everything else, turning it off brings it back with the values
+  writeConfig({ ...readConfig(), enabledPlugins: ['counter'] });
+  lib.deleteItem('plugin', 'settings-demo');
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  assert.ok((await demo()).every(d => d === null), 'gone after a reload');
+  assert.equal(readConfig().pluginSettings['settings-demo'], undefined);
+});
+
+test('a plugin that does not declare settings still runs in the global scope, with the real notiskin', { skip }, async () => {
+  lib.writeItem('plugin', 'plain-global', 'var leaked = "global"; window.__plainSame = (notiskin === window.notiskin);');
+  writeConfig({ ...readConfig(), enabledPlugins: ['counter', 'plain-global'] });
+  assert.equal(await lib.applyConfig(), true);
+  await waitFor(async () => (await evalAll('window.__plainSame')).every(w => w.value === true), 'the plain plugin');
+  assert.ok((await evalAll('window.leaked')).every(w => w.value === 'global'), 'a top-level var is still a global');
+  writeConfig({ ...readConfig(), enabledPlugins: ['counter'] });
+  lib.deleteItem('plugin', 'plain-global');
+  await lib.applyConfig();
+});
+
 test('stopping the injector leaves Notion as it was', { skip }, async () => {
   await daemon.stop();
   assert.ok(!existsSync(CONTROL_SOCKET));

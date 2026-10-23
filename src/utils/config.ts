@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { dirname } from 'path';
 import { CONFIG_PATH } from './constants';
+import { parsePluginSettings, SettingValue } from '../core/plugin-settings';
 
 export interface NotiskinConfig {
   activeTheme: string;
@@ -17,10 +18,13 @@ export interface NotiskinConfig {
   // the app keeps the watcher (a background process, runs even when Notion and Notiskin are closed) to repair Notion
   // after its updates. Off unless turned on
   autoRepair: boolean;
+  // what the user picked in a plugin's Settings, by plugin name then setting key. A plugin only gets the keys it
+  // declares, and gets its declared default for anything missing here
+  pluginSettings: Record<string, Record<string, SettingValue>>;
 }
 
 function defaultConfig(): NotiskinConfig {
-  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false, blockNativeNotion: true, autoRepair: false };
+  return { activeTheme: '', enabledPlugins: [], acknowledgedPlugins: [], safeMode: false, setupDone: false, notionInstalled: false, blockNativeNotion: true, autoRepair: false, pluginSettings: {} };
 }
 
 function stringArray(value: unknown): string[] {
@@ -39,6 +43,7 @@ export function parseConfig(raw: unknown): NotiskinConfig {
     notionInstalled: obj.notionInstalled === true,
     blockNativeNotion: obj.blockNativeNotion !== false,
     autoRepair: obj.autoRepair === true,
+    pluginSettings: parsePluginSettings(obj.pluginSettings),
   };
 }
 
