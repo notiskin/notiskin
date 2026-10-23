@@ -37,6 +37,7 @@ import {
   ItemType,
 } from '../core/library';
 import { checkSettingValue, parseSettingDeclarations, resolveSettings } from '../core/plugin-settings';
+import { checkDevFolder, devFileFor, isDevName, resolveDevFolder, scanDevFolder } from '../core/dev-plugins';
 import {
   appBundlePath,
   findNotionBinary,
@@ -651,10 +652,33 @@ app.get('/api/themes', (_req, res) => {
   res.json({ themes: listThemes(), activeTheme: readConfig().activeTheme });
 });
 
+// the source of an installed plugin, or of a developer plugin ("dev/<file>", from the developer folder). null if there is none
+function pluginSource(name: string): string | null {
+  if (isDevName(name)) {
+    const config = readConfig();
+    if (!config.developerMode || !config.developerFolder) return null;
+    return scanDevFolder(config.developerFolder).plugins.find(p => p.name === name)?.content ?? null;
+  }
+  return itemExists('plugin', name) ? readFileSync(itemPath('plugin', name), 'utf-8') : null;
+}
+
 // what a plugin declares in its header comment, read as text, the plugin is never run for this
-function pluginSettingsOf(name: string) {
-  const { settings, problems } = parseSettingDeclarations(readFileSync(itemPath('plugin', name), 'utf-8'));
+function pluginSettingsOf(name: string, source: string) {
+  const { settings, problems } = parseSettingDeclarations(source);
   return { settings, problems, values: resolveSettings(settings, readConfig().pluginSettings[name]) };
+}
+
+// developer mode as the Plugins and Settings pages see it
+function developerState() {
+  const config = readConfig();
+  const scan = config.developerMode && config.developerFolder ? scanDevFolder(config.developerFolder) : null;
+  return {
+    enabled: config.developerMode,
+    folder: config.developerFolder,
+    error: scan?.error ?? null,
+    skipped: scan?.skipped ?? [],
+    plugins: (scan?.plugins ?? []).map(p => ({ name: p.name, file: devFileFor(p.name), hasSettings: parseSettingDeclarations(p.content).settings.length > 0 })),
+  };
 }
 
 app.get('/api/plugins', (_req, res) => {
@@ -663,23 +687,26 @@ app.get('/api/plugins', (_req, res) => {
     plugins,
     enabledPlugins: readConfig().enabledPlugins,
     // the ones that get a Settings button
-    withSettings: plugins.filter(name => pluginSettingsOf(name).settings.length > 0),
+    withSettings: plugins.filter(name => pluginSettingsOf(name, pluginSource(name) ?? '').settings.length > 0),
+    dev: developerState(),
   });
 });
 
 app.get('/api/plugin-settings/:name', (req, res) => {
   const { name } = req.params;
-  if (!itemExists('plugin', name)) return res.status(404).json({ error: 'Plugin not found' });
-  const { settings, problems, values } = pluginSettingsOf(name);
-  res.json({ name, settings, problems, values, enabled: readConfig().enabledPlugins.includes(name) });
+  const source = pluginSource(name);
+  if (source === null) return res.status(404).json({ error: 'Plugin not found' });
+  const { settings, problems, values } = pluginSettingsOf(name, source);
+  res.json({ name, settings, problems, values, enabled: isDevName(name) || readConfig().enabledPlugins.includes(name) });
 });
 
 // saves what the user picked (only keys the plugin declares, every value checked) and shows it in Notion right away,
 // no reload, a plugin that listens with notiskin.settings.onChange hears about it. { reset: true } goes back to the defaults
 app.post('/api/plugin-settings/:name', async (req, res) => {
   const { name } = req.params;
-  if (!itemExists('plugin', name)) return res.status(404).json({ error: 'Plugin not found' });
-  const { settings } = pluginSettingsOf(name);
+  const source = pluginSource(name);
+  if (source === null) return res.status(404).json({ error: 'Plugin not found' });
+  const { settings } = pluginSettingsOf(name, source);
   const body = req.body ?? {};
   const config = readConfig();
   const saved = { ...(config.pluginSettings[name] ?? {}) };
@@ -704,10 +731,10 @@ app.post('/api/plugin-settings/:name', async (req, res) => {
     config.pluginSettings[name] = saved;
   }
   writeConfig(config);
-  if (config.enabledPlugins.includes(name)) {
+  if (isDevName(name) || config.enabledPlugins.includes(name)) {
     try { await serialized(() => applyConfig()); } catch {}
   }
-  res.json({ ok: true, values: pluginSettingsOf(name).values });
+  res.json({ ok: true, values: pluginSettingsOf(name, source).values });
 });
 
 app.post('/api/theme/clear', async (_req, res) => {
@@ -788,6 +815,59 @@ app.delete('/api/themes/:name', async (req, res) => {
   if (!deleteItem('theme', req.params.name)) return res.json({ success: false, error: 'Theme not found' });
   try { await serialized(() => applyConfig()); } catch {}
   res.json({ success: true });
+});
+
+// developer mode. Plugins in the folder run like installed ones and Notion's tabs reload when a file is saved.
+// Turning it on or off or moving the folder reloads the tabs too, because a plugin that has run can't be un-run
+app.get('/api/developer', (_req, res) => {
+  res.json(developerState());
+});
+
+// the native folder picker, only inside the desktop app (the server runs in its main process)
+export const folderPicker = {
+  async choose(): Promise<string | null | undefined> {
+    if (!process.versions.electron) return undefined;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { dialog } = require('electron');
+    const result = await dialog.showOpenDialog({ title: 'Choose your plugins folder', properties: ['openDirectory', 'createDirectory'] });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  },
+};
+
+app.post('/api/developer/choose-folder', async (_req, res) => {
+  try {
+    const folder = await folderPicker.choose();
+    if (folder === undefined) return res.json({ ok: false, unsupported: true });
+    res.json({ ok: true, folder });
+  } catch (err) {
+    res.json({ ok: false, error: errorMessage(err) });
+  }
+});
+
+app.post('/api/developer', async (req, res) => {
+  const { enabled, folder } = req.body ?? {};
+  if (enabled !== undefined && typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be true or false.' });
+  if (folder !== undefined && typeof folder !== 'string') return res.status(400).json({ error: 'folder must be a path.' });
+  const config = readConfig();
+  const next = {
+    ...config,
+    developerMode: enabled ?? config.developerMode,
+    developerFolder: folder !== undefined ? (folder.trim() ? resolveDevFolder(folder.trim()) : '') : config.developerFolder,
+  };
+  // a folder has to be good to be turned on, one that is only being remembered while it is off can be anything
+  if (next.developerMode) {
+    const problem = checkDevFolder(next.developerFolder);
+    if (problem) return res.status(400).json({ error: problem });
+  }
+  if (next.developerFolder && folder !== undefined) {
+    const problem = checkDevFolder(next.developerFolder);
+    if (problem) return res.status(400).json({ error: problem });
+  }
+  writeConfig(next);
+  try {
+    await serialized(() => applyConfig({ reload: true }));
+  } catch {}
+  res.json({ ok: true, ...developerState() });
 });
 
 app.delete('/api/plugins/:name', async (req, res) => {

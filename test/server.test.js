@@ -891,3 +891,73 @@ test('plugin settings: deleting the plugin forgets its values', async () => {
   assert.equal(readConfig().pluginSettings['with-settings'], undefined);
   lib.deleteItem('plugin', 'plain');
 });
+
+test('developer mode: needs a real folder to turn on, and is saved with its folder', async () => {
+  const { mkdtempSync, writeFileSync, rmSync, realpathSync } = require('fs');
+  const { join } = require('path');
+  const { tmpdir } = require('os');
+  const { readConfig, writeConfig } = require('../dist/utils/config');
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'notiskin-dev-srv-')));
+  writeFileSync(join(dir, 'one.js'), `/**\n * @notiskin-setting {"key":"n","type":"number","label":"N","default":3}\n */\nconsole.log(1);`);
+  writeFileSync(join(dir, 'two.js'), 'console.log(2);');
+  const post = body => request('POST', '/api/developer', { headers: authed(), body });
+
+  const start = await request('GET', '/api/developer', { headers: authed() });
+  assert.deepEqual(start.json, { enabled: false, folder: '', error: null, skipped: [], plugins: [] });
+  assert.equal((await request('GET', '/api/developer')).status, 403, 'needs the token');
+
+  // refused: no folder, a relative one, one that is not there, a file, wrong types
+  for (const body of [{ enabled: true }, { enabled: true, folder: 'relative' }, { enabled: true, folder: join(dir, 'nope') }, { enabled: true, folder: join(dir, 'one.js') }]) {
+    assert.equal((await post(body)).status, 400, JSON.stringify(body));
+  }
+  for (const body of [{ enabled: 'yes' }, { folder: 5 }]) assert.equal((await post(body)).status, 400);
+  assert.equal(readConfig().developerMode, false);
+
+  const on = await post({ enabled: true, folder: dir });
+  assert.equal(on.status, 200);
+  assert.deepEqual(on.json.plugins.map(p => [p.name, p.file, p.hasSettings]), [['dev/one', 'one.js', true], ['dev/two', 'two.js', false]]);
+  assert.equal(readConfig().developerMode, true);
+  assert.equal(readConfig().developerFolder, dir);
+
+  // the Plugins page gets the same, and the installed list does not include them
+  const list = await request('GET', '/api/plugins', { headers: authed() });
+  assert.equal(list.json.dev.enabled, true);
+  assert.equal(list.json.plugins.some(n => n.startsWith('dev/')), false);
+  assert.equal(list.json.withSettings.some(n => n.startsWith('dev/')), false);
+
+  // a developer plugin's settings work through the same routes, with the slash escaped
+  const settings = await request('GET', '/api/plugin-settings/dev%2Fone', { headers: authed() });
+  assert.equal(settings.status, 200);
+  assert.deepEqual(settings.json.values, { n: 3 });
+  assert.equal(settings.json.enabled, true);
+  const saved = await request('POST', '/api/plugin-settings/dev%2Fone', { headers: authed(), body: { values: { n: 7 } } });
+  assert.deepEqual(saved.json.values, { n: 7 });
+  assert.deepEqual(readConfig().pluginSettings['dev/one'], { n: 7 });
+  assert.equal((await request('GET', '/api/plugin-settings/dev%2Fmissing', { headers: authed() })).status, 404);
+
+  // off keeps the folder, and its plugins no longer have settings routes
+  const off = await post({ enabled: false });
+  assert.equal(off.json.enabled, false);
+  assert.equal(readConfig().developerFolder, dir);
+  assert.equal((await request('GET', '/api/plugin-settings/dev%2Fone', { headers: authed() })).status, 404);
+
+  // a folder can be remembered while it is off, an empty one forgets it
+  assert.equal((await post({ folder: '' })).json.folder, '');
+  writeConfig({ ...readConfig(), pluginSettings: {}, developerMode: false, developerFolder: '' });
+  rmSync(dir, { recursive: true });
+});
+
+test('developer mode: the folder picker is only offered inside the desktop app', async () => {
+  const { folderPicker } = require('../dist/gui/server');
+  const original = folderPicker.choose;
+  try {
+    assert.deepEqual((await request('POST', '/api/developer/choose-folder', { headers: authed() })).json, { ok: false, unsupported: true });
+    folderPicker.choose = async () => '/Users/me/plugins';
+    assert.deepEqual((await request('POST', '/api/developer/choose-folder', { headers: authed() })).json, { ok: true, folder: '/Users/me/plugins' });
+    folderPicker.choose = async () => null;
+    assert.deepEqual((await request('POST', '/api/developer/choose-folder', { headers: authed() })).json, { ok: true, folder: null });
+    assert.equal((await request('POST', '/api/developer/choose-folder')).status, 403);
+  } finally {
+    folderPicker.choose = original;
+  }
+});

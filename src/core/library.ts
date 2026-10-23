@@ -23,6 +23,7 @@ import { askInjector, ControlReply, ControlRequest } from '../injector/control';
 import { sleep } from '../utils/sleep';
 import { forgetInstall } from './installed';
 import { parseSettingDeclarations, resolveSettings } from './plugin-settings';
+import { scanDevFolder } from './dev-plugins';
 
 export type ItemType = 'theme' | 'plugin';
 
@@ -123,6 +124,16 @@ export function loadEnabledPlugins(config: NotiskinConfig, warn: (msg: string) =
     const { settings } = parseSettingDeclarations(content);
     // a plugin that declares settings gets its values (the user's, else its defaults) and runs with its own notiskin.settings
     entries.push({ name, content, ...(settings.length ? { settings: resolveSettings(settings, config.pluginSettings[name]) } : {}) });
+  }
+  // developer mode: every plugin in the folder runs, no switch per plugin, and a missing folder is a warning, not a crash
+  if (config.developerMode && config.developerFolder) {
+    const scan = scanDevFolder(config.developerFolder);
+    if (scan.error) warn(`Developer mode: ${scan.error}`);
+    for (const { file, reason } of scan.skipped) warn(`Developer mode: skipped ${file}, ${reason}.`);
+    for (const { name, content } of scan.plugins) {
+      const { settings } = parseSettingDeclarations(content);
+      entries.push({ name, content, ...(settings.length ? { settings: resolveSettings(settings, config.pluginSettings[name]) } : {}) });
+    }
   }
   return entries;
 }
