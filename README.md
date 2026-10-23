@@ -157,6 +157,29 @@ notiskin.addToolbarButton('Hello', () => alert('hi'));
 
 Keep `MutationObserver`s tightly scoped and guard against triggering yourself, or you can freeze Notion.
 
+### Plugin settings
+
+A plugin can offer options. Declare them in a comment at the very top of the file, one line per setting, as JSON after `@notiskin-setting`:
+
+```js
+/**
+ * @notiskin-setting {"key":"compact","type":"toggle","label":"Compact sidebar","default":false}
+ * @notiskin-setting {"key":"greeting","type":"text","label":"Greeting","default":"hello","maxLength":40}
+ * @notiskin-setting {"key":"size","type":"number","label":"Size","default":14,"min":8,"max":32,"step":2}
+ * @notiskin-setting {"key":"mode","type":"select","label":"Mode","default":"calm","options":["calm","loud"]}
+ * @notiskin-setting {"key":"accent","type":"color","label":"Accent color","default":"#e8590c","description":"Optional text under the label"}
+ */
+notiskin.settings.onChange((key, value, all) => console.log(key, 'is now', value));
+if (notiskin.settings.get('compact')) { /* ... */ }
+```
+
+The Plugins tab then shows a **Settings** button on the plugin's card with a form made from the declaration, and what the user picks shows in Notion right away: no reload, and a plugin that listens with `onChange` hears about the one that changed. The app reads the comment as text and never runs the plugin to do it, so the form works while the plugin is off. A line that isn't valid JSON, has an unknown `type`, a `default` that doesn't fit, a repeated `key`, and anything past the 20th is skipped (the form says why) and the rest still work. Keys are letters, numbers and underscores, starting with a letter.
+
+- `notiskin.settings.get(key)` is the user's value, or your `default`; `getAll()` is a copy of all of them
+- `notiskin.settings.onChange(fn)` calls `fn(key, value, all)` after a change, and returns a function that stops listening
+- the page API is now version `1.1.0`, every older method works as before
+- a plugin that declares settings runs inside a function that is given its own `notiskin`, so settings know whose they are, even inside a later callback. Use that `notiskin`, not `window.notiskin`, and don't count on top-level `var` and `function` becoming globals (use `window.x = ...`). A plugin with no declarations runs exactly as before
+
 ## Development
 
 ```bash

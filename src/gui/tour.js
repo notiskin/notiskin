@@ -63,7 +63,7 @@
       fit: 'content',
       before: () => window.switchTab?.('installed'),
       title: 'Turning plugins on',
-      text: 'Each installed plugin has a switch. A plugin can do anything Notion can, so only turn on plugins you trust.',
+      text: 'Each installed plugin has a switch. A plugin can do anything Notion can, so only turn on plugins you trust. A plugin with options also has a Settings button: the form opens on its card and what you pick shows in Notion right away.',
     },
     {
       page: '/settings.html',

@@ -149,6 +149,29 @@
     .loading { font-size: 13px; color: var(--text-3); padding: 10px 2px; }
     .error   { font-size: 13px; color: var(--danger); padding: 10px 2px; }
 
+
+    .card { flex-wrap: wrap; }
+    .btn-settings {
+      background: transparent;
+      color: var(--text-3);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      padding: 3px 9px;
+      flex-shrink: 0;
+    }
+    .btn-settings:hover, .btn-settings[aria-expanded="true"] { color: var(--text); }
+    .ps-panel { flex-basis: 100%; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 2px; }
+    .ps-panel[hidden] { display: none; }
+    .ps-note { font-size: 12px; color: var(--text-3); margin-bottom: 10px; }
+    .ps-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 4px 14px; align-items: center; padding: 6px 0; }
+    .ps-label { font-size: 13px; color: var(--text); }
+    .ps-desc { grid-column: 1; font-size: 12px; color: var(--text-3); }
+    .ps-field input[type="text"], .ps-field input[type="number"], .ps-field select { width: 100%; font-size: 13px; padding: 5px 8px; }
+    .ps-field input[type="color"] { width: 44px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: none; cursor: pointer; }
+    .ps-error { font-size: 12px; color: var(--danger); min-height: 16px; margin-top: 4px; }
+    .ps-problems { font-size: 12px; color: var(--text-3); margin-top: 8px; }
+    .ps-actions { margin-top: 8px; }
+
     .btn-delete {
       background: transparent;
       color: var(--text-3);
@@ -867,7 +890,7 @@
     }
 
     async function loadPlugins(preloaded) {
-      const { plugins, enabledPlugins } = preloaded || await api('GET', '/plugins');
+      const { plugins, enabledPlugins, withSettings } = preloaded || await api('GET', '/plugins');
       const el = document.getElementById('plugins-list');
       if (!plugins || !plugins.length) {
         el.innerHTML = '<span class="empty">No plugins installed yet</span>';
@@ -902,7 +925,9 @@
               <span class="toggle-thumb"></span>
             </label>
             ${(nameToId[p] || nameToId[p.toLowerCase()]) ? buildRateBtn(nameToId[p] || nameToId[p.toLowerCase()], 'plugin') : ''}
+            ${(withSettings || []).includes(p) ? `<button class="btn-settings" onclick="togglePluginSettings(event, '${esc(p)}')">Settings</button>` : ''}
             <button class="btn-delete" title="Delete plugin" onclick="deletePlugin(event, '${esc(p)}')">×</button>
+            <div class="ps-panel" hidden></div>
           </div>
         `;
       }).join('');
@@ -917,6 +942,91 @@
           const btn = document.querySelector(`#popover-wrapper-${id} .rate-btn`);
           if (btn) btn.classList.add('rated');
         }
+      });
+    }
+
+    // ---- plugin settings ----
+    // the form is made from what the plugin declares in its header comment (the server reads it as text, the plugin is never run)
+    async function togglePluginSettings(event, name) {
+      event.preventDefault();
+      event.stopPropagation();
+      const btn = event.currentTarget;
+      const panel = btn.closest('.card').querySelector('.ps-panel');
+      const open = panel.hidden;
+      btn.setAttribute('aria-expanded', String(open));
+      if (!open) { panel.hidden = true; return; }
+      panel.hidden = false;
+      panel.innerHTML = '<span class="loading">Loading</span>';
+      try {
+        renderPluginSettings(panel, name, await api('GET', `/plugin-settings/${encodeURIComponent(name)}`));
+      } catch {
+        panel.innerHTML = '<span class="error">Couldn\'t load the settings.</span>';
+      }
+    }
+
+    function pluginSettingControl(decl, value) {
+      const id = `ps-${decl.key}`;
+      const attr = (name, v) => (v === undefined ? '' : ` ${name}="${esc(v)}"`);
+      if (decl.type === 'toggle') {
+        return `<label class="toggle"><input type="checkbox" id="${id}" data-key="${esc(decl.key)}" ${value ? 'checked' : ''}><span class="toggle-track"></span><span class="toggle-thumb"></span></label>`;
+      }
+      if (decl.type === 'select') {
+        return `<select id="${id}" data-key="${esc(decl.key)}">${decl.options.map(o => `<option value="${esc(o)}"${o === value ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+      }
+      if (decl.type === 'number') {
+        return `<input type="number" id="${id}" data-key="${esc(decl.key)}" value="${esc(value)}"${attr('min', decl.min)}${attr('max', decl.max)}${attr('step', decl.step)}>`;
+      }
+      if (decl.type === 'color') {
+        return `<input type="color" id="${id}" data-key="${esc(decl.key)}" value="${esc(value)}">`;
+      }
+      return `<input type="text" id="${id}" data-key="${esc(decl.key)}" value="${esc(value)}" maxlength="${esc(decl.maxLength)}">`;
+    }
+
+    function renderPluginSettings(panel, name, data) {
+      const { settings, problems, values, enabled } = data;
+      panel.innerHTML = `
+        <div class="ps-note">${enabled ? 'Changes show in Notion right away.' : 'This plugin is off. What you pick here is kept for when you turn it on.'}</div>
+        ${settings.map(decl => `
+          <div class="ps-field">
+            <label class="ps-label" for="ps-${esc(decl.key)}">${esc(decl.label)}</label>
+            ${pluginSettingControl(decl, values[decl.key])}
+            ${decl.description ? `<div class="ps-desc">${esc(decl.description)}</div>` : ''}
+          </div>`).join('')}
+        <div class="ps-error" role="status"></div>
+        ${problems.length ? `<div class="ps-problems">${problems.map(esc).join('<br>')}</div>` : ''}
+        <div class="ps-actions"><button type="button" class="btn-ghost ps-reset">Reset to defaults</button></div>`;
+      const error = panel.querySelector('.ps-error');
+
+      async function save(key, value) {
+        const res = await api('POST', `/plugin-settings/${encodeURIComponent(name)}`, { values: { [key]: value } });
+        error.textContent = res.error || '';
+        return res;
+      }
+      const timers = {};
+      panel.querySelectorAll('[data-key]').forEach(input => {
+        const key = input.dataset.key;
+        const decl = settings.find(d => d.key === key);
+        const read = () => {
+          if (decl.type === 'toggle') return input.checked;
+          if (decl.type === 'number') return input.value.trim() === '' ? NaN : input.valueAsNumber;
+          return input.value;
+        };
+        const send = () => {
+          const value = read();
+          if (decl.type === 'number' && Number.isNaN(value)) { error.textContent = `${decl.label}: enter a number.`; return; }
+          save(key, value);
+        };
+        // a color picker fires on every drag, so it waits a moment; the rest save when the value is settled
+        if (decl.type === 'color') {
+          input.addEventListener('input', () => { clearTimeout(timers[key]); timers[key] = setTimeout(send, 300); });
+        } else {
+          input.addEventListener('change', send);
+        }
+      });
+      panel.querySelector('.ps-reset').addEventListener('click', async () => {
+        const res = await api('POST', `/plugin-settings/${encodeURIComponent(name)}`, { reset: true });
+        if (res.error) { error.textContent = res.error; return; }
+        renderPluginSettings(panel, name, { ...data, values: res.values });
       });
     }
 
