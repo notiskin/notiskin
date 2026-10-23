@@ -236,6 +236,7 @@ async function inject(runArg?: string): Promise<void> {
   const daemon = await startInjectorDaemon({
     run,
     loadPayload: () => currentPayload(readConfig(), stamp),
+    canPreview: () => !readConfig().safeMode,
     watchPaths: [NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR],
     controlSocket: true,
     cleanUpRun: true,

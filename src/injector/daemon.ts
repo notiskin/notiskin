@@ -23,8 +23,12 @@ export interface DaemonOptions {
   // folders to watch, any change re-applies to every tab
   watchPaths?: string[];
   connectTimeoutMs?: number;
-  // answer apply / reload / status on ~/.notiskin/run/injector.sock
+  // answer apply / reload / preview / status on ~/.notiskin/run/injector.sock
   controlSocket?: boolean;
+  // false while previews must not show (safe mode), checked on every injection
+  canPreview?: () => boolean;
+  // a preview ends this long after the last request for it, defaults to 15 seconds
+  previewTtlMs?: number;
   // remove the pipe folder once Notion has quit
   cleanUpRun?: boolean;
   log?: (msg: string) => void;
@@ -62,6 +66,8 @@ interface Session {
 
 const NOTION_HOST = /(^|\.)notion\.(so|com)$/;
 const CONTROL_REPLY_MS = 20_000;
+const DEFAULT_PREVIEW_TTL_MS = 15_000;
+const MAX_PREVIEW_CHARS = 100_000;
 
 export function isNotionUrl(url: string): boolean {
   try {
@@ -83,6 +89,9 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
   const detached = new Set<string>();
   let control: Server | undefined;
   let stopped = false;
+  // the editor's live preview, kept only in memory so there is never anything to clean up
+  let previewCss: string | null = null;
+  let previewTimer: NodeJS.Timeout | undefined;
 
   let resolveDone!: () => void;
   const done = new Promise<void>(r => (resolveDone = r));
@@ -97,7 +106,9 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
   }
 
   async function injectInto(session: Session): Promise<void> {
-    const { css, plugins } = opts.loadPayload();
+    const payload = opts.loadPayload();
+    const css = previewCss !== null && (opts.canPreview?.() ?? true) ? previewCss : payload.css;
+    const plugins = payload.plugins;
     const client = sessionClient(session.sessionId);
 
     // swap the document-start CSS so the next reload paints with the current theme
@@ -194,9 +205,50 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
     );
   }
 
+  function endPreview(): boolean {
+    clearTimeout(previewTimer);
+    const had = previewCss !== null;
+    previewCss = null;
+    return had;
+  }
+
+  // the answer to a request to change what the tabs show, within a set time even if a tab is slow to respond
+  async function applyWithin(work: Promise<void>): Promise<boolean> {
+    return Promise.race([work.then(() => true), sleep(CONTROL_REPLY_MS).then(() => false)]);
+  }
+
   async function handleControl(req: ControlRequest): Promise<ControlReply> {
-    const base = { ok: true, tabs: sessions.size, pid: opts.run.pid, runDir: opts.run.dir };
+    const base = { ok: true, tabs: sessions.size, pid: opts.run.pid, runDir: opts.run.dir, previewing: previewCss !== null };
     if (req.cmd === 'status') return base;
+    if (req.cmd === 'preview') {
+      if (typeof req.css !== 'string' || !req.css.trim() || req.css.length > MAX_PREVIEW_CHARS) {
+        return { ...base, ok: false, error: 'The preview needs some CSS.' };
+      }
+      if (opts.canPreview && !opts.canPreview()) {
+        return { ...base, ok: false, error: 'Safe mode is on, so Notion shows no theme or preview.' };
+      }
+      // the editor repeats the same request as a heartbeat, only a change needs the tabs touched
+      const changed = previewCss !== req.css;
+      previewCss = req.css;
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => {
+        if (endPreview()) void reapplyAll();
+      }, opts.previewTtlMs ?? DEFAULT_PREVIEW_TTL_MS);
+      if (changed) {
+        clearTimeout(debounce);
+        if (!(await applyWithin(reapplyAll()))) {
+          return { ...base, previewing: true, ok: false, error: 'Notion is taking too long to respond, try again in a moment.' };
+        }
+      }
+      return { ...base, previewing: true, tabs: sessions.size };
+    }
+    if (req.cmd === 'preview-end') {
+      if (endPreview()) {
+        clearTimeout(debounce);
+        await applyWithin(reapplyAll());
+      }
+      return { ...base, previewing: false, tabs: sessions.size };
+    }
     if (req.cmd === 'apply' || req.cmd === 'reload') {
       clearTimeout(debounce);
       // the app waits on this answer, so it comes within a set time even if a tab is slow to respond
@@ -231,6 +283,7 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
     if (stopped) return;
     stopped = true;
     clearTimeout(debounce);
+    clearTimeout(previewTimer);
     for (const w of watchers) w.close();
     if (control) stopControlServer(control);
     sessions.clear();
