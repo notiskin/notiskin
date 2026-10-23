@@ -40,6 +40,8 @@ test('fonts are only overridden for the font variables a theme sets', () => {
   assert.match(body, /font-family: var\(--ns-font\) !important/);
   assert.match(body, /var\(--ns-font-title, var\(--ns-font\)\)/, 'titles follow the body font');
   assert.doesNotMatch(body, /--ns-font-code/);
+  // the text inside a heading has Notion's sans stack inline, which names Apple Color Emoji: only a style that starts with it is emoji
+  assert.match(body, /notion-header-block[^{]*\*:not\(\[style\*="SFMono-Regular"\], \[style\*='font-family: "Apple Color Emoji"'\]\) \{ font-family: var\(--ns-font-title/);
 
   const code = fontCss(':root { --ns-font-code: monospace; }');
   assert.match(code, /--ns-font-code/);
