@@ -10,8 +10,17 @@ app.setPath('userData', USER_DATA);
 // the inline script records what theme was already present before the page's own code ran
 const html = '<!doctype html><html><head><title>fake notion</title>' +
   '<script>window.__styleAtStart = document.getElementById("notiskin-styles")?.textContent ?? null;' +
-  'window.__styledAtStart = window.__styleAtStart !== null</script></head>' +
-  '<body><div class="notion-app-inner"><div class="notion-frame">hello</div></div></body></html>';
+  'window.__styledAtStart = window.__styleAtStart !== null</script>' +
+  '<style>:root{--c-texPri:rgb(1,2,3);--c-redTexSec:rgb(200,0,0);--c-bluTexSec:rgb(0,0,200);' +
+  '--c-redBacSec:rgb(250,200,200);--ca-yelBacSecTra:rgba(250,250,0,0.3)}</style></head>' +
+  '<body><div class="notion-app-inner"><div class="notion-frame">hello' +
+  // how Notion marks text: plain has its default token, colored text and blocks point at a hue token
+  '<div id="plain" style="color: var(--c-texPri)">plain</div>' +
+  '<span id="red-text" style="color:var(--c-redTexSec)">red</span>' +
+  '<span id="highlight" style="background:var(--ca-yelBacSecTra);color:var(--c-redTexSec)">highlight</span>' +
+  '<div id="blue-block" style="color: var(--c-bluTexSec)"><span id="blue-child">blue child</span></div>' +
+  '<div id="red-bg" style="background: var(--c-redBacSec)">red background</div>' +
+  '</div></div></body></html>';
 
 function openWindow(win) {
   // new windows from window.open stay hidden too, like Notion's own extra tabs from the test's point of view
