@@ -100,6 +100,15 @@ Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain on
 }
 ```
 
+Text Notion colors itself (red text, colored mentions, highlights, colored callouts) keeps Notion's colors; only plain text takes `--ns-text`. To recolor those, a theme can set a palette, all optional. Text colors are `--ns-color-<name>` and backgrounds (highlights, colored blocks) are `--ns-color-<name>-bg`, where `<name>` is `gray`, `brown`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink` or `red`:
+
+```css
+:root {
+  --ns-color-red: #ff7369;
+  --ns-color-red-bg: #502c29;
+}
+```
+
 ## Writing a plugin
 
 Plugins are plain JavaScript that runs inside each Notion tab once the page has loaded. Each plugin runs at most once per page load, so re-applying a theme won't double up listeners. Disabling a plugin reloads the current tab; other open tabs drop it on their next reload. A small helper API is available as `window.notiskin`:
