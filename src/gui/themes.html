@@ -700,7 +700,7 @@
       </div>
 
       <div id="tab-publish" hidden>
-        <p class="field-hint" style="margin-bottom:16px">New to this? <a href="#" onclick="openDocs('themes.html'); return false">The guide to making themes</a> covers every variable, fonts, light and dark, and what the marketplace accepts.</p>
+        <p class="field-hint" style="margin-bottom:16px"><a href="#" onclick="openDocs('themes.html'); return false">Guide to making themes</a></p>
         <div id="publish-login-section">
           <p>Sign in with GitHub in Settings to publish a theme.</p>
           <a class="btn-github" href="/settings.html">
@@ -1424,8 +1424,8 @@
         btn.disabled = false;
         btn.textContent = 'Submit';
         showPublishMsg('success', result.autoApproved
-          ? 'Theme approved and published'
-          : "Theme submitted. We'll review it shortly." + (result.reason ? ` Note: ${result.reason}` : ''));
+          ? 'Theme published.'
+          : 'Theme submitted for review.' + (result.reason ? ` ${result.reason}.` : ''));
         document.getElementById('publish-form').reset();
         resetPublishTags();
       } catch (err) {

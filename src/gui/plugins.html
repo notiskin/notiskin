@@ -561,7 +561,7 @@
       </div>
 
       <div id="tab-publish" hidden>
-        <p class="field-hint" style="margin-bottom:16px">New to this? <a href="#" onclick="openDocs('plugins.html'); return false">The guide to making plugins</a> covers the notiskin API, settings, developer mode and how review works.</p>
+        <p class="field-hint" style="margin-bottom:16px"><a href="#" onclick="openDocs('plugins.html'); return false">Guide to making plugins</a></p>
         <div id="publish-login-section">
           <p>Sign in with GitHub in Settings to publish a plugin.</p>
           <a class="btn-github" href="/settings.html">
@@ -995,7 +995,7 @@
     function renderPluginSettings(panel, name, data) {
       const { settings, problems, values, enabled } = data;
       panel.innerHTML = `
-        <div class="ps-note">${enabled ? 'Changes show in Notion right away.' : 'This plugin is off. What you pick here is kept for when you turn it on.'}</div>
+        ${enabled ? '' : '<div class="ps-note">Off. Your choices are kept until you turn it on.</div>'}
         ${settings.map(decl => `
           <div class="ps-field">
             <label class="ps-label" for="ps-${esc(decl.key)}">${esc(decl.label)}</label>
@@ -1047,7 +1047,7 @@
       if (section.hidden) return;
       document.getElementById('dev-note').textContent = dev.error
         ? dev.error
-        : `Running from ${dev.folder}. Saving a file reloads Notion. Turn this off in Settings.`;
+        : `Running from ${dev.folder}`;
       document.getElementById('dev-plugins-list').innerHTML = dev.plugins.length
         ? dev.plugins.map(p => `
           <div class="card" data-file="${esc(p.name)}">
@@ -1057,7 +1057,7 @@
             ${p.hasSettings ? `<button class="btn-settings" onclick="togglePluginSettings(event, '${esc(p.name)}')">Settings</button>` : ''}
             <div class="ps-panel" hidden></div>
           </div>`).join('')
-        : '<span class="empty">No .js files in that folder yet</span>';
+        : '<span class="empty">No .js files in that folder</span>';
     }
 
     async function togglePlugin(name, enable) {
@@ -1326,7 +1326,7 @@
 
         btn.disabled = false;
         btn.textContent = 'Submit';
-        showPublishMsg('success', "Plugin submitted. We'll review it shortly.");
+        showPublishMsg('success', 'Plugin submitted for review.');
         document.getElementById('publish-form').reset();
         resetPublishTags();
       } catch (err) {
