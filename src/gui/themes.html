@@ -700,7 +700,7 @@
       </div>
 
       <div id="tab-publish" hidden>
-        <p class="field-hint" style="margin-bottom:16px">New to this? <a href="#" onclick="openDocs('themes.html'); return false">The guide to making themes</a> covers every variable, fonts, light and dark, and what the marketplace accepts.</p>
+        <p class="field-hint" style="margin-bottom:16px"><a href="#" onclick="openDocs('themes.html'); return false">Guide to making themes</a></p>
         <div id="publish-login-section">
           <p>Sign in with GitHub in Settings to publish a theme.</p>
           <a class="btn-github" href="/settings.html">
@@ -727,7 +727,7 @@
           <form id="publish-form" onsubmit="handlePublishSubmit(event)">
             <div class="field">
               <label for="f-name">Name</label>
-              <input type="text" id="f-name" placeholder="my theme" required autocomplete="off" maxlength="50">
+              <input type="text" id="f-name" required autocomplete="off" maxlength="50">
               <div class="field-hint">
                 <span id="name-hint">Letters, numbers, and spaces only.</span>
                 <span id="name-count" style="float:right">0/50</span>
@@ -736,7 +736,7 @@
 
             <div class="field">
               <label for="f-description">Description</label>
-              <input type="text" id="f-description" placeholder="What does this theme do?" maxlength="300">
+              <input type="text" id="f-description" maxlength="300">
               <div class="field-hint">
                 <span id="desc-hint"></span>
                 <span id="desc-count" style="float:right">0/300</span>
@@ -745,9 +745,9 @@
 
             <div class="field">
               <label for="f-code">CSS</label>
-              <textarea id="f-code" placeholder="Paste your CSS here" required></textarea>
+              <textarea id="f-code" required></textarea>
               <div class="field-hint">
-                <span id="code-hint">Paste the full contents. External links won't work.</span>
+                <span id="code-hint"></span>
                 <span id="code-count" style="float:right">0/50000</span>
               </div>
             </div>
@@ -760,7 +760,7 @@
             <div class="field">
               <label for="f-link">GitHub link (optional)</label>
               <input type="text" inputmode="url" id="f-link" maxlength="220" placeholder="https://github.com/you/your-theme">
-              <div class="field-hint"><span>A github.com repo or gist, for screenshots and docs.</span></div>
+              <div class="field-hint"><span>A github.com repository or gist.</span></div>
             </div>
 
             <button class="btn-submit" type="submit" id="publish-submit-btn">Submit</button>
@@ -1424,8 +1424,8 @@
         btn.disabled = false;
         btn.textContent = 'Submit';
         showPublishMsg('success', result.autoApproved
-          ? 'Theme approved and published'
-          : "Theme submitted. We'll review it shortly." + (result.reason ? ` Note: ${result.reason}` : ''));
+          ? 'Theme published.'
+          : 'Theme submitted for review.' + (result.reason ? ` ${result.reason}.` : ''));
         document.getElementById('publish-form').reset();
         resetPublishTags();
       } catch (err) {

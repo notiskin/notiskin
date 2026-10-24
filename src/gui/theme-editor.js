@@ -245,8 +245,8 @@
         <div class="te-controls">
           <div class="field">
             <label for="te-name">Name</label>
-            <input type="text" id="te-name" maxlength="80" autocomplete="off" placeholder="my theme">
-            <div class="field-hint"><span id="te-name-hint">The file name in your themes folder.</span></div>
+            <input type="text" id="te-name" maxlength="80" autocomplete="off">
+            <div class="field-hint"><span id="te-name-hint"></span></div>
           </div>
           <div class="te-modes" role="group" aria-label="Which version you are editing">
             <button type="button" class="te-mode active" data-scope="base">Default</button>
@@ -282,11 +282,11 @@
     if (!opts.keepText) el('te-css').value = css;
     el('te-css-count').textContent = `${css.length}/${MAX_CSS}`;
     el('te-css-count').style.color = css.length > MAX_CSS ? 'var(--danger)' : '';
-    el('te-css-hint').textContent = css.length > MAX_CSS ? 'Too long to publish, the marketplace takes up to 20000 characters.' : '';
+    el('te-css-hint').textContent = css.length > MAX_CSS ? 'Over the 20000 character limit for publishing.' : '';
     el('te-title').textContent = state.isNew ? 'New theme' : `Edit ${state.name}`;
     el('te-scope-note').textContent = state.scope === 'dark'
-      ? 'These colors are used when Notion is in dark mode. Anything you leave empty takes the default version.'
-      : (/prefers-color-scheme/.test(css) ? 'A dark version exists. Switch to Dark to edit it.' : 'Add a dark version by picking colors under Dark.');
+      ? 'Used in dark mode. Empty values use Default.'
+      : '';
     document.querySelectorAll('.te-mode').forEach(b => b.classList.toggle('active', b.dataset.scope === state.scope));
 
     for (const row of el('theme-editor').querySelectorAll('.te-row')) {
@@ -328,9 +328,9 @@
         const res = await host.api('POST', '/theme-editor/preview', { css });
         if (!state) return;
         note.textContent = res.safeMode
-          ? 'Safe mode is on, so Notion shows no theme. Turn it off in Settings to preview there.'
-          : res.live ? 'Showing in Notion. It goes back by itself when you close the editor.'
-          : res.error ? res.error : 'Notion isn\'t running, so the preview below is all there is.';
+          ? 'Safe mode is on. Turn it off in Settings to preview.'
+          : res.live ? 'Previewing in Notion.'
+          : res.error ? res.error : 'Notion isn\'t running.';
       } catch {
         if (state) note.textContent = 'Can\'t reach Notiskin.';
       }
@@ -384,7 +384,7 @@
     state.name = name;
     state.saved = state.css;
     el('te-title').textContent = `Edit ${name}`;
-    say('Saved. It is in your themes.', 'ok');
+    say('Saved.', 'ok');
     host.onSaved?.(name);
     return name;
   }
@@ -412,7 +412,7 @@
     editor.querySelector('#te-name').value = state.name;
     editor.querySelector('#te-name').addEventListener('input', () => {
       const name = el('te-name').value.trim();
-      el('te-name-hint').textContent = name && !NAME_PATTERN.test(name) ? 'Letters, numbers, spaces, dashes, dots and underscores.' : 'The file name in your themes folder.';
+      el('te-name-hint').textContent = name && !NAME_PATTERN.test(name) ? 'Letters, numbers, spaces, dashes, dots and underscores.' : '';
     });
     editor.querySelectorAll('.te-mode').forEach(btn =>
       btn.addEventListener('click', () => {
@@ -444,7 +444,7 @@
       if (e.target.checked) pushPreview(true);
       else {
         endPreview();
-        el('te-live-note').textContent = 'Notion shows your normal theme.';
+        el('te-live-note').textContent = '';
       }
     });
     editor.querySelector('#te-save').addEventListener('click', async () => {
