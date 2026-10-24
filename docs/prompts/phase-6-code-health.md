@@ -1,10 +1,10 @@
-# Phase 5: Code health
+# Phase 6: Code health
 
-Paste-ready brief for a Claude Code session on the owner's Mac. Three parts, one PR each, in this order. Nothing here should change what users see, except where a part says so.
+Paste-ready brief for a Claude Code session on the owner's Mac. Four parts, one PR each, in this order. Nothing here should change what users see, except where a part says so.
 
 ---
 
-You're working in a clone of github.com/notiskin/notiskin (public repo). First read `CLAUDE.md`, `ROADMAP.md` (Phase 5), and the four GUI pages in `src/gui/` (`themes.html`, `plugins.html`, `settings.html`, `review.html`) with the shared scripts next to them (`marketplace.js`, `tour.js`, `brand.css`). The owner, Remi, is a high schooler. Explain each step in short plain English before doing it, and say where something could break.
+You're working in a clone of github.com/notiskin/notiskin (public repo). First read `CLAUDE.md`, `ROADMAP.md` (Phase 6), and the four GUI pages in `src/gui/` (`themes.html`, `plugins.html`, `settings.html`, `review.html`) with the shared scripts next to them (`marketplace.js`, `tour.js`, `brand.css`). The owner, Remi, is a high schooler. Explain each step in short plain English before doing it, and say where something could break.
 
 ## Hard rules
 
@@ -22,6 +22,7 @@ You're working in a clone of github.com/notiskin/notiskin (public repo). First r
 - The only Content Security Policy is `frame-ancestors 'none'`.
 - GUI tests are server-level only (`test/server.test.js`). The pages themselves are checked by hand in a browser.
 - Plugin authors get no type definitions for `window.notiskin`.
+- Everything lives in one repository: the app (CLI, injector, Electron, GUI), the Supabase backend (`supabase/`) and the docs site (`site/`).
 
 ## Part 1: One shared page script, then a strict Content Security Policy
 
@@ -41,6 +42,26 @@ You're working in a clone of github.com/notiskin/notiskin (public repo). First r
 - A `notiskin.d.ts` describing `window.notiskin`: every method, its arguments and return values, and the settings API if Phase 4 Part 4 is done.
 - Decision to ask: ship it in the repo and link it from the docs (recommended to start), or publish an npm package (`@notiskin/types`, needs an npm account and a release step).
 - A test that the declared methods match what `src/injector/index.ts` actually defines, so the types can't drift.
+
+## Part 4: One repository or several (a decision, not a refactor)
+
+Remi isn't sure whether to keep one repository (monorepo) or split into several (polyrepo). Decide this first, before the other parts move any files, because it changes where they land. Nothing is split in this part unless Remi says so.
+
+What is in the repository today, and what ties it together:
+
+- The app: `src/`, `test/`, the Electron packaging and the Release workflow.
+- The backend: `supabase/` (edge functions, migrations, Deno tests). `test/theme-css.test.js` loads `supabase/functions/_shared/css.ts` directly, and the tag list has to match in four places (the migration, `_shared/details.ts`, `core/marketplace.ts`, `marketplace.js`).
+- The docs site: `site/`. `test/site.test.js` checks it against the app's code (every variable, every `notiskin` method, working links, examples that pass the allowlist), so the docs can't drift from what the app does.
+- Possible later: starter themes and plugins (Phase 5), a `notiskin.d.ts` or `@notiskin/types` package (Part 3 here), the marketplace content.
+
+Questions to work through with Remi, with a recommendation:
+
+- What does a split buy? Separate release cadence and permissions per piece, a smaller clone for contributors who only want themes or docs, a backend repo that other people could deploy.
+- What does it cost? The cross-checks above stop being one `npm test` and become version pinning or a published package, a change to the allowlist then needs two PRs and a deploy order, and the Release workflow, CI and issue tracking multiply.
+- Likely recommendation: stay a monorepo for now. The app, backend and docs change together and are tested against each other. The pieces that really are separate are content: starter themes and plugins can live in their own repository (or a `community/` folder) with no code coupling, and a types package can be published from a subfolder. Revisit if outside contributors or a second maintainer make permissions or clone size a problem.
+- If Remi does want a split, plan it as its own PRs: which piece first (the docs site is the easiest, it only needs the code's variable and method lists as a published JSON file or package), how the cross-checks survive, and how the Release workflow finds what it needs.
+
+Output: a short decision note in `ROADMAP.md` (what was decided and why), and only then any move.
 
 ## Definition of done (each part)
 

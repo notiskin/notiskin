@@ -45,7 +45,7 @@ Detailed plan: [docs/prompts/phase-3-marketplace-v2.md](docs/prompts/phase-3-mar
 - ✅ A warning on installed items that later get pulled from the marketplace
 - ✅ GitHub sign-in in the default browser, so Google sign-in and passkeys work
 
-## Phase 4: Creator tools (weeks 10–14, about 25 hours)
+## ✅ Phase 4: Creator tools (done October 2026, released in 0.9.0)
 
 Detailed plan: [docs/prompts/phase-4-creator-tools.md](docs/prompts/phase-4-creator-tools.md)
 
@@ -56,24 +56,27 @@ Detailed plan: [docs/prompts/phase-4-creator-tools.md](docs/prompts/phase-4-crea
 - ✅ Plugin developer mode with auto-reload from a local folder
 - ✅ Docs site (plain HTML in `site/`, published with GitHub Pages)
 
-## Starter content (before the marketplace fills up)
+## Phase 5: Starter content and real-app checks
 
-- Make a bunch of themes and plugins ourselves so Browse has a few good options on day one, before other people start publishing. Themes can use the new variables (fonts, light/dark, database colors); plugins can use settings. Publish them from the notiskin account so they are easy to tell apart from community items
+- Starter content: make a bunch of themes and plugins ourselves so Browse has a few good options before other people start publishing. Themes can use the new variables (fonts, light/dark, database colors); plugins can use settings. Publish them from the notiskin account so they are easy to tell apart from community items
+- Real-app checks: things that were only checked against source, a browser page or a fake Notion, and need the packaged app on a real Notion:
+  - The theme editor inside the packaged window, and Save and publish for a signed-in author on an existing theme
+  - A real plugin with settings enabled in the packaged app
+  - Developer mode with the native folder picker, and a saved file reloading the real Notion
+  - The docs links opening https://notiskin.github.io/notiskin/ from the app
+  - Whether Settings shows the Restart Notion row after Repair (picking a theme restarts Notion, which is what made the theme appear last time)
+  - Dark mode and Notion's System mode with the new variables; gallery, list and calendar database views
+  - The watcher repairing a real Notion update by itself ("Repair automatically after Notion updates" is off by default; one-click Repair after an update is proven)
+  - The rest of the DevTools-pipe checklist from the debug-pipe PR: reopening Notion from the Dock, `notion://` links, Notion relaunching itself after its own update
 
-## Phase 5: Code health (ongoing, about 10 hours)
+## Phase 6: Code health (ongoing, about 10 hours)
 
-Detailed plan: [docs/prompts/phase-5-code-health.md](docs/prompts/phase-5-code-health.md)
+Detailed plan: [docs/prompts/phase-6-code-health.md](docs/prompts/phase-6-code-health.md)
 
+- Decide: keep one repository (monorepo) or split into several (polyrepo). Do this first, it decides where the rest lands. The plan lists what is coupled today (the allowlist tests, the docs checked against the code, the tag list in four places) and recommends staying a monorepo for now, with content (starter themes and plugins) and a types package as the pieces that could live apart
 - Pull duplicated code out of the four GUI pages into one shared script: the escape helper, the Supabase client, the update banner, and about 40 inline `onclick` handlers. Removing the inline handlers also allows a strict Content Security Policy
 - Browser tests for the GUI
 - Type definitions for plugin authors
-
-## Checks on a real Mac
-
-Small things not yet seen end to end:
-
-- The watcher repairing a real Notion update by itself ("Repair automatically after Notion updates" is off by default; one-click Repair after an update is proven)
-- The rest of the DevTools-pipe checklist from the debug-pipe PR: reopening Notion from the Dock, `notion://` links, Notion relaunching itself after its own update
 
 ## Later, maybe
 
