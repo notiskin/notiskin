@@ -4,8 +4,6 @@ Weeks assume roughly 5–8 hours of work a week. ✅ = done.
 
 ## ✅ Phase 0: Finish the security cleanup (done October 2026)
 
-Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-security-cleanup.md)
-
 - ✅ Confirm the GitHub token that leaked in old releases is revoked
 - ✅ Restore the Supabase project (it stopped resolving on 2026-10-17, it was paused)
 - ✅ Apply the auth-hardening migration and deploy the rewritten edge functions
@@ -16,14 +14,14 @@ Detailed plan: [docs/prompts/phase-0-security-cleanup.md](docs/prompts/phase-0-s
 ## ✅ Phase 1: Reliability (done October 2026)
 
 - ✅ Long-running injector: themes every tab and window, survives reloads without flashing, applies changes live, exits with Notion
-- ✅ "Install into Notion" button in Settings ([plan](docs/prompts/phase-1-install-button.md)). The app patches Notion with its own bundled runtime, so DMG users keep themes across restarts. No password: macOS App Management blocks the admin-prompt route, so it installs as the user and needs App Management for Notiskin instead
+- ✅ "Install into Notion" button in Settings. The app patches Notion with its own bundled runtime, so DMG users keep themes across restarts. No password: macOS App Management blocks the admin-prompt route, so it installs as the user and needs App Management for Notiskin instead
 - ✅ Uninstall button that fully reverses it, and Repair after a Notion update
-- ✅ Safe mode: pause every theme and plugin from Settings or `notiskin safe-mode on`, in case a plugin breaks Notion ([plan](docs/prompts/phase-1-safe-mode-diagnostics.md))
+- ✅ Safe mode: pause every theme and plugin from Settings or `notiskin safe-mode on`, in case a plugin breaks Notion
 - ✅ Diagnostics in Settings: versions, install status, injector status, recent log lines, "copy diagnostics" for bug reports, with Notion links, IDs and the user name hidden
 
 ## Phase 2: Distribution (weeks 4–6, about 8–10 hours plus Apple's wait)
 
-Only Developer ID signing is left: [plan](docs/prompts/phase-2-developer-id.md), on hold until the Apple account is sorted.
+Only Developer ID signing is left, on hold until the Apple account is sorted.
 
 - ✅ New look: "paper and ink" (warm paper, ink, vermilion, Fraunces), light and dark following macOS
 - ✅ App icon: an ink rounded square with a cream page peeling back to vermilion, also the sidebar logo
@@ -35,7 +33,7 @@ Only Developer ID signing is left: [plan](docs/prompts/phase-2-developer-id.md),
 
 ## ✅ Phase 3: Marketplace v2 (done October 2026, released in 0.8.0)
 
-Detailed plan: [docs/prompts/phase-3-marketplace-v2.md](docs/prompts/phase-3-marketplace-v2.md). Everything was checked on the live backend with real accounts.
+Everything was checked on the live backend with real accounts.
 
 - ✅ Tests for the edge functions (Deno, mocked database, runs in CI)
 - ✅ Rate limits enforced server-side (publishing, rating, reporting, editing details)
@@ -46,8 +44,6 @@ Detailed plan: [docs/prompts/phase-3-marketplace-v2.md](docs/prompts/phase-3-mar
 - ✅ GitHub sign-in in the default browser, so Google sign-in and passkeys work
 
 ## ✅ Phase 4: Creator tools (done October 2026, released in 0.9.0)
-
-Detailed plan: [docs/prompts/phase-4-creator-tools.md](docs/prompts/phase-4-creator-tools.md)
 
 - ✅ Keep Notion's colored text instead of flattening it, plus a colored text palette themes can set (`--ns-color-red` … `--ns-color-pink` and `-bg` versions)
 - ✅ Theme editor with color pickers and live preview in Notion
@@ -71,9 +67,7 @@ Detailed plan: [docs/prompts/phase-4-creator-tools.md](docs/prompts/phase-4-crea
 
 ## Phase 6: Code health (ongoing, about 10 hours)
 
-Detailed plan: [docs/prompts/phase-6-code-health.md](docs/prompts/phase-6-code-health.md)
-
-- Decide: keep one repository (monorepo) or split into several (polyrepo). Do this first, it decides where the rest lands. The plan lists what is coupled today (the allowlist tests, the docs checked against the code, the tag list in four places) and recommends staying a monorepo for now, with content (starter themes and plugins) and a types package as the pieces that could live apart
+- Decide: keep one repository (monorepo) or split into several (polyrepo). Do this first, it decides where the rest lands. Coupled today: the allowlist tests load the edge function's CSS check, the docs site is tested against the app's code, and the tag list lives in four places. Leaning towards staying a monorepo for now, with content (starter themes and plugins) and a types package as the pieces that could live apart. Write the decision and the reason down here before moving anything
 - Pull duplicated code out of the four GUI pages into one shared script: the escape helper, the Supabase client, the update banner, and about 40 inline `onclick` handlers. Removing the inline handlers also allows a strict Content Security Policy
 - Browser tests for the GUI
 - Type definitions for plugin authors

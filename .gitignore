@@ -1,8 +1,8 @@
 .env
 node_modules/
 dist/
-docs/*
-!docs/prompts/
+docs/
+CLAUDE.md
 release/
 *.tsbuildinfo
 .DS_Store
