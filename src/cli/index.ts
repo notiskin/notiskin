@@ -237,6 +237,10 @@ async function inject(runArg?: string): Promise<void> {
     run,
     loadPayload: () => currentPayload(readConfig(), stamp),
     canPreview: () => !readConfig().safeMode,
+    devFolder: () => {
+      const config = readConfig();
+      return config.developerMode && !config.safeMode && config.developerFolder ? config.developerFolder : null;
+    },
     watchPaths: [NOTISKIN_DIR, THEMES_DIR, PLUGINS_DIR],
     controlSocket: true,
     cleanUpRun: true,

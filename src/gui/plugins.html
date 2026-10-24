@@ -172,6 +172,9 @@
     .ps-problems { font-size: 12px; color: var(--text-3); margin-top: 8px; }
     .ps-actions { margin-top: 8px; }
 
+
+    .badge.dev { color: var(--info); border: 1px solid var(--info-border); background: var(--info-soft); }
+
     .btn-delete {
       background: transparent;
       color: var(--text-3);
@@ -532,6 +535,11 @@
           <input type="text" id="installed-search-plugins" placeholder="Search" style="margin-bottom:12px">
           <div id="plugins-list"><span class="loading">Loading</span></div>
         </section>
+        <section id="dev-section" hidden>
+          <h2>Developer plugins</h2>
+          <p class="ps-note" id="dev-note"></p>
+          <div id="dev-plugins-list"></div>
+        </section>
       </div>
 
       <div id="tab-browse" hidden>
@@ -890,7 +898,8 @@
     }
 
     async function loadPlugins(preloaded) {
-      const { plugins, enabledPlugins, withSettings } = preloaded || await api('GET', '/plugins');
+      const { plugins, enabledPlugins, withSettings, dev } = preloaded || await api('GET', '/plugins');
+      renderDevPlugins(dev);
       const el = document.getElementById('plugins-list');
       if (!plugins || !plugins.length) {
         el.innerHTML = '<span class="empty">No plugins installed yet</span>';
@@ -1028,6 +1037,26 @@
         if (res.error) { error.textContent = res.error; return; }
         renderPluginSettings(panel, name, { ...data, values: res.values });
       });
+    }
+
+    // developer mode: plugins that run from a folder while they are being written. Always on, no switch, never published
+    function renderDevPlugins(dev) {
+      const section = document.getElementById('dev-section');
+      section.hidden = !dev || !dev.enabled;
+      if (section.hidden) return;
+      document.getElementById('dev-note').textContent = dev.error
+        ? dev.error
+        : `Running from ${dev.folder}. Saving a file reloads Notion. Turn this off in Settings.`;
+      document.getElementById('dev-plugins-list').innerHTML = dev.plugins.length
+        ? dev.plugins.map(p => `
+          <div class="card" data-file="${esc(p.name)}">
+            <div class="card-info">
+              <div class="card-name">${esc(p.file)} <span class="badge dev">dev</span></div>
+            </div>
+            ${p.hasSettings ? `<button class="btn-settings" onclick="togglePluginSettings(event, '${esc(p.name)}')">Settings</button>` : ''}
+            <div class="ps-panel" hidden></div>
+          </div>`).join('')
+        : '<span class="empty">No .js files in that folder yet</span>';
     }
 
     async function togglePlugin(name, enable) {

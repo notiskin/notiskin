@@ -273,6 +273,29 @@
       </div>
 
       <div class="settings-section">
+        <h2>Developer</h2>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">Run plugins from a folder <span id="dev-badge" class="update-badge neutral">Off</span></div>
+            <div class="settings-row-sub" id="dev-sub">For writing a plugin: every .js file in the folder runs in Notion, and saving a file reloads Notion's tabs. The files stay where they are, nothing is installed.</div>
+            <div class="settings-row-error" id="dev-error" style="display:none"></div>
+          </div>
+          <button class="btn-install" id="dev-btn" onclick="toggleDeveloper()" disabled>Turn on</button>
+        </div>
+        <div class="settings-row" id="dev-folder-row" style="display:none">
+          <div style="flex:1; min-width:0">
+            <div class="settings-row-label">Plugins folder</div>
+            <div style="display:flex; gap:8px; margin-top:6px">
+              <input type="text" id="dev-folder" placeholder="/Users/you/notiskin-plugins" spellcheck="false" autocomplete="off" style="flex:1; min-width:0">
+              <button class="btn-ghost" id="dev-choose" onclick="chooseDeveloperFolder()">Choose...</button>
+              <button class="btn-ghost" id="dev-save-folder" onclick="saveDeveloperFolder()">Use this folder</button>
+            </div>
+            <div class="settings-row-sub" id="dev-files"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h2>Account</h2>
         <div class="settings-row">
           <div>
@@ -837,6 +860,92 @@
     }
 
     loadSafeMode();
+
+    // Developer mode: plugins run from a folder, saving a file reloads Notion's tabs
+    let developer = { enabled: false, folder: '' };
+
+    function renderDeveloper(data) {
+      developer = data;
+      const badge = document.getElementById('dev-badge');
+      badge.textContent = data.enabled ? 'On' : 'Off';
+      badge.className = `update-badge ${data.enabled ? 'up-to-date' : 'neutral'}`;
+      const btn = document.getElementById('dev-btn');
+      btn.textContent = data.enabled ? 'Turn off' : 'Turn on';
+      btn.disabled = false;
+      const folderRow = document.getElementById('dev-folder-row');
+      folderRow.style.display = data.enabled || data.folder ? '' : 'none';
+      const input = document.getElementById('dev-folder');
+      if (document.activeElement !== input) input.value = data.folder || '';
+      const error = document.getElementById('dev-error');
+      error.style.display = data.error ? '' : 'none';
+      error.textContent = data.error || '';
+      const files = document.getElementById('dev-files');
+      if (!data.enabled) {
+        files.textContent = '';
+      } else {
+        const found = data.plugins.length;
+        const skipped = (data.skipped || []).map(s => `${s.file}: ${s.reason}`);
+        files.textContent = `${found} plugin${found === 1 ? '' : 's'} running from this folder.` + (skipped.length ? ` Skipped: ${skipped.join('; ')}.` : '');
+      }
+    }
+
+    async function loadDeveloper() {
+      try {
+        renderDeveloper(await (await fetch('/api/developer')).json());
+      } catch {
+        document.getElementById('dev-sub').textContent = "Can't reach Notiskin.";
+      }
+    }
+
+    async function postDeveloper(body) {
+      const res = await fetch('/api/developer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (data.error) {
+        showNotif(data.error);
+        return false;
+      }
+      renderDeveloper(data);
+      return true;
+    }
+
+    async function toggleDeveloper() {
+      const btn = document.getElementById('dev-btn');
+      if (developer.enabled) {
+        btn.disabled = true;
+        if (await postDeveloper({ enabled: false })) showNotif('Developer mode off, Notion reloaded');
+        btn.disabled = false;
+        return;
+      }
+      const folder = document.getElementById('dev-folder').value.trim() || developer.folder;
+      if (!folder) {
+        // the folder comes first
+        document.getElementById('dev-folder-row').style.display = '';
+        document.getElementById('dev-folder').focus();
+        showNotif('Choose the plugins folder first');
+        return;
+      }
+      if (!window.confirm('Every .js file in this folder will run inside Notion with full access to it and your pages, and Notion reloads each time you save one. Only use a folder you control.\n\nTurn on developer mode?')) return;
+      btn.disabled = true;
+      if (await postDeveloper({ enabled: true, folder })) showNotif('Developer mode on, Notion reloaded');
+      btn.disabled = false;
+    }
+
+    async function saveDeveloperFolder() {
+      const folder = document.getElementById('dev-folder').value.trim();
+      if (await postDeveloper({ folder })) showNotif(developer.enabled ? 'Folder changed, Notion reloaded' : 'Folder saved');
+    }
+
+    async function chooseDeveloperFolder() {
+      const res = await (await fetch('/api/developer/choose-folder', { method: 'POST' })).json();
+      if (res.unsupported) { showNotif('Type the folder path instead'); document.getElementById('dev-folder').focus(); return; }
+      if (res.error) { showNotif(res.error); return; }
+      if (!res.folder) return;
+      document.getElementById('dev-folder').value = res.folder;
+      await saveDeveloperFolder();
+    }
+
+    loadDeveloper();
+
 
     // Diagnostics: built on request, already redacted by the server
     async function loadDiagnostics() {
