@@ -74,6 +74,13 @@
     },
     {
       page: '/settings.html',
+      target: row('dev-btn'),
+      fit: 'content',
+      title: 'Developer mode',
+      text: 'Writing a plugin? Pick a folder and every .js file in it runs in Notion, and saving a file reloads Notion. Nothing is installed or published. Off unless you turn it on.',
+    },
+    {
+      page: '/settings.html',
       target: row('account-btn'),
       fit: 'content',
       title: 'Account',

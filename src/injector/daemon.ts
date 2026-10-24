@@ -27,6 +27,9 @@ export interface DaemonOptions {
   controlSocket?: boolean;
   // false while previews must not show (safe mode), checked on every injection
   canPreview?: () => boolean;
+  // developer mode's plugin folder, or null when it is off (or safe mode is on). Read again on every pass, so
+  // turning it on or moving it takes effect without restarting the injector. A file saved in it reloads every tab
+  devFolder?: () => string | null;
   // a preview ends this long after the last request for it, defaults to 15 seconds
   previewTtlMs?: number;
   // remove the pipe folder once Notion has quit
@@ -92,6 +95,10 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
   // the editor's live preview, kept only in memory so there is never anything to clean up
   let previewCss: string | null = null;
   let previewTimer: NodeJS.Timeout | undefined;
+  // developer mode: the folder being watched and the pending reload
+  let devWatcher: FSWatcher | undefined;
+  let devWatched: string | null = null;
+  let devTimer: NodeJS.Timeout | undefined;
 
   let resolveDone!: () => void;
   const done = new Promise<void>(r => (resolveDone = r));
@@ -187,7 +194,34 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
     browser.send('Target.detachFromTarget', { sessionId }).catch(() => {});
   });
 
+  // plugins can't be un-run, so a saved plugin file means reloading the tabs. Editors save in bursts, wait for it to settle
+  function syncDevWatcher(): void {
+    let folder: string | null = null;
+    try { folder = opts.devFolder?.() ?? null; } catch {}
+    if (folder === devWatched) return;
+    devWatcher?.close();
+    devWatcher = undefined;
+    devWatched = folder;
+    if (!folder) return;
+    try {
+      devWatcher = watch(folder, (_event, filename) => {
+        // temp and backup files of editors (.swp, ~, .tmp) aren't plugins
+        if (!filename || !/\.js$/.test(String(filename))) return;
+        clearTimeout(devTimer);
+        devTimer = setTimeout(() => {
+          log(`developer plugin ${filename} changed, reloading`);
+          void reloadAll();
+        }, 400);
+      });
+      devWatcher.on('error', () => {});
+    } catch (err) {
+      devWatched = null;
+      log(`can't watch ${folder}: ${(err as Error).message}`);
+    }
+  }
+
   async function reapplyAll(): Promise<void> {
+    syncDevWatcher();
     await Promise.all([...sessions.values()].map(s => schedule(s, 'settings changed')));
   }
 
@@ -284,6 +318,8 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
     stopped = true;
     clearTimeout(debounce);
     clearTimeout(previewTimer);
+    clearTimeout(devTimer);
+    devWatcher?.close();
     for (const w of watchers) w.close();
     if (control) stopControlServer(control);
     sessions.clear();
@@ -310,6 +346,7 @@ export async function startInjectorDaemon(opts: DaemonOptions): Promise<DaemonHa
   await browser.send('Target.setDiscoverTargets', { discover: true });
   await Promise.all(targetInfos.map(consider));
 
+  syncDevWatcher();
   if (opts.controlSocket) control = await startControlServer(handleControl);
 
   return {
