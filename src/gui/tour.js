@@ -17,7 +17,7 @@
     {
       page: '/',
       title: 'Welcome to Notiskin',
-      text: 'Notiskin adds themes and plugins to the Notion desktop app. It changes how Notion looks and works on this Mac, never your pages. This quick tour shows where everything is.',
+      text: 'Notiskin adds themes and plugins to the Notion desktop app. It changes how Notion looks and works on this Mac, never your pages.',
       next: 'Show me around',
     },
     {

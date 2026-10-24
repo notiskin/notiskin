@@ -266,7 +266,7 @@
         <div class="settings-row">
           <div>
             <div class="settings-row-label">Pause all themes and plugins <span id="safe-badge" class="update-badge neutral">Off</span></div>
-            <div class="settings-row-sub" id="safe-sub">Use this if a plugin breaks Notion. Your choices are kept, nothing is deleted.</div>
+            <div class="settings-row-sub" id="safe-sub">For when a plugin breaks Notion. Nothing is deleted.</div>
           </div>
           <button class="btn-install" id="safe-btn" onclick="toggleSafeMode()" disabled>Turn on</button>
         </div>
@@ -277,7 +277,7 @@
         <div class="settings-row">
           <div>
             <div class="settings-row-label">Run plugins from a folder <span id="dev-badge" class="update-badge neutral">Off</span></div>
-            <div class="settings-row-sub" id="dev-sub">For writing a plugin: every .js file in the folder runs in Notion, and saving a file reloads Notion's tabs. The files stay where they are, nothing is installed.</div>
+            <div class="settings-row-sub" id="dev-sub">Runs every .js file in a folder in Notion and reloads when you save. Nothing is installed.</div>
             <div class="settings-row-error" id="dev-error" style="display:none"></div>
           </div>
           <button class="btn-install" id="dev-btn" onclick="toggleDeveloper()" disabled>Turn on</button>
@@ -322,7 +322,7 @@
         <div class="settings-row" id="install-row" style="display:none">
           <div>
             <div class="settings-row-label" id="install-version-label"></div>
-            <div class="settings-row-sub">Notiskin can't install updates by itself yet. Download it, then drag Notiskin into Applications to replace this one. If macOS says it's damaged, follow the install steps in the README.</div>
+            <div class="settings-row-sub">Download it and drag Notiskin into Applications to replace this copy. If macOS says it's damaged, see the README.</div>
           </div>
           <button class="btn-install" onclick="openReleasesPage()">Download</button>
         </div>
@@ -348,14 +348,14 @@
         <div class="settings-row">
           <div>
             <div class="settings-row-label">Welcome tour</div>
-            <div class="settings-row-sub">A quick walk through themes, plugins, and these settings</div>
+            <div class="settings-row-sub"></div>
           </div>
           <button class="btn-install" onclick="window.notiskinTour?.start()">Take the tour</button>
         </div>
         <div class="settings-row">
           <div>
             <div class="settings-row-label">Documentation</div>
-            <div class="settings-row-sub">How to make themes and plugins, every variable, and how publishing and review work</div>
+            <div class="settings-row-sub">Guides for making themes and plugins</div>
           </div>
           <button class="btn-install" id="docs-btn" onclick="openDocs('')">Open the docs</button>
         </div>
@@ -447,13 +447,13 @@
       btn.disabled = false;
       if (!session) {
         label.textContent = 'Not signed in';
-        sub.textContent = 'Sign in to publish and rate themes and plugins';
+        sub.textContent = 'Needed to publish and rate.';
         btn.textContent = 'Sign in with GitHub';
         hideReviewLink();
         return;
       }
       label.textContent = `Signed in as ${githubUsername(session.user)}`;
-      sub.textContent = 'Publishing, ratings, and My Submissions use this account';
+      sub.textContent = '';
       btn.textContent = 'Sign out';
       const isReviewer = await checkReviewer(session);
       if (isReviewer && accountSession === session && !label.querySelector('.account-badge')) {
@@ -554,11 +554,11 @@
     const NOTION_STATES = {
       'not-installed': {
         badge: 'Not installed', tone: 'neutral', button: 'Install', action: 'install',
-        sub: 'Install so your theme loads every time Notion starts. Notion needs a restart afterwards.',
+        sub: 'Notion needs a restart afterwards.',
       },
       'installed': {
         badge: 'Installed', tone: 'up-to-date', button: 'Uninstall', action: 'uninstall',
-        sub: 'Your theme loads every time Notion starts.',
+        sub: '',
       },
       'needs-repair': {
         badge: 'Needs repair', tone: 'available', button: 'Repair', action: 'install',
@@ -670,8 +670,8 @@
       badge.className = `update-badge ${blockNativeOn ? 'up-to-date' : 'neutral'}`;
       badge.textContent = blockNativeOn ? 'On' : 'Off';
       document.getElementById('native-sub').textContent = blockNativeOn
-        ? 'Notion keeps updating, but refuses an update that Notiskin can\'t theme, like the SwiftUI Notion that\'s on its way. Once that\'s installed there\'s no easy way back.'
-        : 'Notion installs every update, including a SwiftUI Notion that Notiskin can\'t theme. Once that\'s installed there\'s no easy way back.';
+        ? 'Notion still updates, but refuses a version Notiskin can\'t theme, such as the SwiftUI Notion.'
+        : 'Notion installs every update, including ones Notiskin can\'t theme. There\'s no easy way back.';
       const btn = document.getElementById('native-btn');
       btn.textContent = blockNativeOn ? 'Turn off' : 'Turn on';
       btn.disabled = notionBusy;
@@ -722,8 +722,8 @@
       badge.className = `update-badge ${autoRepairOn ? 'up-to-date' : 'neutral'}`;
       badge.textContent = autoRepairOn ? 'On' : 'Off';
       document.getElementById('repair-sub').textContent = autoRepairOn
-        ? 'A small helper runs in the background, even when Notion and Notiskin are closed, and brings your theme back after Notion updates.'
-        : 'Nothing runs in the background. After a Notion update, open Notiskin and click Repair.';
+        ? 'Runs in the background, even when Notiskin is closed.'
+        : 'After a Notion update, open Notiskin and click Repair.';
       const btn = document.getElementById('repair-btn');
       btn.textContent = autoRepairOn ? 'Turn off' : 'Turn on';
       btn.disabled = notionBusy;
@@ -829,8 +829,8 @@
       badge.className = `update-badge ${on ? 'available' : 'neutral'}`;
       badge.textContent = on ? 'On' : 'Off';
       document.getElementById('safe-sub').textContent = on
-        ? 'Themes and plugins are paused, Notion runs as if Notiskin weren\'t there. Turning it off brings them back.'
-        : 'Use this if a plugin breaks Notion. Turning it on reloads Notion\'s page. Your choices are kept, nothing is deleted.';
+        ? 'Themes and plugins are paused.'
+        : 'For when a plugin breaks Notion. Nothing is deleted.';
       const btn = document.getElementById('safe-btn');
       btn.textContent = on ? 'Turn off' : 'Turn on';
       btn.disabled = false;

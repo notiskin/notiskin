@@ -153,7 +153,7 @@
           ${REPORT_REASONS.map(([value, label], i) => `
             <label><input type="radio" name="ns-report-reason" value="${value}" ${i === 0 ? 'required' : ''}> ${label}</label>`).join('')}
         </div>
-        <textarea maxlength="500" placeholder="What happened? (optional)"></textarea>
+        <textarea maxlength="500" placeholder="Details (optional)"></textarea>
         <div class="ns-report-error"></div>
         <div class="ns-dialog-actions">
           <button type="button" class="btn-ghost" data-act="cancel">Cancel</button>
@@ -162,7 +162,7 @@
       </form>` : `
       <div class="ns-version-dialog-box" role="dialog" aria-modal="true">
         <h3>Sign in to report</h3>
-        <p>Reports need a GitHub sign-in, so one person can't send hundreds. Sign in from Settings, then come back.</p>
+        <p>Sign in with GitHub in Settings to report.</p>
         <div class="ns-dialog-actions">
           <button type="button" class="btn-ghost" data-act="cancel">Close</button>
         </div>
@@ -268,8 +268,8 @@
       overlay.innerHTML = `
         <div class="ns-version-dialog-box" role="dialog" aria-modal="true" aria-labelledby="ns-update-title">
           <h3 id="ns-update-title">Update ${esc(displayName(update.name))} to version ${esc(update.latestVersion)}?</h3>
-          <p>This plugin will have full access to your Notion page and data. A reviewer approved this version, but only update if you trust the author.</p>
-          ${update.changes.length ? `<p class="ns-dialog-label">What changed</p>${changesHtml(update.changes)}` : ''}
+          <p>Plugins have full access to your Notion page and data. Only update if you trust the author.</p>
+          ${update.changes.length ? `<p class="ns-dialog-label">Changes</p>${changesHtml(update.changes)}` : ''}
           <div class="ns-dialog-actions">
             <button class="btn-ghost" data-act="cancel">Cancel</button>
             <button class="btn-primary" data-act="ok">Update plugin</button>
@@ -394,31 +394,25 @@
     if (!own.length) {
       container.innerHTML = `
         <h2 class="ns-version-heading">Publish a new version</h2>
-        <p class="ns-version-empty">Once one of your ${type}s is approved, you can publish new versions of it here.</p>`;
+        <p class="ns-version-empty">No approved ${type}s yet.</p>`;
       renderEditDetails(type, container, getToken, mine);
       return;
     }
 
     container.innerHTML = `
       <h2 class="ns-version-heading">Publish a new version</h2>
-      <p class="ns-version-intro">${type === 'theme'
-        ? 'People who installed your theme see an Update button. Themes that pass the automatic check go live at once.'
-        : 'People who installed your plugin see an Update button once a reviewer approves the new version. The current version stays live until then.'}</p>
       <form class="ns-version-form">
         <div class="field">
           <label for="v-item-${type}">${type === 'theme' ? 'Theme' : 'Plugin'}</label>
-          <select id="v-item-${type}" required>
-            ${own.map(s => `<option value="${esc(s.id)}">${esc(s.name)} (now version ${esc(s.version || 1)})</option>`).join('')}
-          </select>
+          <select id="v-item-${type}" required></select>
         </div>
         <div class="field">
-          <label for="v-changelog-${type}">What changed</label>
-          <input type="text" id="v-changelog-${type}" maxlength="500" required placeholder="Darker sidebar, fixed the code block colors">
+          <label for="v-changelog-${type}">Changes</label>
+          <input type="text" id="v-changelog-${type}" maxlength="500" required autocomplete="off">
         </div>
         <div class="field">
           <label for="v-code-${type}">${codeLabel}</label>
-          <textarea id="v-code-${type}" required placeholder="Paste the full new version"></textarea>
-          <div class="field-hint"><span>Paste the whole file, not just the changes.</span></div>
+          <textarea id="v-code-${type}" required></textarea>
         </div>
         <button class="btn-submit" type="submit">Publish version</button>
       </form>
@@ -427,6 +421,13 @@
     const form = container.querySelector('form');
     const msg = container.querySelector('.publish-msg');
     const code = container.querySelector(`#v-code-${type}`);
+    const itemSelect = container.querySelector(`#v-item-${type}`);
+    // the list shows each item's live version, so it is drawn again after a version goes live
+    const fillItems = selectedId => {
+      itemSelect.innerHTML = own.map(s => `<option value="${esc(s.id)}">${esc(s.name)} (version ${esc(s.version || 1)})</option>`).join('');
+      if (selectedId !== undefined) itemSelect.value = String(selectedId);
+    };
+    fillItems();
     code.addEventListener('input', () => { if (code.value.length > maxCode) code.value = code.value.slice(0, maxCode); });
     form.addEventListener('submit', async e => {
       e.preventDefault();
@@ -440,17 +441,22 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             type,
-            id: container.querySelector(`#v-item-${type}`).value,
+            id: itemSelect.value,
             changelog: container.querySelector(`#v-changelog-${type}`).value.trim(),
             code: code.value,
           }),
         });
         msg.className = 'publish-msg success';
-        msg.textContent = result.autoApproved
-          ? `Version ${result.version} is live.`
-          : `Version ${result.version} submitted. The current version stays live until it's reviewed.` +
-            (result.reason ? ` Note: ${result.reason}` : '');
+        if (result.autoApproved) {
+          const item = own.find(s => String(s.id) === itemSelect.value);
+          if (item) item.version = result.version;
+          msg.textContent = `Version ${result.version} is live.`;
+        } else {
+          msg.textContent = `Version ${result.version} submitted for review.${result.reason ? ` ${result.reason}.` : ''}`;
+        }
+        const keep = itemSelect.value;
         form.reset();
+        fillItems(keep);
       } catch (err) {
         msg.className = 'publish-msg error';
         msg.textContent = err.message;
@@ -469,7 +475,6 @@
     section.className = 'ns-details';
     section.innerHTML = `
       <h2 class="ns-version-heading">Tags and link</h2>
-      <p class="ns-version-intro">Help people find your ${type} in Browse. Changes show right away, no review needed.</p>
       <form class="ns-version-form">
         <div class="field">
           <label for="d-item-${type}">${type === 'theme' ? 'Theme' : 'Plugin'}</label>
@@ -484,7 +489,7 @@
         <div class="field">
           <label for="d-link-${type}">GitHub link (optional)</label>
           <input type="text" inputmode="url" id="d-link-${type}" maxlength="220" placeholder="https://github.com/you/your-${type}">
-          <div class="field-hint"><span>A github.com repo or gist, for screenshots and docs. Shown as a More info button.</span></div>
+          <div class="field-hint"><span>A github.com repository or gist.</span></div>
         </div>
         <button class="btn-submit" type="submit">Save</button>
       </form>
