@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Making plugins · Notiskin docs</title>
+<meta name="description" content="How to write a Notiskin plugin: the notiskin API, settings, developer mode, safety and review, and publishing.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side">
+<a class="wordmark" href="index.html">notiskin</a>
+<nav aria-label="Docs">
+<a href="index.html">Start here</a>
+<a href="themes.html">Making themes</a>
+<a href="plugins.html" aria-current="page">Making plugins</a>
+<div class="toc"><a href="#first">Your first plugin</a><a href="#api">The notiskin object</a><a href="#lifecycle">When a plugin runs</a><a href="#settings">Settings</a><a href="#dev">Developer mode</a><a href="#safety">Safety and review</a><a href="#publish">Publishing and versions</a></div>
+<h2>More</h2>
+<a href="https://github.com/notiskin/notiskin">Source on GitHub</a>
+<a href="https://github.com/notiskin/notiskin/releases">Downloads</a>
+<a href="https://github.com/notiskin/notiskin/issues">Report a problem</a>
+</nav>
+</aside>
+<main>
+
+<h1>Making plugins</h1>
+<p class="lede">A plugin is a JavaScript file that runs inside Notion's window. It can read the page, add a button, change how things look and behave, and offer options to the person using it.</p>
+<div class="warn"><p><strong>Plugins have full access.</strong> A plugin can do anything Notion's own page can, including reading and changing every page you open. Notiskin does not sandbox plugin code. Only run plugins you wrote or trust, and write yours so anyone can read what it does.</p></div>
+
+<h2 id="first">Your first plugin</h2>
+<ol>
+<li>Open <strong>Settings → Developer</strong> and turn on developer mode with a folder of your choice (see <a href="#dev">Developer mode</a>). Or save the file as <code>~/.notiskin/plugins/hello.js</code> and switch it on in the Plugins tab.</li>
+<li>Save this as <code>hello.js</code> in that folder:
+<pre><code>notiskin.ready(() =&gt; {
+  notiskin.addToolbarButton('Hello', () =&gt; {
+    alert('You are on: ' + (notiskin.getPageTitle() || 'a page with no title'));
+  });
+});</code></pre></li>
+<li>Notion reloads when you save, and a Hello button appears in the top bar.</li>
+</ol>
+
+<h2 id="api">The notiskin object</h2>
+<p>Plugins get <code>window.notiskin</code>, version <code>1.1.0</code> (it is in <code>notiskin.version</code>). In a plugin that declares settings, use the <code>notiskin</code> you are handed, see <a href="#settings">Settings</a>. Every method below catches errors from your callbacks and logs them to Notion's console, so one broken callback doesn't stop the others.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Method</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>onPageChange(fn)</code></td><td>Calls <code>fn()</code> when the page's address changes, which is when someone opens another page.</td></tr>
+<tr><td><code>onBlockLoad(fn)</code></td><td>Calls <code>fn(content)</code> with the page's content element (<code>.notion-page-content</code>) whenever the page changes while it is on screen. This runs <em>often</em>, on every change to the page, so keep it quick and don't change the page in a way that triggers it again.</td></tr>
+<tr><td><code>getPageTitle()</code></td><td>The current page's title as text, or <code>null</code> if there isn't one.</td></tr>
+<tr><td><code>getPageUrl()</code></td><td>The current address.</td></tr>
+<tr><td><code>addToolbarButton(label, onClick)</code></td><td>Adds a button to Notion's top bar and returns it. <code>onClick</code> gets the button. Returns <code>null</code> (and logs a warning) if the top bar isn't there yet, so call it inside <code>ready</code> or <code>onPageChange</code>.</td></tr>
+<tr><td><code>removeToolbarButton(button)</code></td><td>Removes a button that <code>addToolbarButton</code> returned.</td></tr>
+<tr><td><code>ready(fn)</code></td><td>Calls <code>fn()</code> now if the page has finished loading, otherwise when it has.</td></tr>
+<tr><td><code>settings.get(key)</code>, <code>getAll()</code>, <code>onChange(fn)</code></td><td>The options a plugin declares, see <a href="#settings">Settings</a>.</td></tr>
+</tbody></table></div>
+<p>Anything else is plain browser JavaScript: <code>document.querySelector</code>, <code>MutationObserver</code>, <code>fetch</code> and so on. Notion's page structure changes when Notion updates, so prefer <code>.notion-*</code> class names and check that what you looked for was found.</p>
+<div class="note"><p><strong>Watch your observers.</strong> A <code>MutationObserver</code> that changes the page it is watching will call itself forever and freeze Notion. Watch the smallest part of the page you can, wrap the callback in <code>try/catch</code>, and add a guard so it does nothing when it just ran.</p></div>
+
+<h2 id="lifecycle">When a plugin runs</h2>
+<ul>
+<li>Once per page load, in every Notion tab and window. Changing the theme or a setting doesn't run it again, so listeners don't pile up.</li>
+<li>When a plugin is turned off, deleted, or its developer file changes, Notion's tabs reload, because JavaScript that has run can't be taken back.</li>
+<li>In <strong>safe mode</strong> nothing runs, and nothing is deleted. It all comes back when safe mode is turned off.</li>
+<li>A plugin that throws while loading is logged and skipped. It doesn't stop other plugins.</li>
+<li>A plugin that has no declared settings runs as plain top-level code: <code>var</code> and <code>function</code> at the top level become globals, and <code>notiskin</code> is <code>window.notiskin</code>.</li>
+</ul>
+
+<h2 id="settings">Settings</h2>
+<p>A plugin can offer options. Declare them in a comment at the very top of the file, one line per setting, with <code>@notiskin-setting</code> followed by a JSON object:</p>
+<pre><code>/**
+ * @notiskin-setting {"key":"compact","type":"toggle","label":"Compact sidebar","default":false}
+ * @notiskin-setting {"key":"greeting","type":"text","label":"Greeting","default":"hello","maxLength":40}
+ * @notiskin-setting {"key":"size","type":"number","label":"Size","default":14,"min":8,"max":32,"step":2}
+ * @notiskin-setting {"key":"mode","type":"select","label":"Mode","default":"calm","options":["calm","loud"]}
+ * @notiskin-setting {"key":"accent","type":"color","label":"Accent color","default":"#e8590c","description":"Optional text under the label"}
+ */
+if (notiskin.settings.get('compact')) {
+  document.body.classList.add('my-compact');
+}
+notiskin.settings.onChange((key, value, all) =&gt; {
+  if (key === 'compact') document.body.classList.toggle('my-compact', value);
+});</code></pre>
+<p>The Plugins tab then shows a <strong>Settings</strong> button on the plugin's card with a form made from the lines, and what the person picks shows in Notion right away: no reload, and your <code>onChange</code> hears about it. The app reads the comment as text and never runs the plugin to do it, so the form works while the plugin is off.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>type</th><th>Value</th><th>Other fields</th></tr></thead>
+<tbody>
+<tr><td><code>toggle</code></td><td><code>true</code> or <code>false</code></td><td></td></tr>
+<tr><td><code>text</code></td><td>text</td><td><code>maxLength</code>, 1 to 2000, 200 if you leave it out</td></tr>
+<tr><td><code>number</code></td><td>a number</td><td><code>min</code>, <code>max</code>, <code>step</code></td></tr>
+<tr><td><code>select</code></td><td>one of <code>options</code></td><td><code>options</code>: 1 to 20 texts, required</td></tr>
+<tr><td><code>color</code></td><td><code>#rrggbb</code></td><td></td></tr>
+</tbody></table></div>
+<p>Every setting needs <code>key</code> (letters, numbers and underscores, starting with a letter, up to 40), <code>label</code> (up to 60 characters), <code>type</code> and a valid <code>default</code>. <code>description</code> is optional. You can declare up to 20. A line that isn't valid JSON, has an unknown type, a default that doesn't fit, or repeats a key is skipped, and the form says why. The rest still work. Only comments before the first line of code count.</p>
+<h3>Reading values</h3>
+<ul>
+<li><code>notiskin.settings.get(key)</code> is what the person picked, or your <code>default</code>.</li>
+<li><code>notiskin.settings.getAll()</code> is a copy of all of them.</li>
+<li><code>notiskin.settings.onChange(fn)</code> calls <code>fn(key, value, all)</code> after a change, once for each key that changed, and returns a function that stops listening.</li>
+</ul>
+<div class="warn"><p><strong>One thing that is different.</strong> So that <code>settings</code> knows which plugin is asking, even from a callback that runs later, a plugin that declares settings is run inside a function that is given its own <code>notiskin</code>. Use that <code>notiskin</code>, not <code>window.notiskin</code>, and don't count on top-level <code>var</code> and <code>function</code> becoming globals: write <code>window.thing = ...</code> when you mean a global. A plugin with no <code>@notiskin-setting</code> lines runs exactly as before.</p></div>
+
+<h2 id="dev">Developer mode</h2>
+<p>To write a plugin without installing it each time, turn on <strong>Settings → Developer</strong> and pick a folder. Every <code>.js</code> file in it runs in Notion like an installed plugin, and <strong>saving a file reloads Notion's tabs</strong> so the new code runs. The files stay where they are, nothing is copied into <code>~/.notiskin/plugins</code>.</p>
+<ul>
+<li>They are listed on the Plugins tab under <em>Developer plugins</em> with a <code>dev</code> label. They are always on, and they never appear in Browse or Publish.</li>
+<li>Only plain <code>.js</code> files count: a simple name (letters, numbers, spaces, dashes, dots and underscores), at most 512 KB each, at most 50 files. A link to a file, a folder called <code>something.js</code>, a file that is too big, or one with an odd name is skipped, and Settings says why.</li>
+<li>Turning it on asks first, because the folder's files run with full access to Notion. Only choose a folder you control.</li>
+<li>Safe mode pauses them and stops watching the folder. Turning developer mode off, or choosing another folder, reloads Notion's tabs too.</li>
+<li>Look at Notion's console for your <code>console.log</code> output and errors. In Notion, press <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>I</kbd>.</li>
+</ul>
+
+<h2 id="safety">Safety and review</h2>
+<p>Notiskin shows a warning the first time someone turns on any plugin, and nothing stops a plugin from doing what Notion's page can do. The marketplace's protection is that <strong>a person reads every plugin before it is listed</strong>, and again when a new version is published. These are the facts that are built into the app:</p>
+<ul>
+<li>A published plugin is <strong>not live until a reviewer approves it</strong>. If the reviewer rejects it, the reason is shown in your Submissions.</li>
+<li>A new <strong>version</strong> of a listed plugin is reviewed too. The reviewer sees the lines that changed, and the version people have stays live until the new one is approved. You can have one version waiting at a time.</li>
+<li>A plugin can be reported. When three different accounts that are at least a day old report it as harmful it is hidden from Browse automatically, and reviewers can hide any item. People who installed it see a warning on the card and can turn it off. Nothing is turned off or deleted for them without their say.</li>
+<li>Reviewers decide by reading the code. There isn't a longer rulebook. What makes a review quick: say what the plugin does in the description, keep the code readable (no minified or hidden code), don't load code from somewhere else, and don't send anything about the person's pages anywhere.</li>
+</ul>
+
+<h2 id="publish">Publishing and versions</h2>
+<ol>
+<li>Sign in with GitHub in <strong>Settings</strong>.</li>
+<li>Open <strong>Publish</strong> on the Plugins page. Give it a name (letters, numbers and spaces, up to 50), a description, up to 3 tags and optionally a link to a GitHub repository or gist. Paste the code, up to 200,000 characters. The <code>@notiskin-setting</code> lines are part of the code, so reviewers see them.</li>
+<li>It waits for a reviewer. <strong>Submissions</strong> shows where it is. You can publish 5 things per hour (themes and plugins together).</li>
+<li>After it is listed, <strong>Publish a new version</strong> takes the new code and a line about what changed. People who installed the plugin see an <strong>Update</strong> button, and updating a plugin asks them to read the warning and the change note first.</li>
+</ol>
+
+<footer>Notiskin is open source (MIT). These pages live in the <code>site/</code> folder of the repository, fixes are welcome.</footer>
+</main>
+</div>
+</body>
+</html>

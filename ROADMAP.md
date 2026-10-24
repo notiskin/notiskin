@@ -54,7 +54,7 @@ Detailed plan: [docs/prompts/phase-4-creator-tools.md](docs/prompts/phase-4-crea
 - ✅ More theme variables: fonts (quoted names in the font variables only), borders and radius, database views, light/dark variants in one file
 - ✅ Plugin settings API (`notiskin.settings`) with settings forms in the app
 - ✅ Plugin developer mode with auto-reload from a local folder
-- Docs site
+- ✅ Docs site (plain HTML in `site/`, published with GitHub Pages)
 
 ## Phase 5: Code health (ongoing, about 10 hours)
 
