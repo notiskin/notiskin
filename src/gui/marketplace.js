@@ -153,7 +153,7 @@
           ${REPORT_REASONS.map(([value, label], i) => `
             <label><input type="radio" name="ns-report-reason" value="${value}" ${i === 0 ? 'required' : ''}> ${label}</label>`).join('')}
         </div>
-        <textarea maxlength="500" placeholder="What happened? (optional)"></textarea>
+        <textarea maxlength="500" placeholder="Details (optional)"></textarea>
         <div class="ns-report-error"></div>
         <div class="ns-dialog-actions">
           <button type="button" class="btn-ghost" data-act="cancel">Cancel</button>
@@ -162,7 +162,7 @@
       </form>` : `
       <div class="ns-version-dialog-box" role="dialog" aria-modal="true">
         <h3>Sign in to report</h3>
-        <p>Reports need a GitHub sign-in, so one person can't send hundreds. Sign in from Settings, then come back.</p>
+        <p>Sign in with GitHub in Settings to report.</p>
         <div class="ns-dialog-actions">
           <button type="button" class="btn-ghost" data-act="cancel">Close</button>
         </div>
@@ -268,8 +268,8 @@
       overlay.innerHTML = `
         <div class="ns-version-dialog-box" role="dialog" aria-modal="true" aria-labelledby="ns-update-title">
           <h3 id="ns-update-title">Update ${esc(displayName(update.name))} to version ${esc(update.latestVersion)}?</h3>
-          <p>This plugin will have full access to your Notion page and data. A reviewer approved this version, but only update if you trust the author.</p>
-          ${update.changes.length ? `<p class="ns-dialog-label">What changed</p>${changesHtml(update.changes)}` : ''}
+          <p>Plugins have full access to your Notion page and data. Only update if you trust the author.</p>
+          ${update.changes.length ? `<p class="ns-dialog-label">Changes</p>${changesHtml(update.changes)}` : ''}
           <div class="ns-dialog-actions">
             <button class="btn-ghost" data-act="cancel">Cancel</button>
             <button class="btn-primary" data-act="ok">Update plugin</button>
