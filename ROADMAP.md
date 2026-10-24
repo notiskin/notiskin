@@ -56,6 +56,10 @@ Detailed plan: [docs/prompts/phase-4-creator-tools.md](docs/prompts/phase-4-crea
 - ✅ Plugin developer mode with auto-reload from a local folder
 - ✅ Docs site (plain HTML in `site/`, published with GitHub Pages)
 
+## Starter content (before the marketplace fills up)
+
+- Make a bunch of themes and plugins ourselves so Browse has a few good options on day one, before other people start publishing. Themes can use the new variables (fonts, light/dark, database colors); plugins can use settings. Publish them from the notiskin account so they are easy to tell apart from community items
+
 ## Phase 5: Code health (ongoing, about 10 hours)
 
 Detailed plan: [docs/prompts/phase-5-code-health.md](docs/prompts/phase-5-code-health.md)
