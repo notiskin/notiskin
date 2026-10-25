@@ -41,7 +41,7 @@
 </ol>
 
 <h2 id="api">The notiskin object</h2>
-<p>Plugins get <code>window.notiskin</code>, version <code>1.1.0</code> (it is in <code>notiskin.version</code>). In a plugin that declares settings, use the <code>notiskin</code> you are handed, see <a href="#settings">Settings</a>. Every method below catches errors from your callbacks and logs them to Notion's console, so one broken callback doesn't stop the others.</p>
+<p>Plugins get <code>window.notiskin</code>, version <code>1.2.0</code> (it is in <code>notiskin.version</code>). In a plugin that declares settings, use the <code>notiskin</code> you are handed, see <a href="#settings">Settings</a>. Every method below catches errors from your callbacks and logs them to Notion's console, so one broken callback doesn't stop the others.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Method</th><th>What it does</th></tr></thead>
 <tbody>
@@ -49,13 +49,22 @@
 <tr><td><code>onBlockLoad(fn)</code></td><td>Calls <code>fn(content)</code> with the page's content element (<code>.notion-page-content</code>) whenever the page changes while it is on screen. This runs <em>often</em>, on every change to the page, so keep it quick and don't change the page in a way that triggers it again.</td></tr>
 <tr><td><code>getPageTitle()</code></td><td>The current page's title as text, or <code>null</code> if there isn't one.</td></tr>
 <tr><td><code>getPageUrl()</code></td><td>The current address.</td></tr>
-<tr><td><code>addToolbarButton(label, onClick)</code></td><td>Adds a button to Notion's top bar and returns it. <code>onClick</code> gets the button. Returns <code>null</code> (and logs a warning) if the top bar isn't there yet, so call it inside <code>ready</code> or <code>onPageChange</code>.</td></tr>
-<tr><td><code>removeToolbarButton(button)</code></td><td>Removes a button that <code>addToolbarButton</code> returned.</td></tr>
+<tr><td><code>addToolbarButton(label, onClick)</code></td><td>Adds a button to Notion's top bar and returns it. It uses Notion's colors, so it looks right in light and dark, and it is put back if Notion rebuilds the top bar. <code>onClick</code> gets the button. Returns <code>null</code> (and logs a warning) if the top bar isn't there yet, so call it inside <code>ready</code> or <code>onPageChange</code>.</td></tr>
+<tr><td><code>removeToolbarButton(button)</code></td><td>Removes a button that <code>addToolbarButton</code> returned, for good.</td></tr>
+<tr><td><code>onContentChange(fn)</code></td><td>Like <code>onBlockLoad</code>, but called at most four times a second. Use it for anything that reads the page. Returns a function that stops listening.</td></tr>
+<tr><td><code>addStyle(id, css)</code></td><td>Adds your CSS as a style element, or replaces it when the <code>id</code> is used again. Use your plugin's name in the <code>id</code>. Returns the element.</td></tr>
+<tr><td><code>removeStyle(id)</code></td><td>Removes a style that <code>addStyle</code> added.</td></tr>
+<tr><td><code>getPageScroller()</code></td><td>The element that scrolls the open page, or <code>null</code>. Use it for the scroll position.</td></tr>
+<tr><td><code>getPageId()</code></td><td>The open page's id (32 letters and numbers), or <code>null</code>.</td></tr>
+<tr><td><code>getColorScheme()</code></td><td><code>'dark'</code> or <code>'light'</code>, following Notion's own setting.</td></tr>
+<tr><td><code>onColorSchemeChange(fn)</code></td><td>Calls <code>fn('dark')</code> or <code>fn('light')</code> when it changes. Returns a function that stops listening.</td></tr>
 <tr><td><code>ready(fn)</code></td><td>Calls <code>fn()</code> now if the page has finished loading, otherwise when it has.</td></tr>
 <tr><td><code>settings.get(key)</code>, <code>getAll()</code>, <code>onChange(fn)</code></td><td>The options a plugin declares, see <a href="#settings">Settings</a>.</td></tr>
 </tbody></table></div>
 <p>Anything else is plain browser JavaScript: <code>document.querySelector</code>, <code>MutationObserver</code>, <code>fetch</code> and so on. Notion's page structure changes when Notion updates, so prefer <code>.notion-*</code> class names and check that what you looked for was found.</p>
 <div class="note"><p><strong>Watch your observers.</strong> A <code>MutationObserver</code> that changes the page it is watching will call itself forever and freeze Notion. Watch the smallest part of the page you can, wrap the callback in <code>try/catch</code>, and add a guard so it does nothing when it just ran.</p></div>
+
+<div class="note"><p><strong>Notion removes what is far from the screen.</strong> On a long page, blocks above and below the window are taken out of the page until you scroll back to them, so a plugin that reads the page's text only sees what is loaded. Use <code>getPageScroller()</code> for how far down the page is, which stays correct.</p></div>
 
 <h2 id="lifecycle">When a plugin runs</h2>
 <ul>

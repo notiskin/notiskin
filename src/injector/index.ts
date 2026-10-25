@@ -65,10 +65,58 @@ export function fontCss(themeCss: string): string {
   return rules.join('\n');
 }
 
+// Notion draws its own interface (menus, popups, icons, buttons, the selected sidebar row) from color tokens it defines
+// once, on :root and on the .notion-light-theme / .notion-dark-theme elements everything sits under (checked on the real app,
+// popups are inside them too). A theme variable points the tokens it stands for at the theme's color, !important because
+// Notion's own rule sits on the same elements. Only emitted for the variables a theme sets, so with none set every token stays Notion's.
+// Each entry: theme variable, then the Notion tokens it replaces
+export const TOKEN_VARS: Array<[string, string[]]> = [
+  ['popup-bg', ['--c-popBac']],
+  ['text-secondary', ['--c-texSec', '--c-sidSecCol']],
+  ['text-tertiary', ['--c-texTer']],
+  ['icon-color', ['--c-icoPri', '--c-icoSec']],
+  ['selected-bg', ['--ca-sidIteSelBac']],
+  ['control-hover-bg', ['--ca-bacIntTra', '--ca-staHov', '--ca-butHovBac', '--ca-tabRowHovBac', '--ca-outButHovBac', '--ca-ligGraButHovBac']],
+];
+
+// Notion's blue is a base color plus see-through tints of it, the tints are the same color at a lower alpha
+const ACCENT_TINTS: Array<[string, number]> = [
+  ['50', 3.5], ['75', 5], ['100', 7], ['200', 14], ['300', 20], ['400', 35], ['500', 57],
+];
+
+export function tokenCss(themeCss: string): string {
+  const sets = (name: string) => new RegExp(`--ns-${name}\\s*:`).test(themeCss);
+  const declarations: string[] = [];
+  for (const [name, tokens] of TOKEN_VARS) {
+    if (sets(name)) for (const token of tokens) declarations.push(`${token}: var(--ns-${name}) !important;`);
+  }
+  if (sets('accent')) {
+    declarations.push(
+      // the accent tokens (Acc), not the ones for blue content, so text a person colored blue stays blue
+      '--c-bluBacAccPri: var(--ns-accent) !important;',
+      '--c-bluBacAccSec: color-mix(in srgb, var(--ns-accent) 75%, white) !important;',
+      '--c-bluBorAccPri: var(--ns-accent) !important;',
+      '--c-bluIcoAccPri: var(--ns-accent) !important;',
+      '--c-bluTexAccPri: var(--ns-accent) !important;',
+      '--c-palUiBlu600: var(--ns-accent) !important;',
+      '--c-palUiBlu700: color-mix(in srgb, var(--ns-accent) 75%, white) !important;',
+      '--c-bluButHovBac: color-mix(in srgb, var(--ns-accent) 88%, black) !important;',
+      '--c-bluButPreBac: color-mix(in srgb, var(--ns-accent) 78%, black) !important;',
+      ...ACCENT_TINTS.map(([step, alpha]) => `--ca-palUiBlu${step}: color-mix(in srgb, var(--ns-accent) ${alpha}%, transparent) !important;`)
+    );
+  }
+  const rules: string[] = [];
+  if (declarations.length) rules.push(`:root, .notion-light-theme, .notion-dark-theme { ${declarations.join(' ')} }`);
+  if (sets('selection-bg')) rules.push('.notion-app-inner ::selection { background: var(--ns-selection-bg); }');
+  // Notion sets the caret color inline on every editable block
+  if (sets('caret-color')) rules.push('.notion-app-inner [contenteditable] { caret-color: var(--ns-caret-color) !important; }');
+  return rules.join('\n');
+}
+
 // core CSS plus whatever the theme asks for
 export function coreCssFor(themeCss: string): string {
-  const fonts = fontCss(themeCss);
-  return fonts ? `${CORE_CSS}\n${fonts}\n` : CORE_CSS;
+  const extras = [fontCss(themeCss), tokenCss(themeCss)].filter(Boolean).join('\n');
+  return extras ? `${CORE_CSS}\n${extras}\n` : CORE_CSS;
 }
 
 export const CORE_CSS = `
@@ -91,9 +139,12 @@ export const CORE_CSS = `
 }
 .notion-app-inner { background: var(--ns-bg) !important; }
 .notion-frame { background: var(--ns-bg) !important; }
-.notion-page-content, .notion-scroller { background: var(--ns-bg) !important; }
+/* the page's own scrollers only: menus and popups are .notion-scroller too and keep their own background */
+.notion-page-content, .notion-frame .notion-scroller, .notion-peek-renderer .notion-scroller { background: var(--ns-bg) !important; }
 .notion-sidebar { background: var(--ns-sidebar-bg) !important; }
 .notion-topbar { background: var(--ns-topbar-bg) !important; }
+/* the bare <header> around the top bar has its own page-colored background, it shows when Notion fades the bar while you scroll */
+header:has(.notion-topbar) { background: var(--ns-topbar-bg) !important; }
 ${COLOR_CSS}
 .notion-page-block > [placeholder="Untitled"], .notion-title { color: var(--ns-title-text) !important; }
 .notion-selectable:hover { background: var(--ns-hover-bg) !important; }
@@ -126,18 +177,54 @@ if (!window.notiskin) {
     });
     _urlObserver.observe(document.body, { childList: true, subtree: true });
 
+    const _contentChangeListeners = [];
+    let _contentChangeTimer = null;
+    // buttons made by addToolbarButton, put back when Notion rebuilds its top bar
+    const _buttons = new Set();
+    let _buttonTimer = null;
+    const topbarArea = () => document.querySelector('.notion-topbar-action-buttons') || document.querySelector('.notion-topbar');
+    function restoreButtons() {
+      _buttonTimer = null;
+      const area = topbarArea();
+      if (!area) return;
+      _buttons.forEach(btn => { if (!btn.isConnected) area.appendChild(btn); });
+    }
+
     const _contentObserver = new MutationObserver(() => {
       const content = document.querySelector('.notion-page-content');
       if (content) {
         _blockLoadListeners.forEach(fn => {
           try { fn(content); } catch(e) { console.error('[notiskin] onBlockLoad error:', e); }
         });
+        // the same, at most four times a second
+        if (_contentChangeListeners.length && !_contentChangeTimer) {
+          _contentChangeTimer = setTimeout(() => {
+            _contentChangeTimer = null;
+            const current = document.querySelector('.notion-page-content');
+            if (!current) return;
+            _contentChangeListeners.slice().forEach(fn => {
+              try { fn(current); } catch(e) { console.error('[notiskin] onContentChange error:', e); }
+            });
+          }, 250);
+        }
       }
+      // a button is only put back when it is gone, so this never feeds itself
+      if (_buttons.size && !_buttonTimer) _buttonTimer = setTimeout(restoreButtons, 300);
     });
     _contentObserver.observe(document.body, { childList: true, subtree: true });
 
+    // the look of toolbar buttons uses Notion's own color tokens, so it follows light, dark and the theme
+    const _apiStyle = document.createElement('style');
+    _apiStyle.id = 'notiskin-api-styles';
+    _apiStyle.textContent = '.notiskin-toolbar-button { margin: 0 4px; padding: 4px 10px; border-radius: 4px; border: none; background: transparent; color: var(--c-texSec, inherit); cursor: pointer; font: inherit; font-size: 13px; }'
+      + ' .notiskin-toolbar-button:hover { background: var(--ca-bacIntTra, rgba(128, 128, 128, 0.15)); }';
+    (document.head || document.documentElement).appendChild(_apiStyle);
+
+    const styleId = id => 'notiskin-style-' + String(id).replace(/[^A-Za-z0-9_-]/g, '-');
+    const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
     const api = {
-      version: '1.1.0',
+      version: '1.2.0',
       onPageChange(fn) { _pageChangeListeners.push(fn); },
       onBlockLoad(fn) { _blockLoadListeners.push(fn); },
       getPageTitle() {
@@ -146,20 +233,59 @@ if (!window.notiskin) {
         return el ? el.textContent.trim() : null;
       },
       addToolbarButton(label, onClick) {
-        const topbar = document.querySelector('.notion-topbar-action-buttons')
-                    || document.querySelector('.notion-topbar');
+        const topbar = topbarArea();
         if (!topbar) { console.warn('[notiskin] addToolbarButton: topbar not found'); return null; }
         const btn = document.createElement('button');
+        btn.className = 'notiskin-toolbar-button';
         btn.textContent = label;
-        btn.style.cssText = 'margin:0 4px;padding:4px 10px;border-radius:4px;border:none;background:rgba(0,0,0,0.06);cursor:pointer;font-size:13px;font-family:inherit';
         btn.addEventListener('click', () => {
           try { onClick(btn); } catch(e) { console.error('[notiskin] toolbar button error:', e); }
         });
         topbar.appendChild(btn);
+        _buttons.add(btn);
         return btn;
       },
       removeToolbarButton(btn) {
+        _buttons.delete(btn);
         if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+      },
+      onContentChange(fn) {
+        _contentChangeListeners.push(fn);
+        return () => {
+          const i = _contentChangeListeners.indexOf(fn);
+          if (i >= 0) _contentChangeListeners.splice(i, 1);
+        };
+      },
+      addStyle(id, css) {
+        const key = styleId(id);
+        let el = document.getElementById(key);
+        if (!el) {
+          el = document.createElement('style');
+          el.id = key;
+          (document.head || document.documentElement).appendChild(el);
+        }
+        el.textContent = String(css);
+        return el;
+      },
+      removeStyle(id) {
+        const el = document.getElementById(styleId(id));
+        if (el) el.remove();
+      },
+      getPageScroller() {
+        const layout = document.querySelector('.layout');
+        return layout ? layout.closest('.notion-scroller') : null;
+      },
+      getPageId() {
+        const match = location.pathname.match(/([0-9a-f]{32})(?=[/]|$)/i);
+        return match ? match[1].toLowerCase() : null;
+      },
+      getColorScheme() { return darkQuery.matches ? 'dark' : 'light'; },
+      onColorSchemeChange(fn) {
+        const listener = () => {
+          try { fn(darkQuery.matches ? 'dark' : 'light'); } catch(e) { console.error('[notiskin] onColorSchemeChange error:', e); }
+        };
+        darkQuery.addEventListener('change', listener);
+        return () => darkQuery.removeEventListener('change', listener);
       },
       getPageUrl() { return location.href; },
       ready(fn) {

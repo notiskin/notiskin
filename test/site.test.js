@@ -78,6 +78,18 @@ test('the themes page lists every --ns- variable the injector uses', () => {
   }
 });
 
+test('the themes page and the README list every variable that restyles Notion\'s own interface', () => {
+  const { TOKEN_VARS } = require('../dist/injector/index');
+  const doc = text(read('themes.html'));
+  const readme = src('README.md');
+  const names = [...TOKEN_VARS.map(([name]) => name), 'accent', 'selection-bg', 'caret-color'];
+  assert.ok(names.length >= 9);
+  for (const name of names) {
+    assert.ok(doc.includes(`--ns-${name}`), `--ns-${name} is not on the themes page`);
+    assert.ok(readme.includes(`--ns-${name}`), `--ns-${name} is not in the README`);
+  }
+});
+
 test('the themes page states the marketplace rules the check enforces', () => {
   const css = src('supabase/functions/_shared/css.ts');
   const doc = text(read('themes.html'));
@@ -107,7 +119,7 @@ test('the plugins page documents every method of window.notiskin and the setting
   const doc = text(read('plugins.html'));
   const api = core.slice(core.indexOf('const api = {'), core.indexOf('// plugin settings.'));
   const methods = [...api.matchAll(/^\s{6}(\w+)\(/gm)].map(m => m[1]);
-  assert.deepEqual(methods.sort(), ['addToolbarButton', 'getPageTitle', 'getPageUrl', 'onBlockLoad', 'onPageChange', 'ready', 'removeToolbarButton']);
+  assert.deepEqual(methods.sort(), ['addStyle', 'addToolbarButton', 'getColorScheme', 'getPageId', 'getPageScroller', 'getPageTitle', 'getPageUrl', 'onBlockLoad', 'onColorSchemeChange', 'onContentChange', 'onPageChange', 'ready', 'removeStyle', 'removeToolbarButton']);
   for (const m of methods) assert.ok(doc.includes(`${m}(`), `${m}() is missing from the plugins page`);
   const version = core.match(/version: '([\d.]+)'/)[1];
   assert.ok(doc.includes(version), `version ${version}`);
