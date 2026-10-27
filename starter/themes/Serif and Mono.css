@@ -1,0 +1,71 @@
+/* Serif and Mono: Notion's own look, with Georgia titles and a Menlo code font */
+:root {
+  --ns-bg: #ffffff;
+  --ns-sidebar-bg: #f7f7f5;
+  --ns-topbar-bg: #ffffff;
+  --ns-hover-bg: #efefed;
+  --ns-callout-bg: #f7f7f5;
+  --ns-code-block-bg: #f7f6f3;
+  --ns-inline-code-bg: #f1f0ee;
+  --ns-inline-code-color: #b4432a;
+  --ns-text: #37352f;
+  --ns-title-text: #1f1e1a;
+  --ns-link-color: #1f5fa8;
+  --ns-divider-color: #e3e2de;
+  --ns-quote-border-color: #37352f;
+  --ns-font-title: Georgia, serif;
+  --ns-font-code: Menlo, monospace;
+  --ns-color-gray: #787774;
+  --ns-color-brown: #9f6b53;
+  --ns-color-orange: #d9730d;
+  --ns-color-yellow: #cb912f;
+  --ns-color-green: #448361;
+  --ns-color-blue: #337ea9;
+  --ns-color-purple: #9065b0;
+  --ns-color-pink: #c14c8a;
+  --ns-color-red: #d44c47;
+  --ns-color-gray-bg: #f1f1ef;
+  --ns-color-brown-bg: #f4eeee;
+  --ns-color-orange-bg: #fbecdd;
+  --ns-color-yellow-bg: #fbf3db;
+  --ns-color-green-bg: #edf3ec;
+  --ns-color-blue-bg: #e7f3f8;
+  --ns-color-purple-bg: #f6f3f9;
+  --ns-color-pink-bg: #faf1f5;
+  --ns-color-red-bg: #fdebec;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ns-bg: #191919;
+    --ns-sidebar-bg: #202020;
+    --ns-topbar-bg: #191919;
+    --ns-hover-bg: #2b2b2b;
+    --ns-callout-bg: #252525;
+    --ns-code-block-bg: #202020;
+    --ns-inline-code-bg: #2f2f2f;
+    --ns-inline-code-color: #eb8e7a;
+    --ns-text: #d4d4d4;
+    --ns-title-text: #ffffff;
+    --ns-link-color: #6fb1ea;
+    --ns-divider-color: #373737;
+    --ns-quote-border-color: #d4d4d4;
+    --ns-color-gray: #9b9b9b;
+    --ns-color-brown: #c08b6e;
+    --ns-color-orange: #ffa344;
+    --ns-color-yellow: #ffdc49;
+    --ns-color-green: #4dab9a;
+    --ns-color-blue: #5fb3e8;
+    --ns-color-purple: #b58de0;
+    --ns-color-pink: #e255a1;
+    --ns-color-red: #ff7369;
+    --ns-color-gray-bg: #373737;
+    --ns-color-brown-bg: #434040;
+    --ns-color-orange-bg: #594a3a;
+    --ns-color-yellow-bg: #59563b;
+    --ns-color-green-bg: #354c4b;
+    --ns-color-blue-bg: #364954;
+    --ns-color-purple-bg: #443f57;
+    --ns-color-pink-bg: #533b4c;
+    --ns-color-red-bg: #594141;
+  }
+}

@@ -20,6 +20,11 @@
       ['divider-color', 'Dividers'], ['quote-border-color', 'Quote bar'], ['border-color', 'Borders'],
       ['scrollbar-thumb', 'Scrollbar'], ['scrollbar-track', 'Scrollbar track'],
     ] },
+    { id: 'interface', title: 'Menus and accents', vars: [
+      ['accent', 'Accent (buttons, focus)'], ['popup-bg', 'Menus and popups'], ['selected-bg', 'Selected sidebar page'],
+      ['control-hover-bg', 'Button under the cursor'], ['text-secondary', 'Dimmer text'], ['text-tertiary', 'Dimmest text'],
+      ['icon-color', 'Icons'], ['caret-color', 'Text cursor'],
+    ] },
     { id: 'database', title: 'Databases', vars: [
       ['table-header-bg', 'Table header'], ['table-row-hover-bg', 'Table row under the cursor'], ['board-card-bg', 'Board card'],
     ] },

@@ -450,7 +450,8 @@ const SETTINGS_PLUGIN = `/**
  * @notiskin-setting {"key":"on","type":"toggle","label":"On","default":true}
  */
 window.__demo = { runs: (window.__demo ? window.__demo.runs : 0) + 1, log: [], first: notiskin.settings.get('size'),
-  all: notiskin.settings.getAll(), own: notiskin !== window.notiskin, version: notiskin.version, pageChange: typeof notiskin.onPageChange };
+  all: notiskin.settings.getAll(), own: notiskin !== window.notiskin, version: notiskin.version, pageChange: typeof notiskin.onPageChange,
+  newMethods: ['addStyle', 'removeStyle', 'onContentChange', 'getPageScroller', 'getPageId', 'getColorScheme', 'onColorSchemeChange'].every(m => typeof notiskin[m] === 'function') };
 window.__demoOff = notiskin.settings.onChange((key, value, all) => { window.__demo.log.push([key, value, all.size, notiskin.settings.get('size')]); });
 // a callback that runs later still reads this plugin's values
 setTimeout(() => { window.__demo.later = notiskin.settings.get('on'); }, 0);
@@ -468,7 +469,8 @@ test('plugin settings: values reach the page with the plugin, and a change reach
     assert.equal(d.first, 20, 'the saved value, not the default');
     assert.deepEqual(d.all, { size: 20, on: true }, 'the default for what was never saved');
     assert.equal(d.own, true, 'it got its own notiskin');
-    assert.equal(d.version, '1.1.0');
+    assert.equal(d.version, '1.2.0');
+    assert.equal(d.newMethods, true, 'the 1.2.0 methods are on the plugin\'s own notiskin too');
     assert.equal(d.pageChange, 'function', 'every existing method is still there');
     assert.equal(d.later, true, 'a callback later on reads the same plugin\'s values');
   }

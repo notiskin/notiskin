@@ -62,3 +62,63 @@ test('the new look variables are not set by default, so a theme that sets none c
   }
   assert.match(CORE_CSS, /\.notion-table-view-row:hover \.notion-table-view-cell \{ background-image: linear-gradient\(var\(--ns-table-row-hover-bg, transparent\)/);
 });
+
+const { tokenCss, TOKEN_VARS } = require('../dist/injector/index');
+
+test('Notion\'s own interface colors are only overridden for the variables a theme sets', () => {
+  assert.equal(tokenCss(':root { --ns-bg: #fff; }'), '');
+  assert.equal(coreCssFor(':root { --ns-bg: #fff; }'), CORE_CSS);
+
+  const popup = tokenCss(':root { --ns-popup-bg: #2a1450; }');
+  assert.match(popup, /^:root, \.notion-light-theme, \.notion-dark-theme \{ --c-popBac: var\(--ns-popup-bg\) !important; \}$/);
+
+  // --ns-text must not count as --ns-text-secondary, and the other way round
+  assert.equal(tokenCss(':root { --ns-text: #fff; }'), '');
+  const secondary = tokenCss(':root { --ns-text-secondary: #999; }');
+  assert.match(secondary, /--c-texSec: var\(--ns-text-secondary\) !important/);
+  assert.doesNotMatch(secondary, /--c-texTer/);
+
+  // a variant inside @media counts too
+  assert.match(tokenCss('@media (prefers-color-scheme: dark) { :root { --ns-icon-color: #ffd166; } }'), /--c-icoPri: var\(--ns-icon-color\)/);
+});
+
+test('every theme variable for Notion\'s interface points at tokens that start with --c- or --ca-', () => {
+  assert.ok(TOKEN_VARS.length >= 6);
+  for (const [name, tokens] of TOKEN_VARS) {
+    assert.match(name, /^[a-z-]+$/);
+    assert.ok(tokens.length > 0);
+    for (const token of tokens) assert.match(token, /^--c[a]?-[A-Za-z0-9]+$/, `${name} -> ${token}`);
+  }
+});
+
+test('the accent recolors the accent tokens but not the blue Notion uses for colored content', () => {
+  const css = tokenCss(':root { --ns-accent: #ff5d8f; }');
+  for (const token of ['--c-bluBacAccPri', '--c-bluBorAccPri', '--c-bluIcoAccPri', '--c-bluTexAccPri', '--c-palUiBlu600', '--c-bluButHovBac', '--ca-palUiBlu100']) {
+    assert.ok(css.includes(`${token}:`), token);
+  }
+  // blue text and blue blocks a person made keep their color
+  assert.doesNotMatch(css, /--c-bluTexSec|--c-bluBacSec|--ca-bluBac|--c-bluTexPri/);
+  assert.match(css, /--ca-palUiBlu50: color-mix\(in srgb, var\(--ns-accent\) 3\.5%, transparent\)/);
+});
+
+test('text selection and the caret have their own rules, only when a theme sets them', () => {
+  assert.match(tokenCss(':root { --ns-selection-bg: #2563eb40; }'), /::selection \{ background: var\(--ns-selection-bg\); \}/);
+  assert.match(tokenCss(':root { --ns-caret-color: #ffd166; }'), /caret-color: var\(--ns-caret-color\) !important/);
+  assert.equal(tokenCss(':root { --ns-accent-nothing: red; }'), '');
+});
+
+test('the header around the top bar follows the top bar color, and menus keep their own background', () => {
+  assert.match(CORE_CSS, /header:has\(\.notion-topbar\) \{ background: var\(--ns-topbar-bg\) !important; \}/);
+  // popups are .notion-scroller too, only the page's own scrollers take the page color
+  assert.doesNotMatch(CORE_CSS, /\.notion-page-content, \.notion-scroller \{/);
+  assert.match(CORE_CSS, /\.notion-frame \.notion-scroller/);
+});
+
+test('the page API is version 1.2.0 and keeps every older method', () => {
+  const fs = require('fs');
+  const source = fs.readFileSync(require('path').join(__dirname, '..', 'src/injector/index.ts'), 'utf-8');
+  assert.match(source, /version: '1\.2\.0'/);
+  for (const m of ['onPageChange', 'onBlockLoad', 'getPageTitle', 'addToolbarButton', 'removeToolbarButton', 'getPageUrl', 'ready']) {
+    assert.match(source, new RegExp(`\\n      ${m}\\(`), m);
+  }
+});

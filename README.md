@@ -127,6 +127,14 @@ Every variable is optional. The first group (backgrounds, text, links, code, cal
 | `--ns-font` | the main font |
 | `--ns-font-title` | the page title and headings (follows `--ns-font` if you don't set it) |
 | `--ns-font-code` | code blocks and inline code |
+| `--ns-accent` | Notion's blue: buttons, focus and highlights (not text someone colored blue). Text on a button stays white, so pick a mid-dark color |
+| `--ns-popup-bg` | menus, popups and dialogs |
+| `--ns-selected-bg` | the selected page in the sidebar |
+| `--ns-control-hover-bg` | a button, sidebar row or tab while the cursor is over it |
+| `--ns-text-secondary`, `--ns-text-tertiary` | dimmer text (like "Edited 2h ago"), and the dimmest (placeholders) |
+| `--ns-icon-color` | icons |
+| `--ns-selection-bg` | selected text, give it some see-through like `#2563eb40` |
+| `--ns-caret-color` | the text cursor |
 
 The three database colors (`--ns-table-header-bg`, `--ns-table-row-hover-bg`, `--ns-board-card-bg`) are painted over what Notion draws, so use a plain color, not a gradient. 
 Fonts take a list of up to 8 names, quoted when they have spaces. They pick fonts that are installed on the Mac, nothing is downloaded: `--ns-font: "Inter Display", "Helvetica Neue", sans-serif;`. If you set no font variable at all, Notion's fonts stay.
@@ -156,7 +164,10 @@ Plugins are plain JavaScript that runs inside each Notion tab once the page has 
 ```js
 notiskin.onPageChange(() => console.log('now on', notiskin.getPageTitle()));
 notiskin.addToolbarButton('Hello', () => alert('hi'));
+notiskin.addStyle('hello', '.notion-sidebar { opacity: 0.9 }');
 ```
+
+The page API is version `1.2.0`. Besides `onPageChange`, `onBlockLoad`, `getPageTitle`, `getPageUrl`, `ready` and `settings`, it has `addToolbarButton` (a button in Notion's colors that is put back if Notion rebuilds its top bar) with `removeToolbarButton`, `addStyle(id, css)` with `removeStyle(id)`, `onContentChange(fn)` (like `onBlockLoad`, at most four times a second), `getPageScroller()`, `getPageId()`, `getColorScheme()` and `onColorSchemeChange(fn)`. Notion removes blocks that are far from the screen, so a plugin that reads the page's text only sees what is loaded. See [the docs](https://notiskin.github.io/notiskin/plugins.html).
 
 Keep `MutationObserver`s tightly scoped and guard against triggering yourself, or you can freeze Notion.
 
@@ -189,7 +200,7 @@ The Plugins tab then shows a **Settings** button on the plugin's card with a for
 
 - `notiskin.settings.get(key)` is the user's value, or your `default`; `getAll()` is a copy of all of them
 - `notiskin.settings.onChange(fn)` calls `fn(key, value, all)` after a change, and returns a function that stops listening
-- the page API is now version `1.1.0`, every older method works as before
+- the page API is now version `1.2.0`, every older method works as before
 - a plugin that declares settings runs inside a function that is given its own `notiskin`, so settings know whose they are, even inside a later callback. Use that `notiskin`, not `window.notiskin`, and don't count on top-level `var` and `function` becoming globals (use `window.x = ...`). A plugin with no declarations runs exactly as before
 
 ## Development
