@@ -41,6 +41,18 @@
     .main-content { margin-left: 180px; padding: 40px 32px; max-width: 820px; width: 100%; }
 
     section { margin-bottom: 40px; }
+
+    /* same tabs as the Themes and Plugins pages */
+    .tabs { display: flex; gap: 0; margin-bottom: 28px; border-bottom: 1px solid var(--border); }
+    .tab-btn {
+      padding: 7px 16px; background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--text-3); font-size: 13px; font-weight: 500; cursor: pointer; margin-bottom: -1px;
+      transition: color 0.15s;
+    }
+    .tab-btn:hover { color: var(--text-2); opacity: 1; }
+    .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+    .tab-count { margin-left: 6px; font-size: 11px; color: var(--accent); }
+
     h2 { font-family: var(--font-display); font-size: 20px; font-weight: 520; letter-spacing: -0.01em; color: var(--text); margin-bottom: 12px; }
 
     .card {
@@ -233,27 +245,51 @@
         </div>
 
         <div id="queue" style="display:none">
-          <section>
-            <h2>Themes</h2>
-            <div id="themes-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
-          </section>
-          <section>
-            <h2>Plugins</h2>
-            <div id="plugins-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
-          </section>
-          <section id="reports-section" style="display:none">
-            <h2>Reports</h2>
-            <div id="reports-list"></div>
-          </section>
-          <section id="versions-section" style="display:none">
-            <h2>New versions</h2>
-            <div id="versions-list"></div>
-          </section>
-          <section id="rejected-section" style="display:none">
-            <h2>Rejected</h2>
-            <div id="rejected-themes-list"></div>
-            <div id="rejected-plugins-list"></div>
-          </section>
+          <div id="review-tabs-area">
+            <div class="tabs" id="review-tabs">
+              <button class="tab-btn active" data-tab="theme" onclick="switchReviewTab('theme')">Themes<span class="tab-count" id="count-theme"></span></button>
+              <button class="tab-btn" data-tab="plugin" onclick="switchReviewTab('plugin')">Plugins<span class="tab-count" id="count-plugin"></span></button>
+            </div>
+
+            <div id="pane-theme">
+              <section>
+                <h2>Waiting for review</h2>
+                <div id="themes-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
+              </section>
+              <section id="reports-section-theme" style="display:none">
+                <h2>Reports</h2>
+                <div id="reports-list-theme"></div>
+              </section>
+              <section id="versions-section-theme" style="display:none">
+                <h2>New versions</h2>
+                <div id="versions-list-theme"></div>
+              </section>
+              <section id="rejected-section-theme" style="display:none">
+                <h2>Rejected</h2>
+                <div id="rejected-themes-list"></div>
+              </section>
+            </div>
+
+            <div id="pane-plugin" hidden>
+              <section>
+                <h2>Waiting for review</h2>
+                <div id="plugins-list"><div class="loading-state"><div class="spinner"></div><span>Loading</span></div></div>
+              </section>
+              <section id="reports-section-plugin" style="display:none">
+                <h2>Reports</h2>
+                <div id="reports-list-plugin"></div>
+              </section>
+              <section id="versions-section-plugin" style="display:none">
+                <h2>New versions</h2>
+                <div id="versions-list-plugin"></div>
+              </section>
+              <section id="rejected-section-plugin" style="display:none">
+                <h2>Rejected</h2>
+                <div id="rejected-plugins-list"></div>
+              </section>
+            </div>
+          </div>
+
           <section id="log-section" style="display:none">
             <h2>Action log</h2>
             <p class="card-meta">Every review decision, hide, unhide and dismissed report. Nobody can edit or delete it.</p>
@@ -611,6 +647,7 @@
         if (res.status === 403) {
           document.getElementById('unauthorized').style.display = 'block';
           queueEl.style.display = 'block';
+          document.getElementById('review-tabs-area').style.display = 'none';
           themesEl.innerHTML = pluginsEl.innerHTML = '';
           return;
         }
@@ -657,9 +694,11 @@
         pluginsEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
       }
 
-      const reportsSection = document.getElementById('reports-section');
-      reportsSection.style.display = reports.length ? 'block' : 'none';
-      document.getElementById('reports-list').innerHTML = reportsHtml(reports);
+      for (const type of ['theme', 'plugin']) {
+        const mine = reports.filter(r => r.item_type === type);
+        document.getElementById(`reports-section-${type}`).style.display = mine.length ? 'block' : 'none';
+        document.getElementById(`reports-list-${type}`).innerHTML = reportsHtml(mine);
+      }
 
       const names = new Map();
       [...themes, ...plugins, ...rejectedThemes, ...rejectedPlugins].forEach(i => names.set(i.id, i.name));
@@ -668,23 +707,35 @@
       document.getElementById('log-section').style.display = 'block';
       document.getElementById('log-list').innerHTML = logHtml(actions, names);
 
-      const versionsSection = document.getElementById('versions-section');
-      const versionsEl = document.getElementById('versions-list');
-      versionsSection.style.display = versions.length ? 'block' : 'none';
-      versionsEl.innerHTML = versions.map(versionCard).join('');
-      versionsEl.querySelectorAll('.btn-approve').forEach(btn => btn.addEventListener('click', () => approve(btn.dataset.id, btn.dataset.type)));
-      versionsEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
+      for (const type of ['theme', 'plugin']) {
+        const mine = versions.filter(v => v.item_type === type);
+        const versionsEl = document.getElementById(`versions-list-${type}`);
+        document.getElementById(`versions-section-${type}`).style.display = mine.length ? 'block' : 'none';
+        versionsEl.innerHTML = mine.map(versionCard).join('');
+        versionsEl.querySelectorAll('.btn-approve').forEach(btn => btn.addEventListener('click', () => approve(btn.dataset.id, btn.dataset.type)));
+        versionsEl.querySelectorAll('.btn-reject').forEach(btn => btn.addEventListener('click', () => startReject(btn.dataset.id, btn.dataset.type)));
+      }
 
-      const rejectedSection = document.getElementById('rejected-section');
-      const rejectedThemesEl = document.getElementById('rejected-themes-list');
-      const rejectedPluginsEl = document.getElementById('rejected-plugins-list');
-      if (rejectedThemes.length || rejectedPlugins.length) {
-        rejectedSection.style.display = 'block';
-        rejectedThemesEl.innerHTML = rejectedThemes.map(rejectedThemeCard).join('');
-        rejectedPluginsEl.innerHTML = rejectedPlugins.map(rejectedPluginCard).join('');
-        rejectedThemes.forEach(t => applyThemePreview(`preview-rej-${t.id}`, t.css));
-      } else {
-        rejectedSection.style.display = 'none';
+      document.getElementById('rejected-section-theme').style.display = rejectedThemes.length ? 'block' : 'none';
+      document.getElementById('rejected-themes-list').innerHTML = rejectedThemes.map(rejectedThemeCard).join('');
+      rejectedThemes.forEach(t => applyThemePreview(`preview-rej-${t.id}`, t.css));
+      document.getElementById('rejected-section-plugin').style.display = rejectedPlugins.length ? 'block' : 'none';
+      document.getElementById('rejected-plugins-list').innerHTML = rejectedPlugins.map(rejectedPluginCard).join('');
+
+      // a number on each tab for what needs a decision, so nothing waits unseen in the tab that isn't open
+      const waiting = {
+        theme: themes.length + new Set(reports.filter(r => r.item_type === 'theme').map(r => r.item_id)).size + versions.filter(v => v.item_type === 'theme').length,
+        plugin: plugins.length + new Set(reports.filter(r => r.item_type === 'plugin').map(r => r.item_id)).size + versions.filter(v => v.item_type === 'plugin').length,
+      };
+      for (const type of ['theme', 'plugin']) {
+        document.getElementById(`count-${type}`).textContent = waiting[type] ? String(waiting[type]) : '';
+      }
+    }
+
+    function switchReviewTab(type) {
+      for (const t of ['theme', 'plugin']) {
+        document.getElementById(`pane-${t}`).hidden = t !== type;
+        document.querySelector(`#review-tabs [data-tab="${t}"]`).classList.toggle('active', t === type);
       }
     }
 
