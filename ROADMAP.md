@@ -55,15 +55,15 @@ Everything was checked on the live backend with real accounts.
 ## Phase 5: Starter content and real-app checks
 
 - ✅ Starter content (published October 28 and November 4, 2026 from the notiskin account): 6 themes (Parchment, Midnight Ink, Serif and Mono, Daybreak, Confetti, Quiet) and 4 plugins (Reading Progress, Focus Mode, Wide Pages, Numbered Headings). The source is in `starter/`, and a test keeps it valid. Alongside it: theme variables for Notion's own menus, icons and accents, and plugin API 1.2.0 (in the next release)
-- Real-app checks: things that were only checked against source, a browser page or a fake Notion, and need the packaged app on a real Notion:
-  - The theme editor inside the packaged window, and Save and publish for a signed-in author on an existing theme
-  - A real plugin with settings enabled in the packaged app
-  - Developer mode with the native folder picker, and a saved file reloading the real Notion
-  - The docs links opening https://notiskin.github.io/notiskin/ from the app
-  - Whether Settings shows the Restart Notion row after Repair (picking a theme restarts Notion, which is what made the theme appear last time)
-  - Dark mode and Notion's System mode with the new variables; gallery, list and calendar database views
-  - The watcher repairing a real Notion update by itself ("Repair automatically after Notion updates" is off by default; one-click Repair after an update is proven)
-  - The rest of the DevTools-pipe checklist from the debug-pipe PR: reopening Notion from the Dock, `notion://` links, Notion relaunching itself after its own update
+- Real-app checks: things that were only checked against source, a browser page or a fake Notion, run on November 4 and 5, 2026 with the packaged 0.10.0 app on a real Notion (7.40.1, then 7.42.1 after Notion updated itself during the checks):
+  - ✅ The theme editor inside the packaged window, with the live preview in Notion. Save and publish for a signed-in author on an existing theme did not open the new-version form; fixed in #61, not in a release yet
+  - ✅ A real plugin with settings enabled in the packaged app (Reading Progress, changed live, reset, safe mode, removed again)
+  - ✅ Developer mode with the native folder picker, and a saved file reloading the real Notion (a `.txt` file does not reload, a badly named `.js` file is skipped with its reason, safe mode and turning it off both let go). The "N plugins running" line in Settings is only read when the page opens
+  - ✅ The docs links opening https://notiskin.github.io/notiskin/ from the app
+  - ✅ Settings shows the Restart Notion row after Repair when Notion is running, and its button restarts Notion with the theme (checked after a real Notion update, 7.40.1 to 7.42.1)
+  - ✅ Dark mode and Notion's System mode with the new variables; board, gallery, list and calendar database views. Found and fixed: Notion's tooltips got unreadable text with a light theme (#60). Still not reached by any variable: the gallery card preview area, the empty database title and the calendar's today marker
+  - ✅ Reopening Notion from the Dock, `notion://` links and no open TCP port (only Notiskin's own server on 127.0.0.1:3845). Checked by opening the app the way the Dock does, not by a physical Dock click
+  - Still open: the watcher repairing a real Notion update by itself ("Repair automatically after Notion updates" is off by default, turn it on before the next update; one-click Repair after an update is proven), and whether Notion relaunches itself after its own update (it did not within 30 seconds on 7.40.1 to 7.42.1)
 
 ## Phase 6: Code health (ongoing, about 10 hours)
 
