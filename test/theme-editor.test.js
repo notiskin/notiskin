@@ -140,3 +140,23 @@ test('every edit the editor can make stays inside what the marketplace check acc
   }
   assert.equal(validateThemeCss(css), null);
 });
+
+test('Save and publish finds the theme you own in the "Publish a new version" list, whatever the label says', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const gui = file => fs.readFileSync(path.join(__dirname, '..', 'src', 'gui', file), 'utf8');
+
+  // the label the list is drawn with, and the pattern publishFromEditor() strips from it, are in different files
+  const label = gui('marketplace.js').match(/<option value="[^"]*">\$\{esc\(s\.name\)\} (\(version \$\{esc\(s\.version \|\| 1\)\}\))<\/option>/);
+  assert.ok(label, 'could not find the option label in marketplace.js');
+  const strip = gui('themes.html').match(/o\.textContent\.replace\(\/(.+?)\/, ''\) === display/);
+  assert.ok(strip, 'could not find the label pattern in publishFromEditor()');
+  const pattern = new RegExp(strip[1]);
+
+  assert.equal('quiet (version 1)'.replace(pattern, ''), 'quiet');
+  assert.equal('my theme (version 12)'.replace(pattern, ''), 'my theme');
+  // labels from before the copy change still work
+  assert.equal('quiet (now version 3)'.replace(pattern, ''), 'quiet');
+  // a name that merely contains the word is left alone
+  assert.equal('version control'.replace(pattern, ''), 'version control');
+});
