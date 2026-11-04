@@ -16,6 +16,17 @@ test('text Notion colored is left out of the theme text color, with its descenda
   }
 });
 
+test('Notion\'s tooltips and toasts keep their own light text, with their descendants', () => {
+  // dark pills with --c-texInvPri / --c-texInvSec text, forcing a light theme's dark text on them made them unreadable
+  const rule = CORE_CSS.split('\n').find(line => line.includes('var(--ns-text) !important'));
+  for (const cls of ['.xb5q0e3', '.x1achzq6']) {
+    assert.ok(rule.includes(`${cls},`) || rule.includes(`${cls})`), `${cls} is skipped`);
+    assert.ok(rule.includes(`${cls} *`), `${cls} children are skipped`);
+  }
+  // the colored text exceptions are still there next to them
+  assert.ok(rule.includes('[style*="color:var(--c-redTex"]'));
+});
+
 test('every color has palette variables that fall back to Notion\'s own token', () => {
   for (const [hue, name] of [['gra', 'gray'], ['bro', 'brown'], ['ora', 'orange'], ['yel', 'yellow'], ['gre', 'green'],
     ['blu', 'blue'], ['pur', 'purple'], ['pin', 'pink'], ['red', 'red']]) {
