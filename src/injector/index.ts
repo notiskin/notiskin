@@ -16,8 +16,17 @@ const coloredText = NOTION_HUES.flatMap(([hue]) => [
   `[style*="color: var(--c-${hue}Tex"]`,
 ]);
 
+// Notion's tooltips and toasts are dark pills with their own light text (--c-texInvPri, --c-texInvSec),
+// the same in light and dark. Forcing --ns-text on them made the text unreadable with a light theme.
+// Notion styles them with atomic classes (the class name comes from the declaration, so it is the same
+// across builds: checked on Notion 7.40.1 and 7.42.1). If Notion ever renames them the exception just stops
+// matching and the pill takes --ns-text again, nothing breaks.
+const inverseText = ['.xb5q0e3', '.x1achzq6'];
+
+const skipText = [...coloredText, ...inverseText];
+
 const COLOR_CSS = [
-  `.notion-app-inner :not(${[...coloredText, ...coloredText.map(sel => `${sel} *`)].join(', ')}) { color: var(--ns-text) !important; }`,
+  `.notion-app-inner :not(${[...skipText, ...skipText.map(sel => `${sel} *`)].join(', ')}) { color: var(--ns-text) !important; }`,
   ...NOTION_HUES.flatMap(([hue, name]) => {
     const text = `var(--ns-color-${name}, var(--c-${hue}TexSec))`;
     const block = `var(--ns-color-${name}-bg, var(--c-${hue}BacSec))`;
