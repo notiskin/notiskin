@@ -54,7 +54,7 @@ Everything was checked on the live backend with real accounts.
 
 ## Phase 5: Starter content and real-app checks
 
-- Starter content: make a bunch of themes and plugins ourselves so Browse has a few good options before other people start publishing. Themes can use the new variables (fonts, light/dark, database colors); plugins can use settings. Publish them from the notiskin account so they are easy to tell apart from community items
+- ✅ Starter content (published October 28 and November 4, 2026 from the notiskin account): 6 themes (Parchment, Midnight Ink, Serif and Mono, Daybreak, Confetti, Quiet) and 4 plugins (Reading Progress, Focus Mode, Wide Pages, Numbered Headings). The source is in `starter/`, and a test keeps it valid. Alongside it: theme variables for Notion's own menus, icons and accents, and plugin API 1.2.0 (in the next release)
 - Real-app checks: things that were only checked against source, a browser page or a fake Notion, and need the packaged app on a real Notion:
   - The theme editor inside the packaged window, and Save and publish for a signed-in author on an existing theme
   - A real plugin with settings enabled in the packaged app
