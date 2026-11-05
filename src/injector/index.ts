@@ -135,12 +135,10 @@ export const CORE_CSS = `
   --ns-topbar-bg: transparent;
   --ns-code-block-bg: transparent;
   --ns-callout-bg: transparent;
-  --ns-inline-code-bg: transparent;
   --ns-hover-bg: transparent;
   --ns-text: inherit;
   --ns-title-text: inherit;
   --ns-link-color: inherit;
-  --ns-inline-code-color: inherit;
   --ns-divider-color: inherit;
   --ns-quote-border-color: inherit;
   --ns-scrollbar-thumb: #aaa;
@@ -155,10 +153,13 @@ export const CORE_CSS = `
 /* the bare <header> around the top bar has its own page-colored background, it shows when Notion fades the bar while you scroll */
 header:has(.notion-topbar) { background: var(--ns-topbar-bg) !important; }
 ${COLOR_CSS}
-.notion-page-block > [placeholder="Untitled"], .notion-title { color: var(--ns-title-text) !important; }
+/* The plain-text rule above counts as two classes (its :not() list weighs one), so these three start from .notion-app-inner too and outrank it */
+.notion-app-inner .notion-page-block h1, .notion-app-inner .notion-page-block h1 *, .notion-app-inner .notion-page-block [placeholder="Untitled"], .notion-app-inner .notion-title { color: var(--ns-title-text) !important; }
 .notion-selectable:hover { background: var(--ns-hover-bg) !important; }
-.notion-link-token { color: var(--ns-link-color) !important; border-bottom-color: var(--ns-link-color) !important; }
-.notion-inline-code { background: var(--ns-inline-code-bg) !important; color: var(--ns-inline-code-color) !important; }
+.notion-app-inner a.notion-link-token, .notion-app-inner a.notion-link-token * { color: var(--ns-link-color) !important; }
+.notion-link-token { border-bottom-color: var(--ns-link-color) !important; }
+/* Notion draws inline code as a plain span with its own tokens inline, so without a theme value it keeps those */
+.notion-app-inner .notion-inline-code-container > span, .notion-app-inner .notion-inline-code { background: var(--ns-inline-code-bg, var(--ca-bacIntTra)) !important; color: var(--ns-inline-code-color, var(--c-redTexSec)) !important; }
 .notion-code-block { background: var(--ns-code-block-bg) !important; }
 .notion-callout-block { background: var(--ns-callout-bg) !important; }
 .notion-divider-block hr { border-color: var(--ns-divider-color) !important; }
