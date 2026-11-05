@@ -953,6 +953,15 @@
 
     loadDeveloper();
 
+    // the count of plugins and skipped files changes as files are saved, so look again while developer mode is on
+    setInterval(async () => {
+      if (document.hidden || !developer.enabled) return;
+      try {
+        const data = await (await fetch('/api/developer')).json();
+        if (!data.error) renderDeveloper(data);
+      } catch { /* the next look tries again */ }
+    }, 4000);
+
 
     // Diagnostics: built on request, already redacted by the server
     async function loadDiagnostics() {

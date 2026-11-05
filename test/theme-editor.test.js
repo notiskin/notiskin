@@ -160,3 +160,31 @@ test('Save and publish finds the theme you own in the "Publish a new version" li
   // a name that merely contains the word is left alone
   assert.equal('version control'.replace(pattern, ''), 'version control');
 });
+
+test('a new theme\'s placeholder comment is swapped for its name, and only the placeholder', () => {
+  const { nameComment, PLACEHOLDER_NAME } = editor;
+  const fresh = START_CSS(PLACEHOLDER_NAME);
+  const named = nameComment(fresh, 'sunset');
+  assert.equal(named.split('\n')[0], '/* sunset */');
+  assert.equal(named.split('\n').slice(1).join('\n'), fresh.split('\n').slice(1).join('\n'), 'nothing else changes');
+  assert.equal(validateThemeCss(named), null);
+  // a first line the person wrote, or no comment at all, stays as it is
+  const own = '/* my own notes */\n:root { --ns-bg: #fff; }\n';
+  assert.equal(nameComment(own, 'sunset'), own);
+  assert.equal(nameComment(':root { --ns-bg: #fff; }\n', 'sunset'), ':root { --ns-bg: #fff; }\n');
+  // the page starts from the same placeholder the helper looks for
+  const fs = require('fs');
+  const page = fs.readFileSync(require('path').join(__dirname, '..', 'src/gui/themes.html'), 'utf-8');
+  assert.match(page, /START_CSS\(nsThemeEditor\.PLACEHOLDER_NAME\)/);
+});
+
+test('Settings looks at the developer folder again while developer mode is on, so its count stays true', () => {
+  const fs = require('fs');
+  const page = fs.readFileSync(require('path').join(__dirname, '..', 'src/gui/settings.html'), 'utf-8');
+  const loop = page.match(/setInterval\(async \(\) => \{[\s\S]*?\}, (\d+)\);/);
+  assert.ok(loop, 'there is a refresh loop');
+  assert.match(loop[0], /developer\.enabled/, 'only while developer mode is on');
+  assert.match(loop[0], /document\.hidden/, 'not while the page is hidden');
+  assert.match(loop[0], /\/api\/developer/);
+  assert.ok(Number(loop[1]) >= 2000, 'not more often than every 2 seconds');
+});
