@@ -192,7 +192,15 @@
     return `#${h.toLowerCase()}`;
   }
 
-  const helpers = { GROUPS, START_CSS, findBlocks, getVar, varsOf, setVar, removeVar, pickerHex };
+  // Swaps the placeholder first line of a new theme for its real name. Anything the person wrote themselves stays
+  const PLACEHOLDER_NAME = 'my theme';
+  function nameComment(css, name) {
+    const placeholder = START_CSS(PLACEHOLDER_NAME).split('\n')[0];
+    if (!css.startsWith(`${placeholder}\n`)) return css;
+    return `/* ${name} */${css.slice(placeholder.length)}`;
+  }
+
+  const helpers = { GROUPS, START_CSS, PLACEHOLDER_NAME, nameComment, findBlocks, getVar, varsOf, setVar, removeVar, pickerHex };
   if (typeof module === 'object' && module.exports) {
     module.exports = helpers;
     return;
@@ -378,6 +386,14 @@
     if (!state.css.trim()) {
       say('The theme is empty.', 'error');
       return null;
+    }
+    // a new theme starts with a placeholder comment, the first save names it
+    if (state.isNew) {
+      const named = nameComment(state.css, name);
+      if (named !== state.css) {
+        state.css = named;
+        refresh();
+      }
     }
     const replace = !state.isNew && name === state.name;
     const res = await host.api('POST', '/theme-editor/save', { name, css: state.css, replace });
