@@ -133,3 +133,56 @@ test('the page API is version 1.2.0 and keeps every older method', () => {
     assert.match(source, new RegExp(`\\n      ${m}\\(`), m);
   }
 });
+
+// How much a selector weighs, enough for the plain selectors in these rules: [classes and attributes, element names]
+const weight = selector => {
+  const parts = selector.trim().split(/[\s>]+/).filter(p => p && p !== '*');
+  let classes = 0;
+  let elements = 0;
+  for (const part of parts) {
+    classes += (part.match(/\.[\w-]+|\[[^\]]+\]/g) || []).length;
+    if (/^[a-z][a-z0-9]*/i.test(part)) elements += 1;
+  }
+  return [classes, elements];
+};
+const ruleFor = text => CORE_CSS.split('\n').find(line => line.includes(text));
+
+test('the link, title and inline code rules are not weaker than the plain-text rule and come after it, so those variables work', () => {
+  // the plain-text rule: .notion-app-inner plus a :not() whose arguments weigh one class. On a tie the later rule wins
+  const blanket = [2, 0];
+  const lines = CORE_CSS.split('\n');
+  const blanketAt = lines.findIndex(line => line.includes('var(--ns-text) !important'));
+  for (const marker of ['a.notion-link-token', 'h1', 'color: var(--ns-inline-code-color']) {
+    const at = lines.findIndex(line => line.includes(marker) && line.includes('{'));
+    assert.ok(at > blanketAt, `${marker} comes after the plain-text rule`);
+    const selectors = lines[at].slice(0, lines[at].indexOf('{')).split(',');
+    for (const selector of selectors) {
+      const w = weight(selector);
+      assert.ok(w[0] > blanket[0] || (w[0] === blanket[0] && w[1] >= blanket[1]), `${selector.trim()} is not weaker than the plain-text rule`);
+    }
+  }
+});
+
+test('--ns-link-color colors the link and the text inside it', () => {
+  const line = ruleFor('a.notion-link-token');
+  assert.match(line, /\.notion-app-inner a\.notion-link-token \*/, 'the text sits in a span inside the link');
+  assert.match(line, /color: var\(--ns-link-color\) !important/);
+  assert.match(CORE_CSS, /\.notion-link-token \{ border-bottom-color: var\(--ns-link-color\) !important; \}/);
+});
+
+test('--ns-title-text colors the page title (an h1 in the page block), not the headings', () => {
+  const line = ruleFor('--ns-title-text) !important');
+  assert.match(line, /\.notion-page-block h1/);
+  assert.match(line, /\.notion-title/);
+  assert.doesNotMatch(line, /header-block/);
+});
+
+test('inline code keeps Notion\'s own look until a theme sets its variables', () => {
+  const root = CORE_CSS.match(/:root \{[^}]*\}/)[0];
+  assert.doesNotMatch(root, /--ns-inline-code/);
+  const line = ruleFor('--ns-inline-code-bg');
+  // Notion draws it as a span in .notion-inline-code-container with these tokens inline
+  assert.match(line, /\.notion-inline-code-container > span/);
+  assert.match(line, /background: var\(--ns-inline-code-bg, var\(--ca-bacIntTra\)\) !important/);
+  assert.match(line, /color: var\(--ns-inline-code-color, var\(--c-redTexSec\)\) !important/);
+});

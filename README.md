@@ -106,7 +106,7 @@ Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain on
 }
 ```
 
-Every variable is optional. The first group (backgrounds, text, links, code, callouts, dividers, the quote bar, the scrollbar) works as an overlay on Notion: one you leave out falls back to see-through (backgrounds) or to Notion's normal color, so set the ones you care about. The newer ones (borders, radius, database colors, fonts, the colored-text palette) leave Notion as it was when you don't set them. What each one changes:
+Every variable is optional. The first group (backgrounds, text, links, code, callouts, dividers, the quote bar, the scrollbar) works as an overlay on Notion: one you leave out falls back to see-through (backgrounds) or to Notion's normal color, so set the ones you care about. Inline code keeps Notion's own look unless you set its two variables. The newer ones (borders, radius, database colors, fonts, the colored-text palette) leave Notion as it was when you don't set them. What each one changes:
 
 | Variable | Changes |
 | --- | --- |
