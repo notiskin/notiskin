@@ -30,7 +30,8 @@
     "publish": "node publish.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "publish:dry-run": "node publish.js --dry-run"
+    "publish:dry-run": "node publish.js --dry-run",
+    "test:browser": "npm run build && playwright test"
   },
   "keywords": [
     "notion",
@@ -54,6 +55,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.65.0",
     "@types/express": "^5.0.6",
     "@types/node": "^26.0.0",
     "electron": "^42.4.1",
