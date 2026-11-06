@@ -169,6 +169,8 @@ notiskin.addStyle('hello', '.notion-sidebar { opacity: 0.9 }');
 
 The page API is version `1.2.0`. Besides `onPageChange`, `onBlockLoad`, `getPageTitle`, `getPageUrl`, `ready` and `settings`, it has `addToolbarButton` (a button in Notion's colors that is put back if Notion rebuilds its top bar) with `removeToolbarButton`, `addStyle(id, css)` with `removeStyle(id)`, `onContentChange(fn)` (like `onBlockLoad`, at most four times a second), `getPageScroller()`, `getPageId()`, `getColorScheme()` and `onColorSchemeChange(fn)`. Notion removes blocks that are far from the screen, so a plugin that reads the page's text only sees what is loaded. See [the docs](https://notiskin.github.io/notiskin/plugins.html).
 
+For editor help (autocomplete, hover docs, mistakes underlined), save [`notiskin.d.ts`](notiskin.d.ts) next to your plugin and start it with `// @ts-check` and `/// <reference path="./notiskin.d.ts" />`. A test keeps the file in step with the real `notiskin` object.
+
 Keep `MutationObserver`s tightly scoped and guard against triggering yourself, or you can freeze Notion.
 
 ### Developer mode

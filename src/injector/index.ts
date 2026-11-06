@@ -170,7 +170,8 @@ ${LOOK_CSS}
 ::-webkit-scrollbar-thumb { background: var(--ns-scrollbar-thumb); border-radius: 3px; }
 `;
 
-const CORE_JS = `
+// exported so a test can run it and compare window.notiskin with notiskin.d.ts
+export const CORE_JS = `
 if (!window.notiskin) {
   window.notiskin = (() => {
     const _pageChangeListeners = [];
