@@ -67,7 +67,14 @@ Everything was checked on the live backend with real accounts.
 
 ## Phase 6: Code health (ongoing, about 10 hours)
 
-- Decide: keep one repository (monorepo) or split into several (polyrepo). Do this first, it decides where the rest lands. Coupled today: the allowlist tests load the edge function's CSS check, the docs site is tested against the app's code, and the tag list lives in four places. Leaning towards staying a monorepo for now, with content (starter themes and plugins) and a types package as the pieces that could live apart. Write the decision and the reason down here before moving anything
+- ✅ Decided (November 6, 2026): three repositories, not one and not many. The split follows what is coupled by code:
+  - **notiskin/notiskin** (this one) keeps the app (CLI, injector, Electron, GUI), the Supabase backend in `supabase/` and the plugin types file (`notiskin.d.ts`, Part 3). These change together: the theme CSS allowlist decides what the app and the marketplace accept, the tag list is copied in four places, and one `npm test` checks all of it. Splitting them would mean two PRs and a deploy order for every allowlist change
+  - **The docs site** (`site/`) moves to its own repository. It only shows pages. Its checks against the app (`test/site.test.js`: every variable, every `notiskin` method, working links, examples that pass the allowlist) must survive the move, either by keeping the test here and fetching the site, or by the app publishing a small list of its variables and methods that the site's repo checks against
+  - **Starter themes and plugins** (`starter/`) move to their own repository. No code coupling, only `test/starter.test.js` (each file passes the allowlist and the plugin header parser), so someone can add a theme without cloning the app
+  - The old docs address `https://notiskin.github.io/notiskin/` is baked into every release since 0.7, and this repository's name can't be reused for the new site, so the new site gets another address and this repository keeps a small redirect page at the old one. New app versions link to the new address (`isOpenableUrl()` in `server.ts` allows only the docs address)
+  - Nothing is moved yet. The moves are their own PRs, done after the rest of Phase 6 so they don't collide with the GUI refactor: docs site first (with the redirect), starter content second
+- Move the docs site to its own repository (see the decision above)
+- Move the starter themes and plugins to their own repository (see the decision above)
 - Pull duplicated code out of the four GUI pages into one shared script: the escape helper, the Supabase client, the update banner, and about 40 inline `onclick` handlers. Removing the inline handlers also allows a strict Content Security Policy
 - Browser tests for the GUI
 - Type definitions for plugin authors
