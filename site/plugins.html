@@ -15,7 +15,7 @@
 <a href="index.html">Start here</a>
 <a href="themes.html">Making themes</a>
 <a href="plugins.html" aria-current="page">Making plugins</a>
-<div class="toc"><a href="#first">Your first plugin</a><a href="#api">The notiskin object</a><a href="#lifecycle">When a plugin runs</a><a href="#settings">Settings</a><a href="#dev">Developer mode</a><a href="#safety">Safety and review</a><a href="#publish">Publishing and versions</a></div>
+<div class="toc"><a href="#first">Your first plugin</a><a href="#api">The notiskin object</a><a href="#types">Editor help</a><a href="#lifecycle">When a plugin runs</a><a href="#settings">Settings</a><a href="#dev">Developer mode</a><a href="#safety">Safety and review</a><a href="#publish">Publishing and versions</a></div>
 <h2>More</h2>
 <a href="https://github.com/notiskin/notiskin">Source on GitHub</a>
 <a href="https://github.com/notiskin/notiskin/releases">Downloads</a>
@@ -62,6 +62,10 @@
 <tr><td><code>settings.get(key)</code>, <code>getAll()</code>, <code>onChange(fn)</code></td><td>The options a plugin declares, see <a href="#settings">Settings</a>.</td></tr>
 </tbody></table></div>
 <p>Anything else is plain browser JavaScript: <code>document.querySelector</code>, <code>MutationObserver</code>, <code>fetch</code> and so on. Notion's page structure changes when Notion updates, so prefer <code>.notion-*</code> class names and check that what you looked for was found.</p>
+<h3 id="types">Editor help (type definitions)</h3>
+<p>The <a href="https://github.com/notiskin/notiskin/blob/main/notiskin.d.ts"><code>notiskin.d.ts</code></a> file describes the whole <code>notiskin</code> object, so an editor like VS Code can complete method names, show what each one takes and returns, and underline mistakes. Save it next to your plugin and start the plugin with these two lines. Nothing about the file ships with your plugin, and Notiskin's own tests keep it in step with the real object.</p>
+<pre><code>// @ts-check
+/// &lt;reference path="./notiskin.d.ts" /&gt;</code></pre>
 <div class="note"><p><strong>Watch your observers.</strong> A <code>MutationObserver</code> that changes the page it is watching will call itself forever and freeze Notion. Watch the smallest part of the page you can, wrap the callback in <code>try/catch</code>, and add a guard so it does nothing when it just ran.</p></div>
 
 <div class="note"><p><strong>Notion removes what is far from the screen.</strong> On a long page, blocks above and below the window are taken out of the page until you scroll back to them, so a plugin that reads the page's text only sees what is loaded. Use <code>getPageScroller()</code> for how far down the page is, which stays correct.</p></div>
