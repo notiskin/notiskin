@@ -77,7 +77,7 @@ Everything was checked on the live backend with real accounts.
 - Move the starter themes and plugins to their own repository (see the decision above)
 - ✅ The four GUI pages share one script (`common.js`: the escape helper, the Supabase client, the update banner, notifications) and each page's code lives in its own file. The ~70 inline `onclick` and similar handlers are gone, so every page is served with a strict Content Security Policy (scripts only from the app's own server plus one nonced bootstrap, connections only to the app and Supabase). Looks and works the same in light and dark
 - ✅ Browser tests for the GUI: Playwright (Chromium) against the real server, with Supabase, Notion and the default browser faked, every test in light and dark (`npm run test:browser`, run in CI). Covers installed lists and switching, plugin toggles and the warning, Browse (search, sort, tags, install, report), Publish and Submissions, the Update and pulled-item rows, Review, Settings (sign-in, Install into Notion states, safe mode, updates), the welcome tour and the policy
-- Type definitions for plugin authors
+- ✅ Type definitions for plugin authors: `notiskin.d.ts` in the repository root, linked from the plugin docs and the README. A test runs the code that makes `window.notiskin` and checks every name, method and the version against the file, type-checks the starter plugins with it, and checks that wrong calls are errors. Publishing it as an npm package (`@notiskin/types`) stays possible later from the same file
 
 ## Later, maybe
 
