@@ -52,6 +52,18 @@ jobs:
       - run: npm ci
       # drives the injector against a fake Notion built with Electron
       - run: npm run test:integration
+      # the GUI pages in a real Chromium, against the real server with Supabase and Notion faked
+      - run: npx playwright install chromium
+      - run: npm run test:browser
       - run: npx electron-builder --mac dir --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # kept when the browser tests fail, with a trace of each failed test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore

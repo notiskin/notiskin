@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist/', 'release/', 'node_modules/', 'supabase/', 'src/gui/*.html'] },
+  { ignores: ['dist/', 'release/', 'node_modules/', 'supabase/', 'src/gui/*.html', 'test-results/', 'playwright-report/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -58,12 +58,17 @@ export default tseslint.config(
     rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
   },
   {
-    files: ['test/**/*.js', 'scripts/**/*.js', 'publish.js', '*.mjs'],
+    files: ['test/**/*.js', 'scripts/**/*.js', 'publish.js', 'playwright.config.js', '*.mjs'],
     languageOptions: { globals: globals.node, sourceType: 'commonjs' },
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
+  },
+  {
+    // the browser tests hand small functions to page.evaluate, which run in the page
+    files: ['test/browser/**/*.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
     files: ['*.mjs'],

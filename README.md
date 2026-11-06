@@ -213,6 +213,8 @@ npm run lint
 npm run typecheck
 npm test
 npm run test:integration    # runs the injector and the patcher against a fake Notion made with Electron
+npx playwright install chromium   # once
+npm run test:browser        # the GUI pages in Chromium, against the real server with Supabase and Notion faked (needs port 3845 free)
 ```
 
 Set `NOTISKIN_DIR=/some/folder` to use a throwaway data folder instead of `~/.notiskin`. Tests also set `NOTISKIN_NOTION_APP` to patch a copy of the fake Notion in a temp folder, never `/Applications`. macOS App Management doesn't guard that temp folder, so only a real Mac can check the App Management behaviour.

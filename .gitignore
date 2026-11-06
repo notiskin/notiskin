@@ -8,3 +8,7 @@ notiskin.config.json
 .claude/
 supabase/.temp/
 coverage/
+
+# Playwright
+test-results/
+playwright-report/
