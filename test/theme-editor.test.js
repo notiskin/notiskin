@@ -149,7 +149,7 @@ test('Save and publish finds the theme you own in the "Publish a new version" li
   // the label the list is drawn with, and the pattern publishFromEditor() strips from it, are in different files
   const label = gui('marketplace.js').match(/<option value="[^"]*">\$\{esc\(s\.name\)\} (\(version \$\{esc\(s\.version \|\| 1\)\}\))<\/option>/);
   assert.ok(label, 'could not find the option label in marketplace.js');
-  const strip = gui('themes.html').match(/o\.textContent\.replace\(\/(.+?)\/, ''\) === display/);
+  const strip = gui('themes.js').match(/o\.textContent\.replace\(\/(.+?)\/, ''\) === display/);
   assert.ok(strip, 'could not find the label pattern in publishFromEditor()');
   const pattern = new RegExp(strip[1]);
 
@@ -174,13 +174,13 @@ test('a new theme\'s placeholder comment is swapped for its name, and only the p
   assert.equal(nameComment(':root { --ns-bg: #fff; }\n', 'sunset'), ':root { --ns-bg: #fff; }\n');
   // the page starts from the same placeholder the helper looks for
   const fs = require('fs');
-  const page = fs.readFileSync(require('path').join(__dirname, '..', 'src/gui/themes.html'), 'utf-8');
+  const page = fs.readFileSync(require('path').join(__dirname, '..', 'src/gui/themes.js'), 'utf-8');
   assert.match(page, /START_CSS\(nsThemeEditor\.PLACEHOLDER_NAME\)/);
 });
 
 test('Settings looks at the developer folder again while developer mode is on, so its count stays true', () => {
   const fs = require('fs');
-  const page = fs.readFileSync(require('path').join(__dirname, '..', 'src/gui/settings.html'), 'utf-8');
+  const page = fs.readFileSync(require('path').join(__dirname, '..', 'src/gui/settings.js'), 'utf-8');
   const loop = page.match(/setInterval\(async \(\) => \{[\s\S]*?\}, (\d+)\);/);
   assert.ok(loop, 'there is a refresh loop');
   assert.match(loop[0], /developer\.enabled/, 'only while developer mode is on');
