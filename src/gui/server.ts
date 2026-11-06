@@ -133,7 +133,28 @@ function tokenMatches(given: unknown): boolean {
   return timingSafeEqual(Buffer.from(given), Buffer.from(SESSION_TOKEN));
 }
 
-const BOOTSTRAP = `<script>
+// The pages run under a strict Content Security Policy: scripts only from this server, plus the one
+// inline bootstrap below, which carries a nonce made fresh for every page response. No inline event
+// handlers (the pages use data-click and friends, see common.js), no eval, nothing from another site
+// but the marketplace's own Supabase project. Inline styles stay allowed, the pages use them widely.
+// Exported for the tests
+export function contentSecurityPolicy(nonce?: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self'${nonce ? ` 'nonce-${nonce}'` : ''}`,
+    `connect-src 'self' ${new URL(SUPABASE_URL).origin}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
+
+function bootstrapScript(nonce: string): string {
+  return `<script nonce="${nonce}">
 (() => {
   const token = ${JSON.stringify(SESSION_TOKEN)};
   const originalFetch = window.fetch.bind(window);
@@ -149,12 +170,14 @@ const BOOTSTRAP = `<script>
   };
 })();
 </script>`;
+}
 
 function sendPage(file: string) {
   return (_req: Request, res: Response) => {
     const html = readFileSync(join(pagesDir, file), 'utf-8');
-    res.set('Cache-Control', 'no-store');
-    res.type('html').send(html.replace(/<head>/i, `<head>\n${BOOTSTRAP}`));
+    const nonce = randomBytes(16).toString('base64');
+    res.set({ 'Cache-Control': 'no-store', 'Content-Security-Policy': contentSecurityPolicy(nonce) });
+    res.type('html').send(html.replace(/<head>/i, () => `<head>\n${bootstrapScript(nonce)}`));
   };
 }
 
@@ -408,7 +431,7 @@ app.disable('x-powered-by');
 app.use((req, res, next) => {
   res.set({
     'X-Frame-Options': 'DENY',
-    'Content-Security-Policy': "frame-ancestors 'none'",
+    'Content-Security-Policy': contentSecurityPolicy(),
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
   });
@@ -487,6 +510,11 @@ const ASSETS: Record<string, string> = {
   '/tour.js': 'js',
   '/marketplace.js': 'js',
   '/theme-editor.js': 'js',
+  '/common.js': 'js',
+  '/themes.js': 'js',
+  '/plugins.js': 'js',
+  '/settings.js': 'js',
+  '/review.js': 'js',
   '/fonts/fraunces.woff2': 'font/woff2',
   '/fonts/inter.woff2': 'font/woff2',
 };

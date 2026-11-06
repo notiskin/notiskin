@@ -574,11 +574,16 @@ test('update checks need the token, and only the desktop app checks', async () =
 test('every page says a new version is out and links to the download, never promising an install', () => {
   const { readFileSync } = require('fs');
   const { join } = require('path');
+  const gui = file => readFileSync(join(__dirname, '..', 'src', 'gui', file), 'utf-8');
+  // Themes, Plugins and Review share the banner text in common.js, Settings has its own update section
+  assert.match(gui('common.js'), /is out`/);
+  assert.match(gui('settings.js'), /is out`/);
   for (const page of ['themes', 'plugins', 'review', 'settings']) {
-    const html = readFileSync(join(__dirname, '..', 'src', 'gui', `${page}.html`), 'utf-8');
-    assert.match(html, /is out`/, page);
-    assert.match(html, /onclick="openReleasesPage\(\)"[^>]*>Download<\/button>/, page);
-    assert.doesNotMatch(html, /Ready to install`|ready`;|>Install<\/a>/, page);
+    const html = gui(`${page}.html`);
+    assert.match(html, /data-click="openReleasesPage"[^>]*>Download<\/button>/, page);
+    for (const file of [`${page}.html`, `${page}.js`, 'common.js']) {
+      assert.doesNotMatch(gui(file), /Ready to install`|ready`;|>Install<\/a>/, `${page}: ${file}`);
+    }
   }
 });
 
@@ -971,5 +976,87 @@ test('developer mode: the folder picker is only offered inside the desktop app',
     assert.equal((await request('POST', '/api/developer/choose-folder')).status, 403);
   } finally {
     folderPicker.choose = original;
+  }
+});
+
+// ---- Content Security Policy: no inline handlers, scripts only from the server and the nonced bootstrap ----
+
+const PAGES = ['/', '/plugins.html', '/review.html', '/settings.html'];
+const GUI = require('path').join(__dirname, '..', 'src', 'gui');
+const guiFile = file => require('fs').readFileSync(require('path').join(GUI, file), 'utf-8');
+
+test('every page carries the strict policy, and its nonce is the one on the bootstrap script', async () => {
+  const nonces = new Set();
+  for (const path of PAGES) {
+    const res = await request('GET', path);
+    const csp = res.headers['content-security-policy'];
+    const nonce = csp.match(/script-src 'self' 'nonce-([A-Za-z0-9+/=]+)'/)?.[1];
+    assert.ok(nonce, `${path}: the policy has a nonce`);
+    nonces.add(nonce);
+    assert.match(csp, /^default-src 'self'; /, path);
+    assert.match(csp, /connect-src 'self' https:\/\/[a-z0-9.-]+\.supabase\.co;/, path);
+    assert.match(csp, /style-src 'self' 'unsafe-inline'/, path);
+    assert.match(csp, /img-src 'self' data:/, path);
+    assert.match(csp, /frame-ancestors 'none'/, path);
+    assert.doesNotMatch(csp, /script-src[^;]*unsafe-/, `${path}: scripts never get unsafe-inline or unsafe-eval`);
+    // the only inline script is the bootstrap, it has the nonce, everything else is src="/..."
+    const scripts = [...res.text.matchAll(/<script([^>]*)>/g)].map(m => m[1]);
+    const inline = scripts.filter(attrs => !/\bsrc=/.test(attrs));
+    assert.equal(inline.length, 1, `${path}: one inline script`);
+    assert.equal(inline[0].trim(), `nonce="${nonce}"`, `${path}: its nonce`);
+    for (const attrs of scripts.filter(a => /\bsrc=/.test(a))) assert.match(attrs, /^ src="\/[a-z/.-]+"$/, path);
+  }
+  assert.equal(nonces.size, PAGES.length, 'a fresh nonce for every response');
+  // other responses (assets, the API, the sign-in callback) get the policy without a nonce
+  const css = await request('GET', '/brand.css');
+  assert.match(css.headers['content-security-policy'], /script-src 'self'; /);
+  const api = await request('GET', '/api/status', { headers: authed() });
+  assert.match(api.headers['content-security-policy'], /script-src 'self'; /);
+});
+
+test('the pages have no inline event handlers, javascript: links or eval the policy would block', () => {
+  for (const file of ['themes', 'plugins', 'review', 'settings'].map(p => `${p}.html`).concat(['themes', 'plugins', 'review', 'settings', 'marketplace', 'tour', 'theme-editor'].map(p => `${p}.js`))) {
+    const text = guiFile(file);
+    assert.doesNotMatch(text, /\son(click|change|input|submit|mouseenter|mouseleave|mouseover|keydown|keyup|load|error|focus|blur)\s*=\s*["'{]/i, `${file}: inline handler`);
+    assert.doesNotMatch(text, /href\s*=\s*["']javascript:/i, `${file}: javascript: link`);
+    assert.doesNotMatch(text, /\beval\(|new Function\(/, `${file}: eval`);
+  }
+});
+
+test('every script a page loads is served, and every action the markup names is registered', async () => {
+  const registered = new Set(['stop', 'stopAndPrevent']);
+  const used = [];
+  for (const [page, script] of [['themes', 'themes.js'], ['plugins', 'plugins.js'], ['review', 'review.js'], ['settings', 'settings.js']]) {
+    const html = guiFile(`${page}.html`);
+    const js = guiFile(script);
+    for (const m of html.matchAll(/<script src="(\/[^"]+)"/g)) {
+      assert.equal((await request('GET', m[1])).status, 200, `${page}: ${m[1]}`);
+    }
+    // the page registers with nsActions({ ... }): plain names, name: fn and name() { ... } methods
+    const block = js.match(/nsActions\(\{([\s\S]*?)\}\);/)?.[1];
+    assert.ok(block, `${script} registers its actions`);
+    let flat = block.replace(/\/\/.*$/gm, '');
+    for (let prev = ''; prev !== flat;) { prev = flat; flat = flat.replace(/\{[^{}]*\}/g, ''); }
+    for (let prev = ''; prev !== flat;) { prev = flat; flat = flat.replace(/\([^()]*\)/g, ''); }
+    const mine = new Set([...registered, ...flat.split(',').map(part => part.trim().match(/^([A-Za-z_]\w*)\s*(?::|$)/)?.[1]).filter(Boolean)]);
+    // data-click="name" in the HTML, and nsAct('click', 'name', ...) in the scripts it builds markup in
+    const names = [
+      ...html.matchAll(/data-(?:click|change|input|submit|mouseenter|mouseleave)="([A-Za-z_]\w*)"/g),
+      ...js.matchAll(/nsAct\('[a-z]+', '([A-Za-z_]\w*)'/g),
+    ].map(m => m[1]);
+    assert.ok(names.length > 0, page);
+    for (const name of names) used.push([page, name, mine.has(name)]);
+  }
+  const missing = used.filter(([, , ok]) => !ok).map(([page, name]) => `${page}: ${name}`);
+  assert.deepEqual(missing, [], 'actions used in markup but never registered');
+});
+
+test('the pages share one Supabase address and key, the same ones the server allows in its policy', () => {
+  const common = guiFile('common.js');
+  const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = require('../dist/utils/constants');
+  assert.ok(common.includes(`const SUPABASE_URL = '${SUPABASE_URL}';`), 'common.js has the server\'s Supabase URL');
+  assert.ok(common.includes(`const SUPABASE_KEY = '${SUPABASE_PUBLISHABLE_KEY}';`), 'and its publishable key');
+  for (const page of ['themes', 'plugins', 'review', 'settings']) {
+    assert.doesNotMatch(guiFile(`${page}.js`), /const (SUPABASE_URL|SUPABASE_KEY|db) =|function (esc|githubUsername|hideReviewLink|checkUpdateBanner|openReleasesPage)\(/, `${page}.js does not carry its own copy`);
   }
 });

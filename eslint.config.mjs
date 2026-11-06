@@ -24,6 +24,34 @@ export default tseslint.config(
     rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
   },
   {
+    // everything common.js declares at the top is what the other scripts call
+    files: ['src/gui/common.js'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { vars: 'local', args: 'none', caughtErrors: 'none' }],
+    },
+  },
+  {
+    // the page scripts (themes.js, plugins.js, settings.js, review.js) share one global scope with
+    // common.js, marketplace.js and theme-editor.js, which are loaded before them. Declared here so
+    // a typo or a missing script is caught. Unused arguments are fine: an action is called with the
+    // markup's arguments and then the event, and takes only the ones it needs
+    files: ['src/gui/themes.js', 'src/gui/plugins.js', 'src/gui/settings.js', 'src/gui/review.js'],
+    languageOptions: {
+      globals: {
+        ...Object.fromEntries(
+          [
+            'SUPABASE_URL', 'SUPABASE_KEY', 'DOCS_URL', 'db', 'esc', 'githubUsername', 'hideReviewLink',
+            'showNotif', 'openExternal', 'openDocs', 'openReleasesPage', 'checkUpdateBanner', 'nsActions', 'nsAct',
+            'nsVersions', 'nsBrowse', 'nsTheme', 'nsThemeEditor',
+          ].map(name => [name, 'readonly'])
+        ),
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { vars: 'local', args: 'none', caughtErrors: 'none' }],
+    },
+  },
+  {
     // plugins run inside Notion's page, where `notiskin` is provided by the injector
     files: ['starter/plugins/*.js'],
     languageOptions: { globals: { ...globals.browser, notiskin: 'readonly' }, sourceType: 'script' },

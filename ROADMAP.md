@@ -75,7 +75,7 @@ Everything was checked on the live backend with real accounts.
   - Nothing is moved yet. The moves are their own PRs, done after the rest of Phase 6 so they don't collide with the GUI refactor: docs site first (with the redirect), starter content second
 - Move the docs site to its own repository (see the decision above)
 - Move the starter themes and plugins to their own repository (see the decision above)
-- Pull duplicated code out of the four GUI pages into one shared script: the escape helper, the Supabase client, the update banner, and about 40 inline `onclick` handlers. Removing the inline handlers also allows a strict Content Security Policy
+- ✅ The four GUI pages share one script (`common.js`: the escape helper, the Supabase client, the update banner, notifications) and each page's code lives in its own file. The ~70 inline `onclick` and similar handlers are gone, so every page is served with a strict Content Security Policy (scripts only from the app's own server plus one nonced bootstrap, connections only to the app and Supabase). Looks and works the same in light and dark
 - Browser tests for the GUI
 - Type definitions for plugin authors
 
