@@ -74,14 +74,15 @@ const SESSION_TOKEN = randomBytes(32).toString('hex');
 const ALLOWED_HOSTS = new Set([`localhost:${GUI_PORT}`, `127.0.0.1:${GUI_PORT}`]);
 const ALLOWED_ORIGINS = new Set([...ALLOWED_HOSTS].map(h => `http://${h}`));
 const OPEN_EXTERNAL_HOSTS = new Set(['github.com', 'www.github.com', 'gist.github.com']);
-// Notiskin's own docs (the site/ folder, published with GitHub Pages), and nothing else on github.io
+// Notiskin's own docs, https://notiskin.github.io/ (the notiskin/notiskin.github.io repository). Everything on that
+// host is published by the notiskin account, which includes the redirect page at /notiskin/ that releases from
+// 0.7 to 0.10.2 link to. No other github.io host
 const DOCS_HOST = 'notiskin.github.io';
-const DOCS_PATH = '/notiskin/';
 
 // links the app may open in the browser: GitHub, and Notiskin's own docs
 export function isOpenableUrl(url: URL): boolean {
   if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
-  return OPEN_EXTERNAL_HOSTS.has(url.hostname) || (url.hostname === DOCS_HOST && url.pathname.startsWith(DOCS_PATH));
+  return OPEN_EXTERNAL_HOSTS.has(url.hostname) || url.hostname === DOCS_HOST;
 }
 const ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 

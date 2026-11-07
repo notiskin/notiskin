@@ -77,6 +77,6 @@ test('the guide link on Publish opens the docs in the browser, not in the app', 
   await page.goto('/plugins.html');
   await page.locator('.tab-btn[data-tab=publish]').click();
   await page.getByRole('link', { name: 'Guide to making plugins' }).click();
-  await expect.poll(async () => (await ns.calls()).fakebin).toContain('open https://notiskin.github.io/notiskin/plugins.html');
+  await expect.poll(async () => (await ns.calls()).fakebin).toContain('open https://notiskin.github.io/plugins.html');
   expect(new URL(page.url()).pathname).toBe('/plugins.html');
 });

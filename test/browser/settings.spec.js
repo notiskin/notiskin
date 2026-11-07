@@ -227,7 +227,7 @@ test('the update section says a new version is out, with a Download link and no 
 test('the docs button opens the docs in the browser', async ({ page, ns }) => {
   await page.goto('/settings.html');
   await page.locator('#docs-btn').click();
-  await expect.poll(async () => (await ns.calls()).fakebin).toContain('open https://notiskin.github.io/notiskin/');
+  await expect.poll(async () => (await ns.calls()).fakebin).toContain('open https://notiskin.github.io/');
 });
 
 test('Clear themes empties the folder', async ({ page, ns }) => {

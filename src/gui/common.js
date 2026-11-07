@@ -50,7 +50,7 @@ function showNotif(message) {
 
 // ---- links the app opens in the default browser (the server decides what is allowed) ----
 
-const DOCS_URL = 'https://notiskin.github.io/notiskin/';
+const DOCS_URL = 'https://notiskin.github.io/';
 
 async function openExternal(url) {
   await fetch('/api/open-external', {
