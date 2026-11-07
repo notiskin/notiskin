@@ -78,7 +78,7 @@ An admin password can't get past App Management: macOS checks which app asks, no
 
 ## Documentation
 
-Guides for making themes and plugins (every variable, the `notiskin` object, settings, developer mode, how publishing and review work) are at **https://notiskin.github.io/notiskin/**. The pages live in the [`site/`](site/) folder and are published from there, and the app links to them from the Publish tabs and Settings → Help.
+Guides for making themes and plugins (every variable, the `notiskin` object, settings, developer mode, how publishing and review work) are at **https://notiskin.github.io/**. The pages live in their own repository, [notiskin/notiskin.github.io](https://github.com/notiskin/notiskin.github.io), which also has the test that keeps them true to this code (a new variable or `notiskin` method fails it until the page documents it). The app links to them from the Publish tabs and Settings → Help. The `site/` folder here only holds redirect pages for the old address `https://notiskin.github.io/notiskin/`, which releases 0.7 to 0.10.2 still open.
 
 ## Writing a theme
 
@@ -167,7 +167,7 @@ notiskin.addToolbarButton('Hello', () => alert('hi'));
 notiskin.addStyle('hello', '.notion-sidebar { opacity: 0.9 }');
 ```
 
-The page API is version `1.2.0`. Besides `onPageChange`, `onBlockLoad`, `getPageTitle`, `getPageUrl`, `ready` and `settings`, it has `addToolbarButton` (a button in Notion's colors that is put back if Notion rebuilds its top bar) with `removeToolbarButton`, `addStyle(id, css)` with `removeStyle(id)`, `onContentChange(fn)` (like `onBlockLoad`, at most four times a second), `getPageScroller()`, `getPageId()`, `getColorScheme()` and `onColorSchemeChange(fn)`. Notion removes blocks that are far from the screen, so a plugin that reads the page's text only sees what is loaded. See [the docs](https://notiskin.github.io/notiskin/plugins.html).
+The page API is version `1.2.0`. Besides `onPageChange`, `onBlockLoad`, `getPageTitle`, `getPageUrl`, `ready` and `settings`, it has `addToolbarButton` (a button in Notion's colors that is put back if Notion rebuilds its top bar) with `removeToolbarButton`, `addStyle(id, css)` with `removeStyle(id)`, `onContentChange(fn)` (like `onBlockLoad`, at most four times a second), `getPageScroller()`, `getPageId()`, `getColorScheme()` and `onColorSchemeChange(fn)`. Notion removes blocks that are far from the screen, so a plugin that reads the page's text only sees what is loaded. See [the docs](https://notiskin.github.io/plugins.html).
 
 For editor help (autocomplete, hover docs, mistakes underlined), save [`notiskin.d.ts`](notiskin.d.ts) next to your plugin and start it with `// @ts-check` and `/// <reference path="./notiskin.d.ts" />`. A test keeps the file in step with the real `notiskin` object.
 

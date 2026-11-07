@@ -102,10 +102,9 @@ test('marketplace install validates its input before touching the network', asyn
 test('open-external only allows GitHub https links and Notiskin\'s own docs', async () => {
   const bad = [
     'file:///etc/passwd', 'http://github.com', 'https://evil.test', 'not a url',
-    // the docs are one project on github.io, not the whole domain, and a look-alike host or a smuggled login is not them
-    'https://notiskin.github.io/other/', 'https://notiskin.github.io/', 'https://evil.github.io/notiskin/', 'http://notiskin.github.io/notiskin/',
-    'https://notiskin.github.io.evil.test/notiskin/', 'https://user:pw@notiskin.github.io/notiskin/', 'https://notiskin.github.io:8443/notiskin/',
-    'https://notiskin.github.io/notiskinx/',
+    // the docs are notiskin.github.io, not the whole github.io domain, and a look-alike host or a smuggled login is not them
+    'https://evil.github.io/', 'https://evil.github.io/notiskin/', 'https://github.io/', 'http://notiskin.github.io/',
+    'https://notiskin.github.io.evil.test/', 'https://user:pw@notiskin.github.io/', 'https://notiskin.github.io:8443/', 'https://xnotiskin.github.io/',
   ];
   for (const url of bad) {
     const res = await request('POST', '/api/open-external', { headers: authed(), body: { url } });
@@ -113,7 +112,7 @@ test('open-external only allows GitHub https links and Notiskin\'s own docs', as
     assert.equal(isOpenableUrl(new URL(url.includes('://') ? url : 'https://x.test')), false, url);
   }
   // what is allowed (not opened here, that would start a browser)
-  for (const url of ['https://github.com/notiskin/notiskin', 'https://gist.github.com/x/1', 'https://notiskin.github.io/notiskin/', 'https://notiskin.github.io/notiskin/themes.html#rules']) {
+  for (const url of ['https://github.com/notiskin/notiskin', 'https://gist.github.com/x/1', 'https://notiskin.github.io/', 'https://notiskin.github.io/themes.html#rules', 'https://notiskin.github.io/notiskin/']) {
     assert.equal(isOpenableUrl(new URL(url)), true, url);
   }
 });

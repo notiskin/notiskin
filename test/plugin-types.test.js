@@ -179,5 +179,4 @@ test('notiskin.d.ts is valid on its own, and the repository points to it', () =>
   const problems = check('empty.js', '');
   assert.deepEqual(problems, []);
   assert.match(fs.readFileSync(path.join(root, 'README.md'), 'utf-8'), /notiskin\.d\.ts/);
-  assert.match(fs.readFileSync(path.join(root, 'site', 'plugins.html'), 'utf-8'), /notiskin\.d\.ts/);
 });
