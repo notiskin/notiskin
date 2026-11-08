@@ -1,6 +1,7 @@
 // notiskin.d.ts is what plugin authors get for editor help. These tests keep it true to the code that makes
-// window.notiskin (CORE_JS in src/injector/index.ts): same names, same kinds, same version, and the starter
-// plugins and a few correct and wrong calls type-check the way they should
+// window.notiskin (CORE_JS in src/injector/index.ts): same names, same kinds, same version, and a few correct
+// and wrong calls type-check the way they should. The starter plugins (github.com/notiskin/starter) are
+// type-checked against this file by that repository's CI
 require('./helpers');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -112,16 +113,6 @@ function check(fileName, source, options = LIBS) {
   const program = ts.createProgram([dtsPath, virtual], options, host);
   return ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
 }
-
-test('the starter plugins type-check against notiskin.d.ts', () => {
-  const dir = path.join(root, 'starter', 'plugins');
-  const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
-  assert.ok(files.length >= 4);
-  for (const file of files) {
-    const problems = check(`starter-${file}`, fs.readFileSync(path.join(dir, file), 'utf-8'));
-    assert.deepEqual(problems, [], file);
-  }
-});
 
 test('a plugin that uses every method correctly has no type errors', () => {
   const good = `
