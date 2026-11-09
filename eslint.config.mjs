@@ -52,12 +52,6 @@ export default tseslint.config(
     },
   },
   {
-    // plugins run inside Notion's page, where `notiskin` is provided by the injector
-    files: ['starter/plugins/*.js'],
-    languageOptions: { globals: { ...globals.browser, notiskin: 'readonly' }, sourceType: 'script' },
-    rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
-  },
-  {
     files: ['test/**/*.js', 'scripts/**/*.js', 'publish.js', 'playwright.config.js', '*.mjs'],
     languageOptions: { globals: globals.node, sourceType: 'commonjs' },
     rules: {
