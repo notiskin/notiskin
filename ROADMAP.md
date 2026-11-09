@@ -65,7 +65,7 @@ Everything was checked on the live backend with real accounts.
   - ✅ Reopening Notion from the Dock, `notion://` links and no open TCP port (only Notiskin's own server on 127.0.0.1:3845). Checked by opening the app the way the Dock does, not by a physical Dock click
   - Still open: the watcher repairing a real Notion update by itself ("Repair automatically after Notion updates" is off by default, turn it on before the next update; one-click Repair after an update is proven), and whether Notion relaunches itself after its own update (it did not within 30 seconds on 7.40.1 to 7.42.1)
 
-## Phase 6: Code health (ongoing, about 10 hours)
+## ✅ Phase 6: Code health (done November 2026, released in 0.11.0)
 
 - ✅ Decided (November 6, 2026): three repositories, not one and not many. The split follows what is coupled by code:
   - **notiskin/notiskin** (this one) keeps the app (CLI, injector, Electron, GUI), the Supabase backend in `supabase/` and the plugin types file (`notiskin.d.ts`, Part 3). These change together: the theme CSS allowlist decides what the app and the marketplace accept, the tag list is copied in four places, and one `npm test` checks all of it. Splitting them would mean two PRs and a deploy order for every allowlist change
