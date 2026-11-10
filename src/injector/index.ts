@@ -86,6 +86,10 @@ export const TOKEN_VARS: Array<[string, string[]]> = [
   ['icon-color', ['--c-icoPri', '--c-icoSec']],
   ['selected-bg', ['--ca-sidIteSelBac']],
   ['control-hover-bg', ['--ca-bacIntTra', '--ca-staHov', '--ca-butHovBac', '--ca-tabRowHovBac', '--ca-outButHovBac', '--ca-ligGraButHovBac']],
+  // the whole card of a gallery view, preview area included (inline background: var(--cd-colGalPreCarBac), read on a public Notion page)
+  ['gallery-card-bg', ['--cd-colGalPreCarBac']],
+  // the faint text an empty title shows ("New page")
+  ['title-placeholder', ['--cl-pagTitPlaTexCol']],
 ];
 
 // Notion's blue is a base color plus see-through tints of it, the tints are the same color at a lower alpha
@@ -119,6 +123,9 @@ export function tokenCss(themeCss: string): string {
   if (sets('selection-bg')) rules.push('.notion-app-inner ::selection { background: var(--ns-selection-bg); }');
   // Notion sets the caret color inline on every editable block
   if (sets('caret-color')) rules.push('.notion-app-inner [contenteditable] { caret-color: var(--ns-caret-color) !important; }');
+  // the circle behind today's date in a calendar view uses Notion's red accent inline. Only that element, the same red
+  // token also paints delete buttons and warnings
+  if (sets('calendar-today-bg')) rules.push('.notion-calendar-view-day[style*="--c-redBacAccPri"] { background: var(--ns-calendar-today-bg) !important; }');
   return rules.join('\n');
 }
 
