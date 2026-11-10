@@ -124,6 +124,8 @@ Every variable is optional. The first group (backgrounds, text, links, code, cal
 | `--ns-table-header-bg` | the header row of table views |
 | `--ns-table-row-hover-bg` | a hovered row of a table view |
 | `--ns-board-card-bg` | cards in board views |
+| `--ns-gallery-card-bg` | cards in gallery views, preview area included |
+| `--ns-calendar-today-bg` | the circle behind today's date in calendar views (Notion uses red, the date stays white) |
 | `--ns-font` | the main font |
 | `--ns-font-title` | the page title and headings (follows `--ns-font` if you don't set it) |
 | `--ns-font-code` | code blocks and inline code |
@@ -135,6 +137,7 @@ Every variable is optional. The first group (backgrounds, text, links, code, cal
 | `--ns-icon-color` | icons |
 | `--ns-selection-bg` | selected text, give it some see-through like `#2563eb40` |
 | `--ns-caret-color` | the text cursor |
+| `--ns-title-placeholder` | the faint text an empty title shows, like "New page" |
 
 The three database colors (`--ns-table-header-bg`, `--ns-table-row-hover-bg`, `--ns-board-card-bg`) are painted over what Notion draws, so use a plain color, not a gradient. 
 Fonts take a list of up to 8 names, quoted when they have spaces. They pick fonts that are installed on the Mac, nothing is downloaded: `--ns-font: "Inter Display", "Helvetica Neue", sans-serif;`. If you set no font variable at all, Notion's fonts stay.

@@ -93,12 +93,12 @@ test('Notion\'s own interface colors are only overridden for the variables a the
   assert.match(tokenCss('@media (prefers-color-scheme: dark) { :root { --ns-icon-color: #ffd166; } }'), /--c-icoPri: var\(--ns-icon-color\)/);
 });
 
-test('every theme variable for Notion\'s interface points at tokens that start with --c- or --ca-', () => {
+test('every theme variable for Notion\'s interface points at tokens that start with --c-, --ca-, --cd- or --cl-', () => {
   assert.ok(TOKEN_VARS.length >= 6);
   for (const [name, tokens] of TOKEN_VARS) {
     assert.match(name, /^[a-z-]+$/);
     assert.ok(tokens.length > 0);
-    for (const token of tokens) assert.match(token, /^--c[a]?-[A-Za-z0-9]+$/, `${name} -> ${token}`);
+    for (const token of tokens) assert.match(token, /^--c[adl]?-[A-Za-z0-9]+$/, `${name} -> ${token}`);
   }
 });
 
@@ -116,6 +116,16 @@ test('text selection and the caret have their own rules, only when a theme sets 
   assert.match(tokenCss(':root { --ns-selection-bg: #2563eb40; }'), /::selection \{ background: var\(--ns-selection-bg\); \}/);
   assert.match(tokenCss(':root { --ns-caret-color: #ffd166; }'), /caret-color: var\(--ns-caret-color\) !important/);
   assert.equal(tokenCss(':root { --ns-accent-nothing: red; }'), '');
+});
+
+test('gallery cards, today in a calendar and empty titles only change when a theme sets them', () => {
+  assert.match(tokenCss(':root { --ns-gallery-card-bg: #fff8e7; }'), /--cd-colGalPreCarBac: var\(--ns-gallery-card-bg\) !important/);
+  assert.match(tokenCss(':root { --ns-title-placeholder: #a8a29e; }'), /--cl-pagTitPlaTexCol: var\(--ns-title-placeholder\) !important/);
+  const today = tokenCss(':root { --ns-calendar-today-bg: #c2410c; }');
+  // only the calendar's own day circle, Notion's red token itself stays (it also paints delete buttons)
+  assert.equal(today, '.notion-calendar-view-day[style*="--c-redBacAccPri"] { background: var(--ns-calendar-today-bg) !important; }');
+  assert.doesNotMatch(today, /--c-redBacAccPri:/);
+  for (const name of ['gallery-card-bg', 'title-placeholder', 'calendar-today-bg']) assert.doesNotMatch(CORE_CSS, new RegExp(`--ns-${name}`));
 });
 
 test('the header around the top bar follows the top bar color, and menus keep their own background', () => {
