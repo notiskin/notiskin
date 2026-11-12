@@ -473,11 +473,14 @@
     } catch {}
   }
 
-  // the page crossfade (brand.css) is skipped when the window is hidden, which is fine, not an error to report
+  // the page crossfade (brand.css) is skipped when the window is hidden, and aborted ("Page already revealed")
+  // when the tour moves on while it is still running. Both are fine, not errors to report, and any of the
+  // transition's three promises can carry them
   for (const type of ['pageswap', 'pagereveal']) {
     addEventListener(type, e => {
-      e.viewTransition?.ready.catch(() => {});
-      e.viewTransition?.finished.catch(() => {});
+      const vt = e.viewTransition;
+      if (!vt) return;
+      for (const p of [vt.ready, vt.finished, vt.updateCallbackDone]) p?.catch(() => {});
     });
   }
 
