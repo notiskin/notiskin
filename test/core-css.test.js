@@ -44,8 +44,8 @@ test('the palette is not set by default, so Notion\'s colors stay unless a theme
 const { coreCssFor, fontCss } = require('../dist/injector/index');
 
 test('fonts are only overridden for the font variables a theme sets', () => {
-  assert.equal(fontCss(':root { --ns-bg: #fff; }'), '');
-  assert.equal(coreCssFor(':root { --ns-bg: #fff; }'), CORE_CSS);
+  assert.equal(fontCss(':root { --ns-text: #222; }'), '');
+  assert.equal(coreCssFor(':root { --ns-text: #222; }'), CORE_CSS);
 
   const body = fontCss(':root { --ns-font: "Inter", serif; }');
   assert.match(body, /font-family: var\(--ns-font\) !important/);
@@ -77,8 +77,8 @@ test('the new look variables are not set by default, so a theme that sets none c
 const { tokenCss, TOKEN_VARS } = require('../dist/injector/index');
 
 test('Notion\'s own interface colors are only overridden for the variables a theme sets', () => {
-  assert.equal(tokenCss(':root { --ns-bg: #fff; }'), '');
-  assert.equal(coreCssFor(':root { --ns-bg: #fff; }'), CORE_CSS);
+  assert.equal(tokenCss(':root { --ns-text: #222; }'), '');
+  assert.equal(coreCssFor(':root { --ns-text: #222; }'), CORE_CSS);
 
   const popup = tokenCss(':root { --ns-popup-bg: #2a1450; }');
   assert.match(popup, /^:root, \.notion-light-theme, \.notion-dark-theme \{ --c-popBac: var\(--ns-popup-bg\) !important; \}$/);
@@ -126,6 +126,17 @@ test('gallery cards, today in a calendar and empty titles only change when a the
   assert.equal(today, '.notion-calendar-view-day[style*="--c-redBacAccPri"] { background: var(--ns-calendar-today-bg) !important; }');
   assert.doesNotMatch(today, /--c-redBacAccPri:/);
   for (const name of ['gallery-card-bg', 'title-placeholder', 'calendar-today-bg']) assert.doesNotMatch(CORE_CSS, new RegExp(`--ns-${name}`));
+});
+
+test('the sticky strip behind a board\'s column headers follows the page background only when a theme sets one', () => {
+  const css = tokenCss(':root { --ns-bg: #2b1d3a; }');
+  // Notion paints the strip inline with its own page color, both spacings of the style attribute are matched
+  assert.match(css, /\.sticky-portal-target \[style\*="background: var\(--c-bacPri\)"\], \.sticky-portal-target \[style\*="background:var\(--c-bacPri\)"\]/);
+  assert.match(css, /\{ background: var\(--ns-bg\) !important; box-shadow: calc\(var\(--direction, 1\) \* -3px\) 0 0 var\(--ns-bg\) !important; \}/);
+  // the default --ns-bg is transparent, a see-through strip would show cards under the headers
+  assert.doesNotMatch(tokenCss(':root { --ns-text: #222; }'), /sticky-portal-target/);
+  assert.doesNotMatch(tokenCss(':root { --ns-bg-image: none; --ns-board-card-bg: #fff; }'), /sticky-portal-target/);
+  assert.doesNotMatch(CORE_CSS, /sticky-portal-target/);
 });
 
 test('the header around the top bar follows the top bar color, and menus keep their own background', () => {

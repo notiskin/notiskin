@@ -126,6 +126,13 @@ export function tokenCss(themeCss: string): string {
   // the circle behind today's date in a calendar view uses Notion's red accent inline. Only that element, the same red
   // token also paints delete buttons and warnings
   if (sets('calendar-today-bg')) rules.push('.notion-calendar-view-day[style*="--c-redBacAccPri"] { background: var(--ns-calendar-today-bg) !important; }');
+  // the column headers of a board stick to the top while it scrolls, on a strip Notion paints inline with its own page
+  // color (and a 3px shadow of it). It follows the theme's page background, but only when the theme sets one: the
+  // default --ns-bg is transparent, and a see-through strip would show the cards scrolling under the headers
+  if (sets('bg')) {
+    rules.push('.sticky-portal-target [style*="background: var(--c-bacPri)"], .sticky-portal-target [style*="background:var(--c-bacPri)"]'
+      + ' { background: var(--ns-bg) !important; box-shadow: calc(var(--direction, 1) * -3px) 0 0 var(--ns-bg) !important; }');
+  }
   return rules.join('\n');
 }
 
