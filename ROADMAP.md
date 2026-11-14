@@ -52,18 +52,19 @@ Everything was checked on the live backend with real accounts.
 - ✅ Plugin developer mode with auto-reload from a local folder
 - ✅ Docs site (plain HTML in `site/`, published with GitHub Pages)
 
-## Phase 5: Starter content and real-app checks
+## ✅ Phase 5: Starter content and real-app checks (done November 2026)
 
 - ✅ Starter content (published October 28 and November 4, 2026 from the notiskin account): 6 themes (Parchment, Midnight Ink, Serif and Mono, Daybreak, Confetti, Quiet) and 4 plugins (Reading Progress, Focus Mode, Wide Pages, Numbered Headings). The source is in its own repository, [notiskin/starter](https://github.com/notiskin/starter), and a test there keeps it valid. Alongside it: theme variables for Notion's own menus, icons and accents, and plugin API 1.2.0 (released in 0.10.0)
-- Real-app checks: things that were only checked against source, a browser page or a fake Notion, run on November 4 and 5, 2026 with the packaged 0.10.0 app on a real Notion (7.40.1, then 7.42.1 after Notion updated itself during the checks):
+- ✅ Real-app checks: things that were only checked against source, a browser page or a fake Notion, run on November 4 and 5, 2026 with the packaged 0.10.0 app on a real Notion (7.40.1, then 7.42.1 after Notion updated itself during the checks):
   - ✅ The theme editor inside the packaged window, with the live preview in Notion. Save and publish for a signed-in author on an existing theme did not open the new-version form; fixed in #61, released in 0.10.1
   - ✅ A real plugin with settings enabled in the packaged app (Reading Progress, changed live, reset, safe mode, removed again)
   - ✅ Developer mode with the native folder picker, and a saved file reloading the real Notion (a `.txt` file does not reload, a badly named `.js` file is skipped with its reason, safe mode and turning it off both let go). The "N plugins running" line in Settings is only read when the page opens
-  - ✅ The docs links opening https://notiskin.github.io/notiskin/ from the app
+  - ✅ The docs links opening https://notiskin.github.io/notiskin/ from the app (the address at the time, the docs are at https://notiskin.github.io/ since 0.11.0)
   - ✅ Settings shows the Restart Notion row after Repair when Notion is running, and its button restarts Notion with the theme (checked after a real Notion update, 7.40.1 to 7.42.1)
   - ✅ Dark mode and Notion's System mode with the new variables; board, gallery, list and calendar database views. Found and fixed: Notion's tooltips got unreadable text with a light theme (#60). Those three spots, the gallery card preview area, the empty database title and the calendar's today marker, have their own variables since 0.12.0 (`--ns-gallery-card-bg`, `--ns-title-placeholder`, `--ns-calendar-today-bg`, checked on Notion 7.42.3)
   - ✅ Reopening Notion from the Dock, `notion://` links and no open TCP port (only Notiskin's own server on 127.0.0.1:3845). Checked by opening the app the way the Dock does, not by a physical Dock click
-  - Still open: the watcher repairing a real Notion update by itself ("Repair automatically after Notion updates" is off by default, turn it on before the next update; one-click Repair after an update is proven), and whether Notion relaunches itself after its own update (it did not within 30 seconds on 7.40.1 to 7.42.1)
+  - ✅ The watcher repairing a real Notion update by itself: with "Repair automatically after Notion updates" on (it is off by default) and the packaged 0.12.0 app, Notion updated itself from 7.42.3 to 7.43.0 on November 13, 2026, and the watcher put the wrapper back and re-signed Notion about one second after Notion's installer finished, with no click and no macOS prompt. Opening Notion the next day loaded the theme, with no debugging port open
+  - ✅ Does Notion relaunch itself after its own update? No. The update is installed when Notion quits and Notion stays closed (seen three times: 7.40.1 to 7.42.1, to 7.42.3, to 7.43.0), so the theme shows the next time you open Notion. Not seen: pressing Notion's own restart-to-update button
 
 ## ✅ Phase 6: Code health (done November 2026, released in 0.11.0)
 
@@ -87,6 +88,6 @@ Everything was checked on the live backend with real accounts.
 
 ## Known limitations
 
-- Disabling a plugin removes it from the current tab right away. Other open tabs drop it on their next reload.
+- Disabling a plugin reloads every open Notion tab and window, because code that has already run can't be taken back.
 - Installing into Notion needs App Management for Notiskin. Until releases are signed with a Developer ID, macOS may forget that permission after a Notiskin update (remove Notiskin from the list and add it again).
 - Until Developer ID signing, a downloaded release says it "is damaged" and needs the `xattr` command from the README, and updates are downloaded and installed by hand.
