@@ -6,7 +6,7 @@ Notiskin is an open source modding tool for the Notion desktop app on macOS. It 
 
 ## How it works
 
-Notion loads its interface live from `notion.so`, so Notiskin doesn't edit Notion's files. Instead it:
+Notion loads its interface live from its own servers, so there are no interface files on your Mac to edit. Instead Notiskin:
 
 1. Starts Notion with `--remote-debugging-pipe`, which turns on the Chrome DevTools Protocol (CDP) over two private pipes in `~/.notiskin/run` that only your user account can open. There is no network port, so other apps and other accounts on the Mac can't reach Notion.
 2. Runs a small background injector for as long as Notion is open. It themes every Notion tab and window, re-applies after reloads (with no flash of the default look), and picks up theme, plugin, and settings changes live. It exits when Notion quits.
@@ -34,15 +34,15 @@ The app has tabs for themes, plugins, the marketplace (browse, install, rate, pu
 
 ### Safe mode and diagnostics
 
-If a plugin breaks Notion, open **Settings → Safe mode → Turn on**. Every theme and plugin is paused (Notion's page reloads to drop plugins) until you turn it off, and nothing you've chosen is forgotten. From Terminal: `notiskin safe-mode on` / `off`.
+If a plugin breaks Notion, open **Settings → Safe mode → Turn on**. Every theme and plugin is paused (Notion's page reloads to drop plugins) until you turn it off, and nothing you've chosen is forgotten. From Terminal, in a clone of this repository (see Command line below): `node dist/cli/index.js safe-mode on` / `off`.
 
-**Settings → Diagnostics** shows versions, install status, whether the injector is running, and recent log lines, with a **Copy** button for bug reports. Notion page links, IDs, and your Mac username are hidden before anything is shown or copied. From Terminal: `notiskin diagnostics`.
+**Settings → Diagnostics** shows versions, install status, whether the injector is running, and recent log lines, with a **Copy** button for bug reports. Notion page links, IDs, and your Mac username are hidden before anything is shown or copied. From Terminal: `node dist/cli/index.js diagnostics`.
 
 ### Notion updates
 
-Notion keeps updating itself while Notiskin is installed. An update replaces the whole Notion app, so Settings shows **Needs repair** afterwards: click **Repair** and restart Notion to bring your theme back. Versions of Notiskin up to 0.5 signed Notion in a way that made it refuse every update. Opening the new version re-signs Notion on its own, but a Notion that's already stuck on an old version needs one manual update: quit Notion, download it again from [notion.com/desktop](https://www.notion.com/desktop), drag it into Applications (choose **Replace**), then click **Install** in Notiskin. Your notes and login aren't affected; if macOS asks about "Notion Safe Storage", click **Always Allow**.
+Notion keeps updating itself while Notiskin is installed. An update replaces the whole Notion app, so Settings shows **Needs repair** afterwards: click **Repair** and restart Notion to bring your theme back. Or turn on **Settings → Notion → Repair automatically after Notion updates** (off by default): a small watcher then runs in the background, even while Notiskin and Notion are closed, and repairs Notion about a second after an update lands, so the theme is there the next time you open Notion. Versions of Notiskin up to 0.5 signed Notion in a way that made it refuse every update. Opening the new version re-signs Notion on its own, but a Notion that's already stuck on an old version needs one manual update: quit Notion, download it again from [notion.com/desktop](https://www.notion.com/desktop), drag it into Applications (choose **Replace**), then click **Install** in Notiskin. Your notes and login aren't affected; if macOS asks about "Notion Safe Storage", click **Always Allow**.
 
-Notion is moving its Mac app to SwiftUI, and Notiskin can only theme Notion's web-based (Electron) app. **Settings → Notion → Hold back a Notion Notiskin can't theme** is on by default: Notion keeps updating, but its updater refuses an update that isn't Electron, since there's no easy way back once it's installed. Turn it off to take every update (from Terminal: `notiskin block-native off`). It can't stop Notion switching parts of the current app to native from its servers. If a native Notion does get installed, Settings shows **Not supported yet** and Notiskin leaves Notion alone.
+Notion is moving its Mac app to SwiftUI, and Notiskin can only theme Notion's web-based (Electron) app. **Settings → Notion → Hold back a Notion Notiskin can't theme** is on by default: Notion keeps updating, but its updater refuses an update that isn't Electron, since there's no easy way back once it's installed. Turn it off to take every update (from Terminal: `node dist/cli/index.js block-native off`). It can't stop Notion switching parts of the current app to native from its servers. If a native Notion does get installed, Settings shows **Not supported yet** and Notiskin leaves Notion alone.
 
 ## Command line
 
@@ -69,6 +69,7 @@ node dist/cli/index.js diagnostics    # the same report as Settings → Diagnost
 ```bash
 npm run patch               # wrapper, no sudo needed when you own Notion.app (the usual case)
 npm run watch:install       # LaunchAgent that repatches after Notion updates itself
+npm run watch:uninstall     # removes only that LaunchAgent
 npm run unpatch             # restores the binary, removes the LaunchAgent
 ```
 
@@ -84,7 +85,7 @@ Guides for making themes and plugins (every variable, the `notiskin` object, set
 
 You can make a theme without writing CSS: on the Themes page, **New theme** (or **Edit** on a theme you have) opens an editor with a color picker for each part of Notion, grouped as page, sidebar, text, code, accents and databases, and a Dark tab for the dark version. Notion shows your changes while you pick, and goes back to your normal theme when you close the editor (or if Notiskin quits). **Save** writes a file to `~/.notiskin/themes`, **Save and publish** takes it to the Publish tab, or to a new version if you already published a theme with that name. The CSS itself is under "The CSS itself" and the pickers only change the lines they own, so comments, fonts and anything else in the file stay as they were.
 
-Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain only those variables, with color values (hex, `rgb()`, `hsl()`, `color-mix()`, gradients, `var()`, `calc()`). `url()`, `@import`, quotes and backslashes are rejected, with two exceptions: the font variables may hold font names in double quotes, and the `:root` block can be wrapped in `@media (prefers-color-scheme: dark)` or `light` (nothing else is allowed inside `@media`, at most one of each).
+Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain only those variables, with color values (hex, CSS color functions such as `rgb()`, `hsl()` or `oklch()`, `color-mix()`, gradients, `var()`, `calc()`). `url()`, `@import`, quotes and backslashes are rejected, with two exceptions: the font variables may hold font names in double quotes, and the `:root` block can be wrapped in `@media (prefers-color-scheme: dark)` or `light` (nothing else is allowed inside `@media`, at most one of each).
 
 ```css
 :root {
@@ -106,7 +107,7 @@ Themes set `--ns-*` variables inside `:root`. Marketplace themes must contain on
 }
 ```
 
-Every variable is optional. The first group (backgrounds, text, links, code, callouts, dividers, the quote bar, the scrollbar) works as an overlay on Notion: one you leave out falls back to see-through (backgrounds) or to Notion's normal color, so set the ones you care about. Inline code keeps Notion's own look unless you set its two variables. The newer ones (borders, radius, database colors, fonts, the colored-text palette) leave Notion as it was when you don't set them. What each one changes:
+Every variable is optional. The first group (backgrounds, text, links, code, callouts, dividers, the quote bar, the scrollbar) works as an overlay on Notion: one you leave out falls back to see-through (backgrounds) or to Notion's normal color, so set the ones you care about. The scrollbar is the exception: with a theme on it is always thin, and grey unless you set `--ns-scrollbar-thumb`. Inline code keeps Notion's own look unless you set its two variables. The newer ones (borders, radius, database colors, fonts, the colored-text palette) leave Notion as it was when you don't set them. What each one changes:
 
 | Variable | Changes |
 | --- | --- |
@@ -162,7 +163,7 @@ Text Notion colors itself (red text, colored mentions, highlights, colored callo
 
 ## Writing a plugin
 
-Plugins are plain JavaScript that runs inside each Notion tab once the page has loaded. Each plugin runs at most once per page load, so re-applying a theme won't double up listeners. Disabling a plugin reloads the current tab; other open tabs drop it on their next reload. A small helper API is available as `window.notiskin`:
+Plugins are plain JavaScript that runs inside each Notion tab once the page has loaded. Each plugin runs at most once per page load, so re-applying a theme won't double up listeners. Disabling a plugin reloads every open Notion tab and window, because code that has already run can't be taken back. A small helper API is available as `window.notiskin`:
 
 ```js
 notiskin.onPageChange(() => console.log('now on', notiskin.getPageTitle()));
