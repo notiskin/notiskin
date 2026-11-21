@@ -36,6 +36,9 @@ async function waitUntilNotionClosed(): Promise<void> {
   await sleep(1000);
 }
 
+// no straight double quotes, the message goes inside an AppleScript string
+const REPAIRED_MESSAGE = 'Notion was updated and Notiskin repaired it. When you next open Notion, macOS may ask about “Notion Safe Storage”: click Always Allow.';
+
 function notify(message: string): void {
   try {
     execFileSync('osascript', ['-e', `display notification "${message}" with title "Notiskin"`], { stdio: 'ignore' });
@@ -59,6 +62,9 @@ async function repatch(): Promise<void> {
   try {
     patchNotion(process.execPath, CLI_SCRIPT, { appMode: Boolean(process.versions.electron) });
     console.log('[watcher] Repatch complete.');
+    // every Notion build Notiskin signs is new to the keychain, so macOS asks once before Notion can open its
+    // window. Without this the next launch looks stuck, the dialog can sit behind other windows
+    notify(REPAIRED_MESSAGE);
   } catch (err: unknown) {
     console.error('[watcher] Repatch failed:', (err as Error).message);
     notify('Notion was updated but Notiskin could not reinstall. Open Notiskin and click Repair.');

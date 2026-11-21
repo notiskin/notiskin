@@ -375,11 +375,11 @@ async function runNotionAction() {
   if (status?.notionRunning) {
     showRestartOffer(
       action === 'install'
-        ? 'Your theme loads after Notion restarts. This closes your Notion windows.'
+        ? 'Your theme loads after Notion restarts. This closes your Notion windows. If macOS asks about “Notion Safe Storage”, click Always Allow.'
         : 'Notion keeps the theme until it restarts. This closes your Notion windows.'
     );
   } else if (action === 'install') {
-    showNotif('Open Notion and your theme will load');
+    showNotif('Open Notion and your theme will load. If macOS asks about “Notion Safe Storage”, click Always Allow.');
   }
 }
 
