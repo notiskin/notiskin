@@ -9,6 +9,11 @@ notiskin.config.json
 supabase/.temp/
 coverage/
 
+# copied in by scripts/pack-types.js before @notiskin/types is packed, the real files are at the root
+types/notiskin.d.ts
+types/LICENSE
+*.tgz
+
 # Playwright
 test-results/
 playwright-report/

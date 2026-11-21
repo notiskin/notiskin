@@ -1,0 +1,33 @@
+{
+  "name": "@notiskin/types",
+  "version": "1.2.0",
+  "description": "Type definitions for the Notiskin plugin API (window.notiskin), for editor help in Notion plugins",
+  "types": "notiskin.d.ts",
+  "files": [
+    "notiskin.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepack": "node ../scripts/pack-types.js"
+  },
+  "keywords": [
+    "notiskin",
+    "notion",
+    "plugins",
+    "types"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notiskin/notiskin.git",
+    "directory": "types"
+  },
+  "homepage": "https://notiskin.github.io/plugins.html",
+  "bugs": {
+    "url": "https://github.com/notiskin/notiskin/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
