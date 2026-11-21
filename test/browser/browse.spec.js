@@ -156,3 +156,15 @@ test('when the marketplace is down, Browse says so', async ({ page, ns }) => {
   await page.locator('.tab-btn[data-tab=browse]').click();
   await expect(page.locator('#browse-themes-list')).toContainText(/Couldn't load|No themes/);
 });
+
+test('plugin cards on Browse show what each plugin says it does', async ({ page, ns }) => {
+  await ns.reset({ supabase: { items: { themes: [], plugins: [
+    ns.item({ id: 'plugin-1', name: 'talker', js: '// @notiskin-permission network api.example.com\nfetch(u); eval(s);' }),
+    ns.item({ id: 'plugin-2', name: 'quiet' }),
+  ] } } });
+  await page.goto('/plugins.html');
+  await page.locator('.tab-btn[data-tab=browse]').click();
+  const cards = page.locator('#browse-plugins-list .card');
+  await expect(cards.filter({ hasText: 'talker' }).locator('.ns-perm-chip')).toHaveText(['Talks to api.example.com', 'Scan found more']);
+  await expect(cards.filter({ hasText: 'quiet' }).locator('.ns-perm-chip')).toHaveCount(0);
+});

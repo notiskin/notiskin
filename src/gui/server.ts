@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { readFileSync, existsSync, appendFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { execFile } from 'child_process';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import type { Server } from 'http';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { readConfig, writeConfig } from '../utils/config';
@@ -38,6 +38,7 @@ import {
 } from '../core/library';
 import { checkSettingValue, parseSettingDeclarations, resolveSettings } from '../core/plugin-settings';
 import { checkDevFolder, devFileFor, isDevName, resolveDevFolder, scanDevFolder } from '../core/dev-plugins';
+import { PermissionReport, permissionChanges, pluginPermissionReport } from '../core/plugin-permissions';
 import {
   appBundlePath,
   findNotionBinary,
@@ -54,6 +55,7 @@ import { diagnosticsReport } from '../core/diagnostics';
 import {
   findPulled,
   findUpdates,
+  AvailableUpdate,
   inBatches,
   installedIds,
   installFromMarketplace,
@@ -182,7 +184,7 @@ function sendPage(file: string) {
   };
 }
 
-async function proxyToEdgeFunction(fn: string, req: Request, res: Response): Promise<void> {
+async function proxyToEdgeFunction(fn: string, req: Request, res: Response, transform?: (body: unknown) => unknown): Promise<void> {
   const token = bearerToken(req);
   const response = await fetch(new URL(`/functions/v1/${fn}`, SUPABASE_URL), {
     method: req.method,
@@ -199,6 +201,9 @@ async function proxyToEdgeFunction(fn: string, req: Request, res: Response): Pro
     body = JSON.parse(text);
   } catch {
     body = { error: `Marketplace server error (${response.status})` };
+  }
+  if (transform && response.ok) {
+    try { body = transform(body); } catch {}
   }
   res.status(response.status).json(body);
 }
@@ -680,10 +685,11 @@ app.get('/api/themes/search', async (req, res) => {
   res.json({ themes: data ?? [] });
 });
 
+// Browse cards show what each plugin says it does and whether the scan found more, worked out here from its code
 app.get('/api/plugins/search', async (req, res) => {
   const { data, error } = await searchMarketplace('plugins', sanitizeSearch(req.query.q), parseSort(req.query.sort), parseTags(req.query.tags));
   if (error) return res.status(502).json({ error: error.message });
-  res.json({ plugins: data ?? [] });
+  res.json({ plugins: (data ?? []).map((row: Record<string, unknown>) => (typeof row.js === 'string' ? { ...row, ...permissionReport(row.js) } : row)) });
 });
 
 app.get('/api/themes', (_req, res) => {
@@ -698,6 +704,20 @@ function pluginSource(name: string): string | null {
     return scanDevFolder(config.developerFolder).plugins.find(p => p.name === name)?.content ?? null;
   }
   return itemExists('plugin', name) ? readFileSync(itemPath('plugin', name), 'utf-8') : null;
+}
+
+// what a plugin says it does (its @notiskin-permission lines) and what a scan of its code finds. The code is parsed,
+// never run. Kept by the code's hash, the Plugins page asks every time it lists the plugins
+const permissionCache = new Map<string, PermissionReport>();
+function permissionReport(code: string): PermissionReport {
+  const key = createHash('sha256').update(code).digest('hex');
+  let report = permissionCache.get(key);
+  if (!report) {
+    report = pluginPermissionReport(code);
+    if (permissionCache.size >= 200) permissionCache.delete(permissionCache.keys().next().value as string);
+    permissionCache.set(key, report);
+  }
+  return report;
 }
 
 // what a plugin declares in its header comment, read as text, the plugin is never run for this
@@ -721,12 +741,20 @@ function developerState() {
 
 app.get('/api/plugins', (_req, res) => {
   const plugins = listPlugins();
+  const dev = developerState();
+  // installed and developer plugins, by name: what each says it does and what the scan found
+  const reports: Record<string, PermissionReport> = {};
+  for (const name of [...plugins, ...dev.plugins.map(p => p.name)]) {
+    const source = pluginSource(name);
+    if (source !== null) reports[name] = permissionReport(source);
+  }
   res.json({
     plugins,
     enabledPlugins: readConfig().enabledPlugins,
     // the ones that get a Settings button
     withSettings: plugins.filter(name => pluginSettingsOf(name, pluginSource(name) ?? '').settings.length > 0),
-    dev: developerState(),
+    dev,
+    reports,
   });
 });
 
@@ -1061,7 +1089,41 @@ export const marketplaceRemote = {
     if (error) throw new Error(error.message);
     return (data ?? []) as { item_id: string; version: number; changelog: string }[];
   },
+  // the live code of approved plugins, so an update can say which permissions it adds
+  pluginCode: async (ids: string[]): Promise<{ id: string; version: number; js: string }[]> => {
+    const { data, error } = await publicSupabase().from('plugins').select('id, version, js').in('id', ids).eq('status', 'approved');
+    if (error) throw new Error(error.message);
+    return (data ?? []) as { id: string; version: number; js: string }[];
+  },
 };
+
+// live plugin code by "id:version", a version's code never changes
+const pluginCodeCache = new Map<string, string>();
+
+// for each plugin update, what the new version says it does that the installed file doesn't, and what the scan finds
+// in it that it didn't find before. Best effort: if the code can't be fetched the update is listed without it
+async function withPermissionChanges(updates: AvailableUpdate[]): Promise<(AvailableUpdate & { permissions?: unknown })[]> {
+  const plugins = updates.filter(u => u.type === 'plugin');
+  if (!plugins.length) return updates;
+  const missing = plugins.filter(u => !pluginCodeCache.has(`${u.id}:${u.latestVersion}`)).map(u => u.id);
+  if (missing.length) {
+    try {
+      for (const batch of inBatches(missing)) {
+        for (const row of await marketplaceRemote.pluginCode(batch)) {
+          if (typeof row.js !== 'string') continue;
+          if (pluginCodeCache.size >= 200) pluginCodeCache.clear();
+          pluginCodeCache.set(`${row.id}:${Number(row.version) || 1}`, row.js);
+        }
+      }
+    } catch {}
+  }
+  return updates.map(u => {
+    const code = u.type === 'plugin' ? pluginCodeCache.get(`${u.id}:${u.latestVersion}`) : undefined;
+    if (code === undefined || !itemExists('plugin', u.name)) return u;
+    const { added, addedHosts, newlyFound, report } = permissionChanges(readFileSync(itemPath('plugin', u.name), 'utf-8'), code);
+    return { ...u, permissions: { added, addedHosts, newlyFound, declared: report.permissions.declared, hosts: report.permissions.hosts } };
+  });
+}
 
 interface RemoteInfo {
   latest: Map<string, LatestInfo>;
@@ -1076,6 +1138,7 @@ const remoteCache = new Map<string, { at: number; info: RemoteInfo }>();
 
 export function clearMarketplaceCache(): void {
   remoteCache.clear();
+  pluginCodeCache.clear();
 }
 
 async function remoteInfo(type: ItemType, ids: string[]): Promise<RemoteInfo> {
@@ -1116,7 +1179,7 @@ app.get('/api/marketplace/updates', async (_req, res) => {
       updates.push(...findUpdates(type, info.latest));
       if (info.statuses) pulled.push(...findPulled(type, info.statuses));
     }
-    res.json({ updates, pulled });
+    res.json({ updates: await withPermissionChanges(updates), pulled });
   } catch (err) {
     res.status(502).json({ error: errorMessage(err) });
   }
@@ -1157,7 +1220,22 @@ app.post('/api/marketplace/update', async (req, res) => {
   res.json({ success: true, name, version: item.version });
 });
 
-app.get('/api/review/pending', (req, res) => proxyToEdgeFunction('review-pending', req, res));
+// the review queue as the edge function sends it, plus, for pending plugins and plugin versions, what each says it
+// does and what the scan found, and for a version which permissions it adds to the live one
+export function withReviewPermissions(body: unknown): unknown {
+  if (!body || typeof body !== 'object') return body;
+  const queue = body as Record<string, unknown>;
+  const rows = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+  const plugins = rows(queue.plugins).map(p => (typeof p.js === 'string' ? { ...p, ...permissionReport(p.js) } : p));
+  const versions = rows(queue.versions).map(v => {
+    if (v.item_type !== 'plugin' || typeof v.code !== 'string') return v;
+    const { added, addedHosts, newlyFound, report } = permissionChanges(typeof v.previous_code === 'string' ? v.previous_code : '', v.code);
+    return { ...v, ...report, permissionChanges: { added, addedHosts, newlyFound } };
+  });
+  return { ...queue, ...(Array.isArray(queue.plugins) ? { plugins } : {}), ...(Array.isArray(queue.versions) ? { versions } : {}) };
+}
+
+app.get('/api/review/pending', (req, res) => proxyToEdgeFunction('review-pending', req, res, withReviewPermissions));
 app.post('/api/review/decide', (req, res) => proxyToEdgeFunction('review-decide', req, res));
 app.post('/api/submit/theme', submitLimiter, (req, res) => proxyToEdgeFunction('submit-theme', req, res));
 app.post('/api/submit/plugin', submitLimiter, (req, res) => proxyToEdgeFunction('submit-plugin', req, res));

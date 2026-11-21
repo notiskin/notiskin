@@ -617,6 +617,10 @@ async function withFakeMarketplace(remote, fn) {
       return remote[key] ? remote[key](type, ids) : [];
     };
   }
+  marketplaceRemote.pluginCode = async ids => {
+    calls.push(['pluginCode', 'plugin', ids.length]);
+    return remote.pluginCode ? remote.pluginCode(ids) : [];
+  };
   clearMarketplaceCache();
   const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
   const names = ['live', 'newer', 'hidden-one', 'rejected-one', 'removed-one'];
@@ -648,10 +652,11 @@ test('the update check finds updates and installed plugins that were pulled, in 
       { type: 'plugin', name: 'rejected-one', id: id(4), reason: 'rejected' },
       { type: 'plugin', name: 'removed-one', id: id(5), reason: 'removed' },
     ]);
-    assert.deepEqual(calls, [['statuses', 'plugin', 5], ['changes', 'plugin', 5]]);
+    // the one plugin with an update has its new code fetched, to say which permissions it adds
+    assert.deepEqual(calls, [['statuses', 'plugin', 5], ['changes', 'plugin', 5], ['pluginCode', 'plugin', 1]]);
     // asked again within half an hour, the answer comes from the cache
     await request('GET', '/api/marketplace/updates', { headers: authed() });
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 4, 'statuses and changes are cached; the code had no answer, so it is asked for again');
   });
 });
 
@@ -664,7 +669,39 @@ test('before item_statuses() is deployed the update check still works and calls 
     assert.equal(res.status, 200);
     assert.deepEqual(res.json.updates.map(u => [u.name, u.latestVersion]), [['newer', 3]]);
     assert.deepEqual(res.json.pulled, []);
-    assert.deepEqual(calls.map(c => c[0]), ['statuses', 'changes', 'approved']);
+    assert.deepEqual(calls.map(c => c[0]), ['statuses', 'changes', 'approved', 'pluginCode']);
+  });
+});
+
+test('a plugin update says which permissions the new version adds, and still lists the update if the code cannot be fetched', async () => {
+  const NEW = '/**\n * @notiskin-permission network api.example.com\n * @notiskin-permission storage\n */\nfetch(u); localStorage.a = 1; eval(s);';
+  await withFakeMarketplace({
+    statuses: (_type, ids) => [{ id: ids[1], status: 'approved', version: 2 }],
+    pluginCode: ids => ids.map(id => ({ id, version: 2, js: NEW })),
+  }, async calls => {
+    const res = await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(res.status, 200);
+    const [update] = res.json.updates;
+    assert.equal(update.name, 'newer');
+    assert.deepEqual(update.permissions, {
+      added: ['network', 'storage'],
+      addedHosts: ['api.example.com'],
+      newlyFound: ['network', 'storage', 'dynamic-code'],
+      declared: ['network', 'storage'],
+      hosts: ['api.example.com'],
+    });
+    // a version's code doesn't change, so it is fetched once
+    await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(calls.filter(c => c[0] === 'pluginCode').length, 1);
+  });
+  await withFakeMarketplace({
+    statuses: (_type, ids) => [{ id: ids[1], status: 'approved', version: 2 }],
+    pluginCode: () => { throw new Error('offline'); },
+  }, async () => {
+    const res = await request('GET', '/api/marketplace/updates', { headers: authed() });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.updates.length, 1);
+    assert.equal(res.json.updates[0].permissions, undefined);
   });
 });
 
@@ -868,6 +905,61 @@ test('plugin settings: only plugins that declare some get a Settings button, rea
   assert.equal(res.json.enabled, false);
   assert.equal((await request('GET', '/api/plugin-settings/nope', { headers: authed() })).status, 404);
   assert.equal((await request('GET', '/api/plugin-settings/with-settings')).status, 403, 'needs the token');
+});
+
+test('plugins list what each says it does and what the scan found, read without running them', async () => {
+  const lib = require('../dist/core/library');
+  const { mkdtempSync, writeFileSync, rmSync, realpathSync } = require('fs');
+  const { join } = require('path');
+  const { tmpdir } = require('os');
+  const { readConfig, writeConfig } = require('../dist/utils/config');
+  lib.writeItem('plugin', 'talker', '// @notiskin-permission network api.example.com\n// @notiskin-permission camera\nfetch(u); document.cookie;');
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'notiskin-perm-')));
+  writeFileSync(join(dir, 'dev-one.js'), 'eval(s);');
+  writeConfig({ ...readConfig(), developerMode: true, developerFolder: dir });
+  try {
+    const res = await request('GET', '/api/plugins', { headers: authed() });
+    assert.equal(res.status, 200);
+    const talker = res.json.reports.talker;
+    assert.deepEqual(talker.permissions.declared, ['network']);
+    assert.deepEqual(talker.permissions.hosts, ['api.example.com']);
+    assert.equal(talker.permissions.problems.length, 1);
+    assert.deepEqual(talker.scan.detected, ['network', 'storage']);
+    assert.deepEqual(talker.scan.undeclared, ['storage']);
+    assert.deepEqual(talker.scan.evidence.map(e => [e.line, e.what]), [[3, 'fetch'], [3, 'document.cookie']]);
+    // developer plugins too, under their dev/ name
+    assert.deepEqual(res.json.reports['dev/dev-one'].scan.undeclared, ['dynamic-code']);
+    // the list of names is unchanged
+    assert.ok(res.json.plugins.includes('talker'));
+  } finally {
+    writeConfig({ ...readConfig(), developerMode: false, developerFolder: '' });
+    rmSync(dir, { recursive: true });
+    lib.deleteItem('plugin', 'talker');
+  }
+});
+
+test('the review queue gets what each pending plugin says and what the scan found, and what a version adds', () => {
+  const { withReviewPermissions } = require('../dist/gui/server');
+  const queue = {
+    themes: [{ id: 't', css: ':root {}' }],
+    plugins: [{ id: 'p', js: '// @notiskin-permission storage\nlocalStorage.a = 1; fetch(u);' }],
+    versions: [
+      { id: 'v', item_type: 'plugin', previous_code: 'fetch(u);', code: '// @notiskin-permission network a.example.com\nfetch(u); eval(s);' },
+      { id: 'w', item_type: 'theme', previous_code: '', code: ':root {}' },
+    ],
+    reports: [],
+  };
+  const out = withReviewPermissions(queue);
+  assert.deepEqual(out.themes, queue.themes);
+  assert.deepEqual(out.reports, []);
+  assert.deepEqual(out.plugins[0].permissions.declared, ['storage']);
+  assert.deepEqual(out.plugins[0].scan.undeclared, ['network']);
+  assert.deepEqual(out.versions[0].permissionChanges, { added: ['network'], addedHosts: ['a.example.com'], newlyFound: ['dynamic-code'] });
+  assert.deepEqual(out.versions[0].scan.undeclared, ['dynamic-code']);
+  assert.deepEqual(out.versions[1], queue.versions[1], 'theme versions are left alone');
+  // an error answer or something odd passes through untouched
+  assert.deepEqual(withReviewPermissions({ error: 'no' }), { error: 'no' });
+  assert.equal(withReviewPermissions(null), null);
 });
 
 test('plugin settings: saving checks every value against the declaration and keeps the rest', async () => {

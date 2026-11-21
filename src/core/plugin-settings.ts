@@ -42,8 +42,9 @@ const KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,39}$/;
 const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 const TAG = '@notiskin-setting';
 
-// the comments before the first line of code: block comments and // lines, nothing else
-function headerComments(source: string): string {
+// the comments before the first line of code: block comments and // lines, nothing else.
+// Also where plugin-permissions.ts reads @notiskin-permission lines
+export function headerComments(source: string): string {
   let text = source.replace(/^\uFEFF/, '');
   let out = '';
   for (;;) {

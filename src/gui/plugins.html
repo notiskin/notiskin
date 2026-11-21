@@ -229,6 +229,8 @@
       padding: 24px;
       max-width: 460px;
       width: 90%;
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
     }
     .dialog-icon { font-size: 28px; margin-bottom: 12px; }
     .dialog h3 { font-size: 15px; font-weight: 600; color: var(--warning); margin-bottom: 10px; }
@@ -647,6 +649,7 @@
       <p>
         This plugin will have full access to your Notion page and data. Only enable it if you trust the source.
       </p>
+      <div id="warning-permissions" class="ns-perm-block"></div>
       <div class="dialog-actions">
         <button class="btn-ghost" data-click="cancelWarning">Cancel</button>
         <button class="btn-primary" data-click="confirmWarning">Enable plugin</button>

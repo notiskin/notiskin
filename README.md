@@ -209,6 +209,26 @@ The Plugins tab then shows a **Settings** button on the plugin's card with a for
 - the page API is now version `1.2.0`, every older method works as before
 - a plugin that declares settings runs inside a function that is given its own `notiskin`, so settings know whose they are, even inside a later callback. Use that `notiskin`, not `window.notiskin`, and don't count on top-level `var` and `function` becoming globals (use `window.x = ...`). A plugin with no declarations runs exactly as before
 
+### Declaring what your plugin does
+
+Say what your plugin does in the same comment at the top of the file, one line each after `@notiskin-permission`:
+
+```js
+/**
+ * @notiskin-permission network api.example.com *.example.org
+ * @notiskin-permission storage
+ */
+```
+
+- `network <host> [<host> ...]`: the sites it talks to, like `api.example.com` or `*.example.com` (lowercase, no `https://`, up to 10 on a line and 20 in all)
+- `storage`: it reads or writes cookies, `localStorage`, `sessionStorage` or IndexedDB
+- `page-scripts`: it touches Notion's own JavaScript (its globals, React's internals)
+- `dynamic-code`: it builds and runs more code (`eval`, `new Function`, `import()`, script elements)
+
+The app also scans the code (it reads it, it never runs it) for things that look like each of these. Both lists are shown to people before they turn the plugin on, as small labels on its card and on Browse, in the update dialog (what a new version adds), and to the marketplace reviewer next to each other. When the scan finds something the plugin doesn't declare, the warning says so.
+
+**These lines are not enforced.** A plugin still runs with full access to Notion's page, it can read every page you open and can send data out, for example through an image or a CSS `url()`, whatever it declares. The lines and the scan are there so people and reviewers can see what a plugin says it does and what its code seems to do. A line that doesn't make sense is skipped with a note and the rest still count.
+
 ## Development
 
 ```bash

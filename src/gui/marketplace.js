@@ -27,6 +27,147 @@
       .join('')}</ul>`;
   }
 
+  // ---- what a plugin says it does, and what the scan found ----
+  // The server reads a plugin's @notiskin-permission lines and scans its code (never runs it) and sends
+  // { permissions: { declared, hosts, problems }, scan: { detected, undeclared, evidence, notes, unlistedHosts, problems } }.
+  // Nothing here is enforced, so the words only ever say what the plugin says and what the scan found
+
+  const PERMISSION_BASELINE = 'Can read and change every Notion page you open';
+  const PERMISSION_ORDER = ['network', 'storage', 'page-scripts', 'dynamic-code'];
+  const PERMISSION_WORDS = {
+    network: hosts => `Talks to: ${hosts.join(', ')}`,
+    storage: () => 'Reads and writes your browser storage for Notion',
+    'page-scripts': () => "Touches Notion's own code",
+    'dynamic-code': () => 'Runs code that builds more code',
+  };
+  const PERMISSION_SEEMS = {
+    network: 'send or load things over the internet',
+    storage: 'use your browser storage for Notion',
+    'page-scripts': "touch Notion's own code",
+    'dynamic-code': 'build and run more code',
+  };
+  const PERMISSION_CHIPS = {
+    storage: 'Browser storage',
+    'page-scripts': "Notion's own code",
+    'dynamic-code': 'Builds code',
+  };
+
+  const known = list => (Array.isArray(list) ? list.filter(n => PERMISSION_ORDER.includes(n)) : []);
+  const strings = list => (Array.isArray(list) ? list.filter(s => typeof s === 'string') : []);
+
+  function joinWords(words) {
+    if (words.length < 2) return words.join('');
+    return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+  }
+
+  // one sentence per declared permission
+  function declaredLines(permissions) {
+    const hosts = strings(permissions?.hosts);
+    return known(permissions?.declared).map(name => PERMISSION_WORDS[name](hosts));
+  }
+
+  function undeclaredSentence(undeclared) {
+    return `The scan also found code that seems to ${joinWords(known(undeclared).map(n => PERMISSION_SEEMS[n]))} without saying so.`;
+  }
+
+  // the lines the scan saw, notes about names it couldn't read, and addresses in the code no network line covers
+  function evidenceItems(scan) {
+    const items = [];
+    for (const e of Array.isArray(scan?.evidence) ? scan.evidence : []) items.push(`Line ${esc(e.line)}: ${esc(e.what)}`);
+    for (const n of Array.isArray(scan?.notes) ? scan.notes : []) items.push(`Line ${esc(n.line)}: ${esc(n.what)}`);
+    const hosts = strings(scan?.unlistedHosts);
+    if (hosts.length) items.push(`Addresses in the code: ${esc(hosts.join(', '))}`);
+    return items;
+  }
+
+  function evidenceHtml(scan, open) {
+    const items = evidenceItems(scan);
+    if (!items.length) return '';
+    return `<details class="ns-perm-evidence"${open ? ' open' : ''}><summary>What the scan found</summary><ul>${items.map(i => `<li>${i}</li>`).join('')}</ul></details>`;
+  }
+
+  // the turn-on warning: the baseline, what the plugin says it does, and what the scan found that it doesn't say
+  function permissionWarningHtml(report) {
+    const lines = declaredLines(report?.permissions);
+    const undeclared = known(report?.scan?.undeclared);
+    const scanProblems = strings(report?.scan?.problems);
+    const headerProblems = strings(report?.permissions?.problems);
+    return `
+      <ul class="ns-perm-list"><li>${esc(PERMISSION_BASELINE)}</li></ul>
+      <p class="ns-perm-label">What the plugin says it does</p>
+      <ul class="ns-perm-list ns-perm-declared">${lines.length ? lines.map(l => `<li>${esc(l)}</li>`).join('') : '<li class="ns-perm-none">Nothing more</li>'}</ul>
+      ${undeclared.length ? `<div class="ns-perm-undeclared" role="note"><p>${esc(undeclaredSentence(undeclared))}</p>${evidenceHtml(report.scan)}</div>` : ''}
+      ${scanProblems.length ? `<p class="ns-perm-note">${scanProblems.map(esc).join(' ')}</p>` : ''}
+      ${headerProblems.length ? `<p class="ns-perm-note">Some lines in its header were skipped: ${headerProblems.map(esc).join(' ')}</p>` : ''}`;
+  }
+
+  // small chips for a card: what it says it does, and a marked one when the scan found more
+  function permissionChipsHtml(report) {
+    if (!report || !report.permissions) return '';
+    const hosts = strings(report.permissions.hosts);
+    const chips = known(report.permissions.declared).map(name => {
+      const title = PERMISSION_WORDS[name](hosts);
+      const text = name === 'network' ? (hosts.length === 1 ? `Talks to ${hosts[0]}` : `Talks to ${hosts.length} sites`) : PERMISSION_CHIPS[name];
+      return `<span class="ns-perm-chip" title="${esc(title)}">${esc(text)}</span>`;
+    });
+    const undeclared = known(report.scan?.undeclared);
+    if (undeclared.length) chips.push(`<span class="ns-perm-chip ns-perm-chip-warn" title="${esc(undeclaredSentence(undeclared))}">Scan found more</span>`);
+    return chips.length ? `<div class="ns-perm-chips">${chips.join('')}</div>` : '';
+  }
+
+  // the update dialog: what the new version says it does that the installed one doesn't, and what the scan finds new
+  function permissionUpdateHtml(changes) {
+    if (!changes) return '';
+    const added = known(changes.added);
+    const addedHosts = strings(changes.addedHosts);
+    const lines = [];
+    if (addedHosts.length) lines.push(PERMISSION_WORDS.network(addedHosts));
+    for (const name of added) if (name !== 'network') lines.push(PERMISSION_WORDS[name]());
+    const found = known(changes.newlyFound).filter(n => !added.includes(n));
+    if (!lines.length && !found.length) return '';
+    return `
+      <div class="ns-perm-new">
+        ${lines.length ? `<p class="ns-dialog-label">New in this version</p><ul class="ns-perm-list">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
+        ${found.length ? `<p class="ns-perm-undeclared-text">The scan found code in this version that seems to ${esc(joinWords(found.map(n => PERMISSION_SEEMS[n])))}, which it didn't find before.</p>` : ''}
+      </div>`;
+  }
+
+  // the Review page: what the plugin says next to what the scan found, and for a version what it adds
+  function permissionReviewHtml(report, changes) {
+    if (!report || !report.permissions) return '';
+    const lines = declaredLines(report.permissions);
+    const undeclared = known(report.scan?.undeclared);
+    const detected = known(report.scan?.detected);
+    const headerProblems = strings(report.permissions.problems);
+    const scanProblems = strings(report.scan?.problems);
+    const added = changes ? permissionUpdateHtml(changes) : '';
+    return `
+      <div class="ns-perm-review">
+        <div class="ns-perm-col">
+          <p class="ns-perm-label">What the plugin says it does</p>
+          <ul class="ns-perm-list">${lines.length ? lines.map(l => `<li>${esc(l)}</li>`).join('') : '<li class="ns-perm-none">Nothing</li>'}</ul>
+          ${headerProblems.length ? `<p class="ns-perm-note">Skipped lines: ${headerProblems.map(esc).join(' ')}</p>` : ''}
+        </div>
+        <div class="ns-perm-col">
+          <p class="ns-perm-label">What the scan found</p>
+          <ul class="ns-perm-list">${detected.length
+            ? detected.map(n => `<li${undeclared.includes(n) ? ' class="ns-perm-flag"' : ''}>Seems to ${esc(PERMISSION_SEEMS[n])}${undeclared.includes(n) ? ' <strong>(not declared)</strong>' : ''}</li>`).join('')
+            : '<li class="ns-perm-none">Nothing</li>'}</ul>
+          ${scanProblems.length ? `<p class="ns-perm-note">${scanProblems.map(esc).join(' ')}</p>` : ''}
+          ${evidenceHtml(report.scan, true)}
+        </div>
+      </div>
+      ${added}`;
+  }
+
+  window.nsPermissions = {
+    BASELINE: PERMISSION_BASELINE,
+    warningHtml: permissionWarningHtml,
+    chipsHtml: permissionChipsHtml,
+    updateHtml: permissionUpdateHtml,
+    reviewHtml: permissionReviewHtml,
+  };
+
   // ---- browse: sorting, tags, downloads, links ----
 
   // must match TAGS in supabase/functions/_shared/details.ts and the tags migration
@@ -269,6 +410,7 @@
         <div class="ns-version-dialog-box" role="dialog" aria-modal="true" aria-labelledby="ns-update-title">
           <h3 id="ns-update-title">Update ${esc(displayName(update.name))} to version ${esc(update.latestVersion)}?</h3>
           <p>Plugins have full access to your Notion page and data. Only update if you trust the author.</p>
+          ${permissionUpdateHtml(update.permissions)}
           ${update.changes.length ? `<p class="ns-dialog-label">Changes</p>${changesHtml(update.changes)}` : ''}
           <div class="ns-dialog-actions">
             <button class="btn-ghost" data-act="cancel">Cancel</button>
