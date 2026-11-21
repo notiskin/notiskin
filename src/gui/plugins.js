@@ -162,6 +162,8 @@ async function loadUserRatings(session, itemIds, itemType) {
 }
 
 let currentInstalledPlugins = [];
+// by plugin name: what it says it does and what the scan found (from /api/plugins), for the cards and the turn-on warning
+let permissionReports = {};
 
 // the tag checkboxes on the publish form, at most 3
 let readPublishTags = () => [];
@@ -206,7 +208,8 @@ async function switchTab(name) {
 }
 
 async function loadPlugins(preloaded) {
-  const { plugins, enabledPlugins, withSettings, dev } = preloaded || await api('GET', '/plugins');
+  const { plugins, enabledPlugins, withSettings, dev, reports } = preloaded || await api('GET', '/plugins');
+  permissionReports = reports || {};
   renderDevPlugins(dev);
   const el = document.getElementById('plugins-list');
   if (!plugins || !plugins.length) {
@@ -234,6 +237,7 @@ async function loadPlugins(preloaded) {
       <div class="card" data-name="${esc(filenameToDisplayName(p))}" data-file="${esc(p)}">
         <div class="card-info">
           <div class="card-name">${esc(filenameToDisplayName(p))}</div>
+          ${nsPermissions.chipsHtml(permissionReports[p])}
         </div>
         <label class="toggle" ${nsAct('click', 'stop')}>
           <input type="checkbox" ${enabled ? 'checked' : ''} ${nsAct('change', 'togglePluginFromSwitch', p)}>
@@ -359,6 +363,7 @@ function renderDevPlugins(dev) {
       <div class="card" data-file="${esc(p.name)}">
         <div class="card-info">
           <div class="card-name">${esc(p.file)} <span class="badge dev">dev</span></div>
+          ${nsPermissions.chipsHtml(permissionReports[p.name])}
         </div>
         ${p.hasSettings ? `<button class="btn-settings" ${nsAct('click', 'togglePluginSettings', p.name)}>Settings</button>` : ''}
         <div class="ps-panel" hidden></div>
@@ -373,6 +378,7 @@ async function togglePlugin(name, enable) {
       const res = await api('POST', `/plugin/enable/${encodeURIComponent(name)}`);
       if (res.needsWarning) {
         pendingPluginName = name;
+        document.getElementById('warning-permissions').innerHTML = nsPermissions.warningHtml(permissionReports[name]);
         document.getElementById('warning-dialog').classList.add('visible');
         await loadPlugins();
         return;
@@ -450,6 +456,7 @@ function renderBrowsePluginCard(item) {
         <div class="card-info">
           <div class="card-name">${esc(item.name)}</div>
           ${item.description ? `<div class="card-desc">${esc(item.description)}</div>` : ''}
+          ${nsPermissions.chipsHtml(item)}
           <div class="card-meta">by <a href="https://github.com/${esc(item.author_github)}" target="_blank" rel="noopener noreferrer">${esc(item.author_github)}</a></div>
           ${nsBrowse.browseMetaHtml(browseItems[key])}
         </div>

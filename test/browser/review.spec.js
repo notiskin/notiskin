@@ -62,6 +62,27 @@ test('the Plugins tab shows pending plugins and versions with a line diff', asyn
   await expect(version.locator('.diff')).toContainText('c');
 });
 
+test('pending plugins and versions show what the plugin says next to what the scan found', async ({ page, ns }) => {
+  await reviewer(ns, {
+    ...QUEUE,
+    plugins: [{ id: 'p1', name: 'counter', author_github: 'maker', description: 'Counts', js: '// @notiskin-permission storage\nlocalStorage.a = 1;\nfetch(u);' }],
+    versions: [{ ...QUEUE.versions[0], previous_code: 'fetch(u);', code: '// @notiskin-permission network a.example.com\nfetch(u);\neval(s);' }],
+  });
+  await page.signIn('boss');
+  await page.goto('/review.html');
+  await page.locator('#review-tabs [data-tab=plugin]').click();
+  const pending = page.locator('#plugins-list .card .ns-perm-review');
+  await expect(pending.locator('.ns-perm-col').first()).toContainText('Reads and writes your browser storage for Notion');
+  const scan = pending.locator('.ns-perm-col').nth(1);
+  await expect(scan).toContainText('Seems to use your browser storage for Notion');
+  await expect(scan.locator('.ns-perm-flag')).toHaveText('Seems to send or load things over the internet (not declared)');
+  await expect(scan).toContainText('Line 3: fetch');
+
+  const version = page.locator('#versions-list-plugin .card');
+  await expect(version.locator('.ns-perm-new li')).toHaveText(['Talks to: a.example.com']);
+  await expect(version).toContainText('seems to build and run more code');
+});
+
 test('Approve sends the decision for that item and loads the queue again', async ({ page, ns }) => {
   await reviewer(ns);
   await page.signIn('boss');

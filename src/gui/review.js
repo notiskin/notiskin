@@ -71,6 +71,7 @@ function pluginCard(item) {
           <button class="btn-reject"  data-id="${esc(item.id)}" data-type="plugin">Reject</button>
         </div>
       </div>
+      ${nsPermissions.reviewHtml(item)}
       <pre>${esc(item.js)}</pre>
     </div>
   `;
@@ -191,6 +192,7 @@ function versionCard(v) {
           <button class="btn-reject"  data-id="${esc(v.id)}" data-type="${esc(v.item_type)}">Reject</button>
         </div>
       </div>
+      ${v.item_type === 'plugin' ? nsPermissions.reviewHtml(v, v.permissionChanges) : ''}
       <div class="diff">${diffHtml(v.previous_code, v.code)}</div>
     </div>
   `;

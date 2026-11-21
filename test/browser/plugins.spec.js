@@ -47,6 +47,42 @@ test('Enable plugin in the warning turns it on and remembers the answer', async 
   await expect.poll(async () => (await ns.calls()).config.enabledPlugins).toEqual([]);
 });
 
+test('the turn-on warning shows what the plugin says it does, and what the scan found that it does not say', async ({ page, ns }) => {
+  await ns.reset({
+    plugins: {
+      ...PLUGINS,
+      talker: '// @notiskin-permission network api.example.com\n// @notiskin-permission storage\nfetch("https://api.example.com/x");\nlocalStorage.a = 1;\neval(s);\n',
+    },
+  });
+  await page.goto('/plugins.html');
+  const talker = card(page, 'talker');
+  // the card's chips: what it says, and a marked one for what the scan found on top
+  await expect(talker.locator('.ns-perm-chip')).toHaveText(['Talks to api.example.com', 'Browser storage', 'Scan found more']);
+
+  await talker.locator('.toggle').click();
+  const dialog = page.locator('#warning-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Can read and change every Notion page you open');
+  await expect(dialog.locator('.ns-perm-declared li')).toHaveText(['Talks to: api.example.com', 'Reads and writes your browser storage for Notion']);
+  const undeclared = dialog.locator('.ns-perm-undeclared');
+  await expect(undeclared).toContainText('The scan also found code that seems to build and run more code without saying so.');
+  // the evidence is folded away until asked for
+  await expect(undeclared.getByText('Line 5: eval')).toBeHidden();
+  await undeclared.getByText('What the scan found').click();
+  await expect(undeclared.getByText('Line 5: eval')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+
+  // a plugin that says nothing and does nothing special: only the baseline, no scan warning, no chips
+  await expect(card(page, 'gamma').locator('.ns-perm-chip')).toHaveCount(0);
+  await card(page, 'gamma').locator('.toggle').click();
+  await expect(dialog).toContainText('Can read and change every Notion page you open');
+  await expect(dialog.locator('.ns-perm-declared')).toHaveText('Nothing more');
+  await expect(dialog.locator('.ns-perm-undeclared')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Enable plugin' }).click();
+  await expect(card(page, 'gamma').locator('input[type=checkbox]')).toBeChecked();
+});
+
 test('a plugin that declares settings has a Settings button, and the form saves a change', async ({ page, ns }) => {
   await ns.reset({ plugins: PLUGINS });
   await page.goto('/plugins.html');

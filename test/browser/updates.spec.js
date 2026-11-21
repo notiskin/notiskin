@@ -71,6 +71,28 @@ test('a plugin update asks first, with the changes, and Cancel leaves the old ve
   expect((await ns.calls()).supabase.filter(c => c.path === '/rest/v1/plugins' && c.query.includes(`id=eq.${PLUGIN_ID}`))).toEqual([]);
 });
 
+test('a plugin update says which permissions the new version adds', async ({ page, ns }) => {
+  const v2 = '// @notiskin-permission network api.example.com\n// @notiskin-permission storage\nfetch(u); localStorage.a = 1; eval(s);\n';
+  const base = world(ns);
+  await ns.reset({ ...base, supabase: { ...base.supabase, items: { ...base.supabase.items, plugins: [ns.item({ id: PLUGIN_ID, name: 'counter', version: 2, js: v2 })] } } });
+  await page.goto('/plugins.html');
+  await card(page, 'counter').getByRole('button', { name: 'Update' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('New in this version');
+  await expect(dialog.locator('.ns-perm-new li')).toHaveText(['Talks to: api.example.com', 'Reads and writes your browser storage for Notion']);
+  await expect(dialog).toContainText("The scan found code in this version that seems to build and run more code, which it didn't find before.");
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect((await ns.calls()).contents['plugins/counter.js']).toBe('// v1\n');
+});
+
+test('a plugin update that adds no permissions has no New in this version line', async ({ page, ns }) => {
+  await ns.reset(world(ns));
+  await page.goto('/plugins.html');
+  await card(page, 'counter').getByRole('button', { name: 'Update' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Counts headings too');
+  await expect(page.getByRole('dialog')).not.toContainText('New in this version');
+});
+
 test('Update plugin installs the new code, and a plugin that is on reloads Notion', async ({ page, ns }) => {
   await ns.reset(world(ns, { config: { enabledPlugins: ['counter'], acknowledgedPlugins: ['counter'] } }));
   await page.goto('/plugins.html');

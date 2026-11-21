@@ -3,7 +3,9 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist/', 'release/', 'node_modules/', 'supabase/', 'src/gui/*.html', 'test-results/', 'playwright-report/'] },
+  { ignores: ['dist/', 'release/', 'node_modules/', 'supabase/', 'src/gui/*.html', 'test-results/', 'playwright-report/',
+    // copies of the starter plugins (github.com/notiskin/starter) for the permission scan tests, linted there
+    'test/fixtures/starter-plugins/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -42,7 +44,7 @@ export default tseslint.config(
           [
             'SUPABASE_URL', 'SUPABASE_KEY', 'DOCS_URL', 'db', 'esc', 'githubUsername', 'hideReviewLink',
             'showNotif', 'openExternal', 'openDocs', 'openReleasesPage', 'checkUpdateBanner', 'nsActions', 'nsAct',
-            'nsVersions', 'nsBrowse', 'nsTheme', 'nsThemeEditor',
+            'nsVersions', 'nsBrowse', 'nsTheme', 'nsThemeEditor', 'nsPermissions',
           ].map(name => [name, 'readonly'])
         ),
       },
