@@ -1,0 +1,86 @@
+name: Publish types
+
+# Publishes types/ to npm as @notiskin/types, run by hand from the Actions tab on main. The version is the
+# plugin API version on the first line of notiskin.d.ts (scripts/pack-types.js refuses when types/package.json
+# says something else), so bump both together when the page API changes, then run this.
+#
+# It signs in to npm with trusted publishing (OIDC): no npm token or GitHub secret, npm checks that the
+# request comes from this workflow file in notiskin/notiskin, and adds provenance. npm only lets you set up a
+# trusted publisher on a package that already exists, so the very first version is published by hand.
+#
+# One-time setup on npmjs.com (Remi):
+#   1. Have an npm account with two-factor authentication on, and own the `notiskin` scope: either the npm
+#      user is called `notiskin`, or create a free organization called `notiskin` (npmjs.com → Add
+#      Organization, "Unlimited public packages") and be its owner.
+#   2. Publish the first version from your own Mac, in the repository on main:
+#        npm login
+#        node scripts/pack-types.js
+#        npm publish ./types --access public
+#      (no --provenance there, provenance only works from CI)
+#   3. Right before the first run of this workflow (a trusted publisher that publishes nothing for 2 days
+#      expires), open https://www.npmjs.com/package/@notiskin/types/access → Trusted Publisher → GitHub
+#      Actions, and enter exactly (case matters):
+#        Organization or user: notiskin
+#        Repository:           notiskin
+#        Workflow filename:    publish-types.yml
+#        Environment name:     (leave empty)
+#      and allow `npm publish`.
+#   4. Then, on the same page, set Publishing access to "Require two-factor authentication and disallow
+#      tokens". Trusted publishing keeps working, tokens can no longer publish.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # lets npm check this run is this workflow in this repository (trusted publishing)
+
+concurrency:
+  group: publish-types
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - name: Only publish from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "The types are published from main, this run is on ${GITHUB_REF}."
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false # no cache in a publishing run
+      # trusted publishing needs npm 11.5.1 or newer
+      - name: Check the npm version
+        run: |
+          node -e '
+            const [major, minor, patch] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) {
+              console.error(`npm ${process.argv[1]} is too old for trusted publishing, it needs 11.5.1 or newer.`);
+              process.exit(1);
+            }
+          ' "$(npm --version)"
+      - run: npm ci
+      - run: npm test
+      - name: Copy the types into types/
+        id: version
+        run: |
+          node scripts/pack-types.js
+          echo "version=$(node -p "require('./types/package.json').version")" >> "$GITHUB_OUTPUT"
+      # a published version can never be replaced, and plugin authors may already use it
+      - name: Check the version is new on npm
+        run: |
+          published="$(npm view "@notiskin/types@${VERSION}" version 2>/dev/null || true)"
+          if [ "$published" = "$VERSION" ]; then
+            echo "@notiskin/types ${VERSION} is already on npm. Bump the API version in notiskin.d.ts and types/package.json."
+            exit 1
+          fi
+          echo "Publishing @notiskin/types ${VERSION}"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+      - run: npm publish ./types --provenance --access public
