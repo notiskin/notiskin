@@ -80,11 +80,22 @@ Everything was checked on the live backend with real accounts.
 - ✅ Browser tests for the GUI: Playwright (Chromium) against the real server, with Supabase, Notion and the default browser faked, every test in light and dark (`npm run test:browser`, run in CI). Covers installed lists and switching, plugin toggles and the warning, Browse (search, sort, tags, install, report), Publish and Submissions, the Update and pulled-item rows, Review, Settings (sign-in, Install into Notion states, safe mode, updates), the welcome tour and the policy
 - ✅ Type definitions for plugin authors: `notiskin.d.ts` in the repository root, linked from the plugin docs and the README. A test runs the code that makes `window.notiskin` and checks every name, method and the version against the file, checks that wrong calls are errors. Publishing it as an npm package (`@notiskin/types`) stays possible later from the same file
 
+## ✅ Plugin permissions (done November 2026, released in 0.13.0)
+
+Tests on a throwaway Electron page showed plugins can't really be fenced in: anything that can touch Notion's page can read it, and Notion's own rules let images and styles load from any address, so a plugin can send data out that way. Every similar tool (BetterDiscord, Vencord, Spicetify, mostly Chrome extensions) relies on review for the same reason. So this is a review aid, never called "blocked" or "safe":
+
+- ✅ Plugins say what they do in header lines (`@notiskin-permission network <hosts>`, `storage`, `page-scripts`, `dynamic-code`), read without running the plugin
+- ✅ A scan of the code shows what it seems to do, with line numbers, and flags what the plugin didn't declare
+- ✅ Both show in the turn-on warning (which always says the plugin can read and change every Notion page you open), on plugin and Browse cards, in the update dialog ("New in this version") and on the Review page
+- ✅ The plugin types are ready to publish on npm as `@notiskin/types`, waiting for the npm account
+
 ## Later, maybe
 
 - Windows support (large)
 - Theme sync across devices
-- Plugin permissions or sandboxing (hard)
+- Each plugin in its own copy of the page's JavaScript (isolated worlds): plugins couldn't reach Notion's own code or each other, but it breaks plugins that rely on Notion's code and is still not a wall (medium)
+- A real sandbox tier with a smaller plugin API, like Figma's (large)
+- Homebrew install, once releases are signed (Homebrew no longer takes unsigned apps)
 
 ## Known limitations
 
