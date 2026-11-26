@@ -52,6 +52,7 @@ test('the turn-on warning shows what the plugin says it does, and what the scan 
     plugins: {
       ...PLUGINS,
       talker: '// @notiskin-permission network api.example.com\n// @notiskin-permission storage\nfetch("https://api.example.com/x");\nlocalStorage.a = 1;\neval(s);\n',
+      'next to notion': '// @notiskin-permission page-scripts\nwindow.__notionThing = 1;\n',
     },
   });
   await page.goto('/plugins.html');
@@ -78,9 +79,16 @@ test('the turn-on warning shows what the plugin says it does, and what the scan 
   await card(page, 'gamma').locator('.toggle').click();
   await expect(dialog).toContainText('Can read and change every Notion page you open');
   await expect(dialog.locator('.ns-perm-declared')).toHaveText('Nothing more');
+  await expect(dialog.locator('.ns-perm-baseline li')).toHaveText(['Can read and change every Notion page you open', "Runs apart from Notion's own code and other plugins"]);
   await expect(dialog.locator('.ns-perm-undeclared')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Enable plugin' }).click();
   await expect(card(page, 'gamma').locator('input[type=checkbox]')).toBeChecked();
+  // a plugin that declares page-scripts runs next to Notion's code: no "apart" line, its declaration says so instead
+  await expect(card(page, 'next to notion').locator('.ns-perm-chip')).toHaveText(["Notion's own code"]);
+  await card(page, 'next to notion').locator('.toggle').click();
+  await expect(dialog.locator('.ns-perm-baseline li')).toHaveText(['Can read and change every Notion page you open']);
+  await expect(dialog.locator('.ns-perm-declared li')).toHaveText(["Runs next to Notion's own code and can change it"]);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
 });
 
 test('a plugin that declares settings has a Settings button, and the form saves a change', async ({ page, ns }) => {

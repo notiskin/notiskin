@@ -1,6 +1,8 @@
-// What a plugin says it does, and what a scan of its code finds. A review aid, never enforcement: a plugin runs
+// What a plugin says it does, and what a scan of its code finds. A review aid, not enforcement: a plugin runs
 // with full access inside Notion's page, it can read every page and send data out through an image or a CSS
 // url(), and nothing here stops that. The app and the marketplace reviewer see both lists side by side.
+// The one line that changes something is page-scripts: without it the plugin runs in its own isolated world
+// (library.ts pluginEntry, injector/index.ts), apart from Notion's code and other plugins.
 //
 // A plugin declares what it does in the same header comment as its settings, one line each:
 //
@@ -11,7 +13,7 @@
 //
 // network <host> [<host> ...]  hosts it contacts
 // storage                      cookies, localStorage, sessionStorage or IndexedDB
-// page-scripts                 Notion's own JavaScript (its globals, React internals)
+// page-scripts                 Notion's own JavaScript (its globals, React internals), runs it next to Notion's code
 // dynamic-code                 eval, new Function, import(), script elements
 //
 // The header is read as text and the code is parsed, never run. A line that doesn't make sense is skipped with a

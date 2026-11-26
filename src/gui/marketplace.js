@@ -30,14 +30,17 @@
   // ---- what a plugin says it does, and what the scan found ----
   // The server reads a plugin's @notiskin-permission lines and scans its code (never runs it) and sends
   // { permissions: { declared, hosts, problems }, scan: { detected, undeclared, evidence, notes, unlistedHosts, problems } }.
-  // Nothing here is enforced, so the words only ever say what the plugin says and what the scan found
+  // Only page-scripts decides something: a plugin without it runs in its own isolated world, apart from Notion's code
+  // and other plugins (still sharing the page). Nothing else is enforced, so those words only say what the plugin
+  // says and what the scan found
 
   const PERMISSION_BASELINE = 'Can read and change every Notion page you open';
+  const PERMISSION_APART = "Runs apart from Notion's own code and other plugins";
   const PERMISSION_ORDER = ['network', 'storage', 'page-scripts', 'dynamic-code'];
   const PERMISSION_WORDS = {
     network: hosts => `Talks to: ${hosts.join(', ')}`,
     storage: () => 'Reads and writes your browser storage for Notion',
-    'page-scripts': () => "Touches Notion's own code",
+    'page-scripts': () => "Runs next to Notion's own code and can change it",
     'dynamic-code': () => 'Runs code that builds more code',
   };
   const PERMISSION_SEEMS = {
@@ -67,7 +70,10 @@
   }
 
   function undeclaredSentence(undeclared) {
-    return `The scan also found code that seems to ${joinWords(known(undeclared).map(n => PERMISSION_SEEMS[n]))} without saying so.`;
+    const names = known(undeclared);
+    const sentence = `The scan also found code that seems to ${joinWords(names.map(n => PERMISSION_SEEMS[n]))} without saying so.`;
+    // it runs in its own world, so code that reaches for Notion's will find nothing there
+    return names.includes('page-scripts') ? `${sentence} It runs apart from Notion's code, so that part may not work.` : sentence;
   }
 
   // the lines the scan saw, notes about names it couldn't read, and addresses in the code no network line covers
@@ -93,7 +99,7 @@
     const scanProblems = strings(report?.scan?.problems);
     const headerProblems = strings(report?.permissions?.problems);
     return `
-      <ul class="ns-perm-list"><li>${esc(PERMISSION_BASELINE)}</li></ul>
+      <ul class="ns-perm-list ns-perm-baseline"><li>${esc(PERMISSION_BASELINE)}</li>${known(report?.permissions?.declared).includes('page-scripts') ? '' : `<li>${esc(PERMISSION_APART)}</li>`}</ul>
       <p class="ns-perm-label">What the plugin says it does</p>
       <ul class="ns-perm-list ns-perm-declared">${lines.length ? lines.map(l => `<li>${esc(l)}</li>`).join('') : '<li class="ns-perm-none">Nothing more</li>'}</ul>
       ${undeclared.length ? `<div class="ns-perm-undeclared" role="note"><p>${esc(undeclaredSentence(undeclared))}</p>${evidenceHtml(report.scan)}</div>` : ''}
@@ -162,6 +168,7 @@
 
   window.nsPermissions = {
     BASELINE: PERMISSION_BASELINE,
+    APART: PERMISSION_APART,
     warningHtml: permissionWarningHtml,
     chipsHtml: permissionChipsHtml,
     updateHtml: permissionUpdateHtml,

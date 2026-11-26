@@ -112,6 +112,10 @@ function evalAll(expression) {
   });
 }
 
+// test plugins that check the page's own window declare page-scripts, so they run next to the page's code as before.
+// Every other plugin gets its own isolated world, see the isolated worlds test
+const PAGE = '// @notiskin-permission page-scripts\n';
+
 const STATE = `({
   theme: document.getElementById('notiskin-styles')?.textContent ?? null,
   core: !!document.getElementById('notiskin-core-styles'),
@@ -137,7 +141,7 @@ before(async () => {
   userData = mkdtempSync(join(tmpdir(), 'notiskin-fake-notion-'));
 
   lib.writeItem('theme', 'Test', ':root { --ns-bg: #123456; }');
-  lib.writeItem('plugin', 'counter', 'window.__pluginRuns = (window.__pluginRuns || 0) + 1;');
+  lib.writeItem('plugin', 'counter', PAGE + 'window.__pluginRuns = (window.__pluginRuns || 0) + 1;');
   writeConfig({ activeTheme: 'Test', enabledPlugins: ['counter'], acknowledgedPlugins: ['counter'] });
 
   ({ child: fake, run } = launchFakeNotion());
@@ -446,6 +450,7 @@ test('a preview is refused for empty CSS and in safe mode, and safe mode drops o
 });
 
 const SETTINGS_PLUGIN = `/**
+ * @notiskin-permission page-scripts
  * @notiskin-setting {"key":"size","type":"number","label":"Size","default":14,"min":8,"max":32}
  * @notiskin-setting {"key":"on","type":"toggle","label":"On","default":true}
  */
@@ -506,8 +511,8 @@ test('plugin settings: values reach the page with the plugin, and a change reach
   assert.equal(readConfig().pluginSettings['settings-demo'], undefined);
 });
 
-test('a plugin that does not declare settings still runs in the global scope, with the real notiskin', { skip }, async () => {
-  lib.writeItem('plugin', 'plain-global', 'var leaked = "global"; window.__plainSame = (notiskin === window.notiskin);');
+test('a page-scripts plugin without settings still runs in the global scope, with the real notiskin', { skip }, async () => {
+  lib.writeItem('plugin', 'plain-global', PAGE + 'var leaked = "global"; window.__plainSame = (notiskin === window.notiskin);');
   writeConfig({ ...readConfig(), enabledPlugins: ['counter', 'plain-global'] });
   assert.equal(await lib.applyConfig(), true);
   await waitFor(async () => (await evalAll('window.__plainSame')).every(w => w.value === true), 'the plain plugin');
@@ -515,6 +520,74 @@ test('a plugin that does not declare settings still runs in the global scope, wi
   writeConfig({ ...readConfig(), enabledPlugins: ['counter'] });
   lib.deleteItem('plugin', 'plain-global');
   await lib.applyConfig();
+});
+
+// no page-scripts line: each runs in its own isolated world. They report through the page (shared), never window
+const ISO_A = `/**
+ * @notiskin-setting {"key":"word","type":"text","label":"Word","default":"hi"}
+ */
+var isoSecret = 'a';
+window.__isoRuns = (window.__isoRuns || 0) + 1;
+const root = document.documentElement;
+root.dataset.isoARuns = String(window.__isoRuns);
+root.dataset.isoAWord = notiskin.settings.get('word');
+root.dataset.isoAVersion = notiskin.version;
+root.dataset.isoASeesPage = typeof window.__pluginRuns + ' ' + typeof window.__styledAtStart;
+notiskin.settings.onChange((key, value) => { root.dataset.isoAWord = value; });
+notiskin.addStyle('iso-a', '#plain { outline: 1px solid red; }');
+`;
+const ISO_B = `var isoSecretB = 'b';
+document.documentElement.dataset.isoB = [typeof isoSecret, typeof window.__isoRuns, typeof notiskin.addToolbarButton].join(' ');
+`;
+const ISO_STATE = `JSON.stringify({
+  a: document.documentElement.dataset.isoARuns ?? null,
+  word: document.documentElement.dataset.isoAWord ?? null,
+  version: document.documentElement.dataset.isoAVersion ?? null,
+  seesPage: document.documentElement.dataset.isoASeesPage ?? null,
+  b: document.documentElement.dataset.isoB ?? null,
+  pageSees: [typeof window.isoSecret, typeof window.isoSecretB, typeof window.__isoRuns].join(' '),
+  style: !!document.getElementById('notiskin-style-iso-a'),
+  apiStyles: document.querySelectorAll('#notiskin-api-styles').length,
+  marker: window.__beforeReload ?? null,
+})`;
+const iso = async () => (await evalAll(ISO_STATE)).map(w => JSON.parse(w.value));
+
+test('isolated worlds: a plugin without page-scripts runs apart from the page and from other plugins', { skip }, async () => {
+  lib.writeItem('plugin', 'iso-a', ISO_A);
+  lib.writeItem('plugin', 'iso-b', ISO_B);
+  writeConfig({ ...readConfig(), enabledPlugins: ['counter', 'iso-a', 'iso-b'], pluginSettings: { 'iso-a': { word: 'saved' } } });
+  assert.equal(await lib.applyConfig(), true);
+  await waitFor(async () => (await iso()).every(d => d.a === '1' && d.b !== null), 'both isolated plugins to run in every tab');
+  for (const d of await iso()) {
+    assert.equal(d.seesPage, 'undefined undefined', "it can't see the page's own variables or a page-scripts plugin's");
+    assert.equal(d.b, 'undefined undefined function', "the other plugin can't see its variables, and has its own notiskin");
+    assert.equal(d.pageSees, 'undefined undefined undefined', "the page can't see the plugins' variables");
+    assert.equal(d.word, 'saved', 'settings reach a plugin in its own world');
+    assert.equal(d.version, '1.2.0');
+    assert.equal(d.style, true, 'it changes the page, which it shares');
+    assert.equal(d.apiStyles, 1, 'the toolbar button style is added once, not once per world');
+  }
+  assert.ok((await states()).every(s => s.runs === 1), 'the page-scripts plugin still runs in the page');
+
+  // re-applying finds the same world and skips the plugin, a settings change reaches it without a reload
+  await evalAll('window.__beforeReload = true');
+  writeConfig({ ...readConfig(), pluginSettings: { 'iso-a': { word: 'changed' } } });
+  assert.equal(await lib.applyConfig(), true);
+  await waitFor(async () => (await iso()).every(d => d.word === 'changed'), 'the new value in the isolated plugin');
+  for (const d of await iso()) {
+    assert.equal(d.a, '1', 'it did not run again');
+    assert.equal(d.marker, true, 'no reload');
+  }
+
+  // a reload starts fresh worlds, each plugin runs once in the new page
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  await waitFor(async () => (await iso()).every(d => d.a === '1' && d.marker === null && d.word === 'changed'), 'the plugins after a reload');
+
+  writeConfig({ ...readConfig(), enabledPlugins: ['counter'] });
+  lib.deleteItem('plugin', 'iso-a');
+  lib.deleteItem('plugin', 'iso-b');
+  assert.equal(await lib.applyConfig({ reload: true }), true);
+  assert.ok((await iso()).every(d => d.a === null && d.b === null), 'gone after a reload');
 });
 
 test('developer mode: plugins run from the folder, a saved file reloads every tab, and turning it off lets go of the folder', { skip }, async () => {
@@ -525,7 +598,7 @@ test('developer mode: plugins run from the folder, a saved file reloads every ta
   const settle = ms => new Promise(r => setTimeout(r, ms));
   const marked = async () => (await states()).every(s => s.marker === true);
 
-  write('hello.js', 'window.__devVersion = 1; window.__devRuns = (window.__devRuns || 0) + 1;');
+  write('hello.js', PAGE + 'window.__devVersion = 1; window.__devRuns = (window.__devRuns || 0) + 1;');
   writeConfig({ ...readConfig(), developerMode: true, developerFolder: dir });
   assert.equal(await lib.applyConfig({ reload: true }), true);
   await waitFor(async () => (await version()).every(v => v === 1), 'the folder\'s plugin to run in every tab');
@@ -533,7 +606,7 @@ test('developer mode: plugins run from the folder, a saved file reloads every ta
 
   // saving the file: every tab reloads (the marker we set is gone) and runs the new code
   await evalAll('window.__beforeReload = true');
-  write('hello.js', 'window.__devVersion = 2;');
+  write('hello.js', PAGE + 'window.__devVersion = 2;');
   await waitFor(async () => (await version()).every(v => v === 2), 'the saved file to run');
   assert.ok((await states()).every(s => s.marker === null), 'the tabs reloaded');
 
@@ -546,7 +619,7 @@ test('developer mode: plugins run from the folder, a saved file reloads every ta
   assert.equal(await marked(), true, 'no reload for a file that is not a .js plugin');
 
   // a new file in the folder is a new plugin
-  write('second.js', 'window.__devSecond = true;');
+  write('second.js', PAGE + 'window.__devSecond = true;');
   await waitFor(async () => (await evalAll('window.__devSecond === true')).every(w => w.value === true), 'the new file to run');
   assert.ok((await version()).every(v => v === 2));
 
@@ -555,7 +628,7 @@ test('developer mode: plugins run from the folder, a saved file reloads every ta
   assert.equal(await lib.applyConfig({ reload: true }), true);
   assert.ok((await version()).every(v => v === null), 'nothing from the folder runs in safe mode');
   await evalAll('window.__beforeReload = true');
-  write('hello.js', 'window.__devVersion = 3;');
+  write('hello.js', PAGE + 'window.__devVersion = 3;');
   await settle(1500);
   assert.equal(await marked(), true, 'no reload in safe mode');
   writeConfig({ ...readConfig(), safeMode: false });
@@ -567,7 +640,7 @@ test('developer mode: plugins run from the folder, a saved file reloads every ta
   assert.equal(await lib.applyConfig({ reload: true }), true);
   assert.ok((await version()).every(v => v === null), 'gone');
   await evalAll('window.__beforeReload = true');
-  write('hello.js', 'window.__devVersion = 4;');
+  write('hello.js', PAGE + 'window.__devVersion = 4;');
   await settle(1500);
   assert.equal(await marked(), true, 'no reload once developer mode is off');
   assert.ok((await version()).every(v => v === null));
