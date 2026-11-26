@@ -186,6 +186,14 @@ To write a plugin without installing it each time, turn on **Settings → Develo
 - safe mode pauses developer plugins like any other, and stops watching the folder
 - turning developer mode off, or changing the folder, reloads Notion's tabs too, because a plugin that has run can't be un-run
 
+### Each plugin in its own world
+
+Every plugin runs in its own **isolated world**: its own copy of the page's JavaScript, with its own `window` and its own `notiskin`. It shares the page itself (the text, the elements, styles, cookies and storage), so everything the helper API does works as before, but it can't see Notion's own JavaScript or another plugin's variables, and they can't see its. Its top-level `var` and `function` names stay its own. To look at a plugin in DevTools, pick `notiskin plugin <name>` in the console's context menu.
+
+A plugin that needs Notion's own code (its globals, React's internals) says so with `@notiskin-permission page-scripts` in its header (see below) and then runs next to Notion's code like plugins did before 0.14.
+
+This keeps plugins from breaking Notion or each other by accident. It is not a wall: a plugin that adds a `<script>` element to the page gets code running next to Notion's, which is why the scan flags script elements.
+
 ### Plugin settings
 
 A plugin can offer options. Declare them in a comment at the very top of the file, one line per setting, as JSON after `@notiskin-setting`:
@@ -207,7 +215,7 @@ The Plugins tab then shows a **Settings** button on the plugin's card with a for
 - `notiskin.settings.get(key)` is the user's value, or your `default`; `getAll()` is a copy of all of them
 - `notiskin.settings.onChange(fn)` calls `fn(key, value, all)` after a change, and returns a function that stops listening
 - the page API is now version `1.2.0`, every older method works as before
-- a plugin that declares settings runs inside a function that is given its own `notiskin`, so settings know whose they are, even inside a later callback. Use that `notiskin`, not `window.notiskin`, and don't count on top-level `var` and `function` becoming globals (use `window.x = ...`). A plugin with no declarations runs exactly as before
+- a plugin that declares settings runs inside a function that is given its own `notiskin`, so settings know whose they are, even inside a later callback. Use that `notiskin`, not `window.notiskin`
 
 ### Declaring what your plugin does
 
@@ -222,12 +230,12 @@ Say what your plugin does in the same comment at the top of the file, one line e
 
 - `network <host> [<host> ...]`: the sites it talks to, like `api.example.com` or `*.example.com` (lowercase, no `https://`, up to 10 on a line and 20 in all)
 - `storage`: it reads or writes cookies, `localStorage`, `sessionStorage` or IndexedDB
-- `page-scripts`: it touches Notion's own JavaScript (its globals, React's internals)
+- `page-scripts`: it needs Notion's own JavaScript (its globals, React's internals). This is the one line that changes how the plugin runs: with it, the plugin runs next to Notion's code; without it, in its own world (see above)
 - `dynamic-code`: it builds and runs more code (`eval`, `new Function`, `import()`, script elements)
 
 The app also scans the code (it reads it, it never runs it) for things that look like each of these. Both lists are shown to people before they turn the plugin on, as small labels on its card and on Browse, in the update dialog (what a new version adds), and to the marketplace reviewer next to each other. When the scan finds something the plugin doesn't declare, the warning says so.
 
-**These lines are not enforced.** A plugin still runs with full access to Notion's page, it can read every page you open and can send data out, for example through an image or a CSS `url()`, whatever it declares. The lines and the scan are there so people and reviewers can see what a plugin says it does and what its code seems to do. A line that doesn't make sense is skipped with a note and the rest still count.
+**Apart from `page-scripts`, these lines are not enforced.** A plugin still runs with full access to Notion's page, it can read every page you open and can send data out, for example through an image or a CSS `url()`, whatever it declares. The lines and the scan are there so people and reviewers can see what a plugin says it does and what its code seems to do. A line that doesn't make sense is skipped with a note and the rest still count.
 
 ## Development
 

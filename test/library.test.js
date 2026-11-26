@@ -55,6 +55,17 @@ test('missing enabled plugins are skipped with a warning', () => {
   assert.equal(warnings.length, 1);
 });
 
+test('a plugin runs in its own world unless its header declares page-scripts', () => {
+  lib.writeItem('plugin', 'apart', 'console.log("apart")');
+  lib.writeItem('plugin', 'next to notion', '// @notiskin-permission page-scripts\nconsole.log("page")');
+  // only the header counts, the same words further down change nothing
+  lib.writeItem('plugin', 'late line', 'console.log(1);\n// @notiskin-permission page-scripts\n');
+  writeConfig({ activeTheme: '', enabledPlugins: ['apart', 'next to notion', 'late line'], acknowledgedPlugins: [] });
+  const isolated = Object.fromEntries(lib.loadEnabledPlugins(readConfig()).map(p => [p.name, p.isolated]));
+  assert.deepEqual(isolated, { apart: true, 'next to notion': false, 'late line': true });
+  for (const name of ['apart', 'next to notion', 'late line']) lib.deleteItem('plugin', name);
+});
+
 test('oversized items are refused', () => {
   assert.throws(() => lib.writeItem('plugin', 'big', 'x'.repeat(600 * 1024)), /too large/);
 });

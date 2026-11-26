@@ -24,6 +24,7 @@ import { sleep } from '../utils/sleep';
 import { forgetInstall } from './installed';
 import { parseSettingDeclarations, resolveSettings } from './plugin-settings';
 import { scanDevFolder } from './dev-plugins';
+import { parsePermissionDeclarations } from './plugin-permissions';
 
 export type ItemType = 'theme' | 'plugin';
 
@@ -113,6 +114,13 @@ export function activeThemeCss(config: NotiskinConfig): string {
   return readFileSync(itemPath('theme', config.activeTheme), 'utf-8');
 }
 
+// every plugin runs in its own isolated world unless its header declares page-scripts (it needs Notion's own code)
+export function pluginEntry(name: string, content: string, config: NotiskinConfig): PluginEntry {
+  const { settings } = parseSettingDeclarations(content);
+  const isolated = !parsePermissionDeclarations(content).declared.includes('page-scripts');
+  return { name, content, isolated, ...(settings.length ? { settings: resolveSettings(settings, config.pluginSettings[name]) } : {}) };
+}
+
 export function loadEnabledPlugins(config: NotiskinConfig, warn: (msg: string) => void = () => {}): PluginEntry[] {
   const entries: PluginEntry[] = [];
   for (const name of config.enabledPlugins) {
@@ -121,19 +129,15 @@ export function loadEnabledPlugins(config: NotiskinConfig, warn: (msg: string) =
       continue;
     }
     const content = readFileSync(itemPath('plugin', name), 'utf-8');
-    const { settings } = parseSettingDeclarations(content);
     // a plugin that declares settings gets its values (the user's, else its defaults) and runs with its own notiskin.settings
-    entries.push({ name, content, ...(settings.length ? { settings: resolveSettings(settings, config.pluginSettings[name]) } : {}) });
+    entries.push(pluginEntry(name, content, config));
   }
   // developer mode: every plugin in the folder runs, no switch per plugin, and a missing folder is a warning, not a crash
   if (config.developerMode && config.developerFolder) {
     const scan = scanDevFolder(config.developerFolder);
     if (scan.error) warn(`Developer mode: ${scan.error}`);
     for (const { file, reason } of scan.skipped) warn(`Developer mode: skipped ${file}, ${reason}.`);
-    for (const { name, content } of scan.plugins) {
-      const { settings } = parseSettingDeclarations(content);
-      entries.push({ name, content, ...(settings.length ? { settings: resolveSettings(settings, config.pluginSettings[name]) } : {}) });
-    }
+    for (const { name, content } of scan.plugins) entries.push(pluginEntry(name, content, config));
   }
   return entries;
 }

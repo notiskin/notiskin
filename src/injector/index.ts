@@ -239,7 +239,8 @@ if (!window.notiskin) {
     _contentObserver.observe(document.body, { childList: true, subtree: true });
 
     // the look of toolbar buttons uses Notion's own color tokens, so it follows light, dark and the theme
-    const _apiStyle = document.createElement('style');
+    // every plugin world has its own notiskin, the page needs this style only once
+    const _apiStyle = document.getElementById('notiskin-api-styles') || document.createElement('style');
     _apiStyle.id = 'notiskin-api-styles';
     _apiStyle.textContent = '.notiskin-toolbar-button { margin: 0 4px; padding: 4px 10px; border-radius: 4px; border: none; background: transparent; color: var(--c-texSec, inherit); cursor: pointer; font: inherit; font-size: 13px; }'
       + ' .notiskin-toolbar-button:hover { background: var(--ca-bacIntTra, rgba(128, 128, 128, 0.15)); }';
@@ -377,6 +378,36 @@ export interface PluginEntry {
   content: string;
   // only for a plugin that declares settings: the values it gets now (the user's, else its defaults)
   settings?: Record<string, boolean | string | number>;
+  // true unless the plugin declares @notiskin-permission page-scripts: it runs in its own isolated world, a separate
+  // copy of the page's JavaScript with its own window and notiskin. It shares the page (DOM, styles, storage,
+  // cookies) but can't see Notion's code or another plugin's variables. Not a wall: a <script> it adds to the page
+  // runs next to Notion's code. Missing means the page world, as before
+  isolated?: boolean;
+}
+
+// a page-unique name per plugin. Asking for the same name again in the same page gives back the same world (checked
+// on Electron 42), so a plugin that already ran in it is skipped like in the page world. A reload starts fresh worlds
+export function pluginWorldName(name: string): string {
+  return `notiskin plugin ${name}`;
+}
+
+// where a plugin's code is evaluated: the page world, or its own world's execution context
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function inContext(client: any, contextId?: number): any {
+  if (contextId === undefined) return client;
+  return { send: (method: string, params: Record<string, unknown> = {}) => client.send(method, method === 'Runtime.evaluate' ? { ...params, contextId } : params) };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function pluginWorld(plugin: PluginEntry, frameId: string, client: any): Promise<number> {
+  const res = (await client.send('Page.createIsolatedWorld', { frameId, worldName: pluginWorldName(plugin.name), grantUniveralAccess: false })) as { executionContextId: number };
+  return res.executionContextId;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function mainFrameId(client: any): Promise<string> {
+  const res = (await client.send('Page.getFrameTree')) as { frameTree: { frame: { id: string } } };
+  return res.frameTree.frame.id;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -530,14 +561,22 @@ export async function injectEverything(cssContent: string, plugins: PluginEntry[
     // no theme means stock Notion, the core CSS on its own would still restyle the page
     await removeStylesOnClient(client);
   }
-  // window.notiskin observes every DOM change, only pay for it when a plugin needs it
-  if (plugins.length > 0) await injectCoreJSOnClient(client);
+  // window.notiskin observes every DOM change, only pay for it when a plugin needs it. An isolated plugin gets its
+  // own copy in its world, the page world only needs one for plugins that run there
+  if (plugins.some(p => !p.isolated)) await injectCoreJSOnClient(client);
+  let frameId: string | undefined;
 
   for (const plugin of plugins) {
     try {
-      await pushSettingsOnClient(plugin, client);
-      const ran = await injectPluginOnClient(plugin, client);
-      console.log(`[injector] Plugin '${plugin.name}' ${ran ? 'injected successfully' : 'already running, skipped'}.`);
+      let target = client;
+      if (plugin.isolated) {
+        frameId = frameId ?? (await mainFrameId(client));
+        target = inContext(client, await pluginWorld(plugin, frameId, client));
+        await injectCoreJSOnClient(target);
+      }
+      await pushSettingsOnClient(plugin, target);
+      const ran = await injectPluginOnClient(plugin, target);
+      console.log(`[injector] Plugin '${plugin.name}' ${ran ? 'injected successfully' : 'already running, skipped'}${plugin.isolated ? ' (own world)' : ''}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[injector] Plugin '${plugin.name}' failed: ${msg}`);
