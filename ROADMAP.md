@@ -89,7 +89,7 @@ Tests on a throwaway Electron page showed plugins can't really be fenced in: any
 - ✅ Both show in the turn-on warning (which always says the plugin can read and change every Notion page you open), on plugin and Browse cards, in the update dialog ("New in this version") and on the Review page
 - ✅ The plugin types are ready to publish on npm as `@notiskin/types`, waiting for the npm account
 
-## ✅ Each plugin in its own world (done November 2026)
+## ✅ Each plugin in its own world (done November 2026, released in 0.14.0)
 
 - ✅ Every plugin runs in its own isolated world (its own copy of the page's JavaScript, its own `window` and `notiskin`), so it can't reach Notion's own code or another plugin's variables, and they can't reach its. It still shares the page, so the helper API works as before
 - ✅ A plugin that needs Notion's code declares `@notiskin-permission page-scripts` and runs next to it as before. The turn-on warning says which of the two a plugin does
